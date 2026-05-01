@@ -1,0 +1,17 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "invoprint-control-db",
+          "configurations": {
+            "windows": "1:223305960550:web:1548f3fa6d4f0943d6b1a7"
+          }
+        }
+      }
+    }
+  }
+}

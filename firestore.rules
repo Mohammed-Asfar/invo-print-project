@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{adminId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSelf(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /licenses/{licenseId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /customerConfigs/{customerId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /deviceActivations/{deviceId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    match /appVersions/{platform} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
