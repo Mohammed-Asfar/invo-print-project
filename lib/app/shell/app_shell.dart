@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/company/presentation/pages/company_settings_page.dart';
+import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
+import '../../features/products/presentation/pages/products_page.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/theme_cubit.dart';
@@ -126,12 +128,14 @@ class _SideNavigation extends StatelessWidget {
               _NavItem(
                 icon: Icons.groups_outlined,
                 label: 'Customers',
-                selected: false,
+                routePath: CustomersPage.routePath,
+                selected: location == CustomersPage.routePath,
               ),
               _NavItem(
                 icon: Icons.inventory_2_outlined,
                 label: 'Products',
-                selected: false,
+                routePath: ProductsPage.routePath,
+                selected: location == ProductsPage.routePath,
               ),
               const _NavGroupLabel('Manage'),
               _NavItem(

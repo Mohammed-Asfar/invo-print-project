@@ -9,7 +9,9 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/setup_required_page.dart';
 import '../../features/company/presentation/pages/company_settings_page.dart';
+import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
+import '../../features/products/presentation/pages/products_page.dart';
 import '../shell/app_shell.dart';
 
 GoRouter createAppRouter(AuthBloc authBloc) {
@@ -59,6 +61,14 @@ GoRouter createAppRouter(AuthBloc authBloc) {
           GoRoute(
             path: CompanySettingsPage.routePath,
             builder: (context, state) => const CompanySettingsPage(),
+          ),
+          GoRoute(
+            path: CustomersPage.routePath,
+            builder: (context, state) => const CustomersPage(),
+          ),
+          GoRoute(
+            path: ProductsPage.routePath,
+            builder: (context, state) => const ProductsPage(),
           ),
         ],
       ),

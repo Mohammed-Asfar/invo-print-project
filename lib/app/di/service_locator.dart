@@ -10,6 +10,10 @@ import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/company/data/repositories/company_settings_repository.dart';
 import '../../features/company/presentation/cubit/company_settings_cubit.dart';
+import '../../features/customers/data/repositories/customer_repository.dart';
+import '../../features/customers/presentation/cubit/customer_cubit.dart';
+import '../../features/products/data/repositories/product_repository.dart';
+import '../../features/products/presentation/cubit/product_cubit.dart';
 import '../theme/theme_cubit.dart';
 
 final sl = GetIt.instance;
@@ -35,10 +39,23 @@ void setupServiceLocator() {
     ..registerLazySingleton<CompanySettingsRepository>(
       () => CompanySettingsRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<CustomerRepository>(
+      () => CustomerRepository(sl<CustomerFirestoreRestClient>()),
+    )
+    ..registerLazySingleton<ProductRepository>(
+      () => ProductRepository(sl<CustomerFirestoreRestClient>()),
+    )
     ..registerFactory(() => AdminSetupCubit(sl<AdminSetupRepository>()))
     ..registerFactory(
       () => CompanySettingsCubit(sl<CompanySettingsRepository>()),
     )
+    ..registerFactory(
+      () => CustomerCubit(
+        sl<CustomerRepository>(),
+        sl<CompanySettingsRepository>(),
+      ),
+    )
+    ..registerFactory(() => ProductCubit(sl<ProductRepository>()))
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)
     ..registerFactory(() => AuthBloc(sl<AuthRepository>()));
 }

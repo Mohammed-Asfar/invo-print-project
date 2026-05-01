@@ -21,6 +21,43 @@ class CustomerFirestoreRestClient {
     );
   }
 
+  Uri _collectionUri(String collection) {
+    final projectId = _firebaseAppManager.customerProjectId;
+    return Uri.https(
+      'firestore.googleapis.com',
+      '/v1/projects/$projectId/databases/(default)/documents/$collection',
+    );
+  }
+
+  Future<List<FirestoreRestDocument>> listDocuments(String collection) async {
+    final response = await _client.get(
+      _collectionUri(collection),
+      headers: await _headers(),
+    );
+
+    if (response.statusCode == 404) return [];
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 403) {
+        throw const AppException(
+          'Customer Firestore rules are blocking access. Deploy customer_firestore.rules to the customer Firebase project.',
+        );
+      }
+      throw AppException(FirestoreRestCodec.errorMessage(response));
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final documents = json['documents'] as List<dynamic>? ?? [];
+    return documents.map((document) {
+      final map = document as Map<String, dynamic>;
+      final name = map['name'] as String? ?? '';
+      final id = name.split('/').last;
+      final fields = FirestoreRestCodec.decodeFields(
+        map['fields'] as Map<String, dynamic>? ?? {},
+      );
+      return FirestoreRestDocument(id: id, data: fields);
+    }).toList();
+  }
+
   Future<Map<String, dynamic>?> getDocument(
     String collection,
     String documentId,
@@ -79,4 +116,11 @@ class CustomerFirestoreRestClient {
       'Content-Type': 'application/json',
     };
   }
+}
+
+class FirestoreRestDocument {
+  const FirestoreRestDocument({required this.id, required this.data});
+
+  final String id;
+  final Map<String, dynamic> data;
 }
