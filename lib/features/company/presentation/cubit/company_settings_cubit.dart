@@ -103,6 +103,7 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
         primaryColorHex: settings.primaryColorHex,
         showLineItemHsn: settings.showLineItemHsn,
         customCustomerFields: settings.customCustomerFields,
+        customShippingFields: settings.customShippingFields,
         customLineItemFields: settings.customLineItemFields,
         updatedAt: now,
       );

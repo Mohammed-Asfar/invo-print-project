@@ -11,6 +11,7 @@ import '../../../products/domain/entities/product_service.dart';
 import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
+import '../../domain/services/invoice_calculator.dart';
 import '../cubit/invoice_cubit.dart';
 import 'invoices_page.dart';
 
@@ -44,9 +45,16 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   final _state = TextEditingController();
   final _billingAddress = TextEditingController();
   final _shippingAddress = TextEditingController();
+  final _shipToName = TextEditingController();
+  final _shipToPhone = TextEditingController();
+  final _shipToEmail = TextEditingController();
+  final _shipToState = TextEditingController();
+  final _shipToPincode = TextEditingController();
   final _notes = TextEditingController();
   final _terms = TextEditingController();
   final Map<String, TextEditingController> _customerCustomFields = {};
+  final Map<String, TextEditingController> _shippingCustomFields = {};
+  final _calculator = InvoiceCalculator();
   late TaxMode _taxMode;
   late InvoiceStatus _status;
   late DateTime _invoiceDate;
@@ -67,9 +75,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _state,
       _billingAddress,
       _shippingAddress,
+      _shipToName,
+      _shipToPhone,
+      _shipToEmail,
+      _shipToState,
+      _shipToPincode,
       _notes,
       _terms,
       ..._customerCustomFields.values,
+      ..._shippingCustomFields.values,
     ]) {
       controller.addListener(_refresh);
     }
@@ -85,9 +99,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _state,
       _billingAddress,
       _shippingAddress,
+      _shipToName,
+      _shipToPhone,
+      _shipToEmail,
+      _shipToState,
+      _shipToPincode,
       _notes,
       _terms,
       ..._customerCustomFields.values,
+      ..._shippingCustomFields.values,
     ]) {
       controller
         ..removeListener(_refresh)
@@ -143,6 +163,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                   invoiceNumber: invoiceNumber,
                   isSaving: state.status == InvoiceStatusView.saving,
                   onBack: () => context.go(InvoicesPage.routePath),
+                  onFillDemo: _fillDemoData,
                   onSave: () => _save(context),
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -156,11 +177,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                 state.settings ?? AppSettings.initial();
                             for (final item in _items) {
                               item.ensureCustomFields(
-                              editorSettings.customLineItemFields,
+                                editorSettings.customLineItemFields,
                               );
                             }
                             _ensureCustomerCustomFields(
                               editorSettings.customCustomerFields,
+                            );
+                            _ensureShippingCustomFields(
+                              editorSettings.customShippingFields,
                             );
                             final formContent = _EditorForm(
                               customers: state.customers,
@@ -169,6 +193,10 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                   editorSettings.customCustomerFields,
                               customerCustomFieldControllers:
                                   _customerCustomFields,
+                              customShippingFields:
+                                  editorSettings.customShippingFields,
+                              shippingCustomFieldControllers:
+                                  _shippingCustomFields,
                               showLineItemHsn: editorSettings.showLineItemHsn,
                               customLineItemFields:
                                   editorSettings.customLineItemFields,
@@ -180,6 +208,11 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               state: _state,
                               billingAddress: _billingAddress,
                               shippingAddress: _shippingAddress,
+                              shipToName: _shipToName,
+                              shipToPhone: _shipToPhone,
+                              shipToEmail: _shipToEmail,
+                              shipToState: _shipToState,
+                              shipToPincode: _shipToPincode,
                               invoiceDate: _invoiceDate,
                               dueDate: _dueDate,
                               taxMode: _taxMode,
@@ -188,6 +221,8 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               notes: _notes,
                               terms: _terms,
                               onPickCustomer: _applyCustomer,
+                              onUseBillingForShipping:
+                                  _copyBillingDetailsToShipping,
                               onInvoiceDateChanged: (date) =>
                                   setState(() => _invoiceDate = date),
                               onDueDateChanged: (date) =>
@@ -219,9 +254,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                       child: Column(
                                         children: [
                                           formContent,
-                                          const SizedBox(
-                                            height: AppSpacing.lg,
-                                          ),
+                                          const SizedBox(height: AppSpacing.lg),
                                           summary,
                                         ],
                                       ),
@@ -272,10 +305,130 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _state.text = customer.state;
       _billingAddress.text = customer.billingAddress;
       _shippingAddress.text = customer.shippingAddress;
+      _shipToName.text = customer.name;
+      _shipToPhone.text = customer.phone;
+      _shipToEmail.text = customer.email;
+      _shipToState.text = customer.state;
       for (final entry in customer.customFields.entries) {
         _customerCustomField(entry.key).text = entry.value;
       }
     });
+  }
+
+  void _copyBillingDetailsToShipping() {
+    setState(() {
+      _shipToName.text = _customerName.text.trim();
+      _shipToPhone.text = _phone.text.trim();
+      _shipToEmail.text = _email.text.trim();
+      _shipToState.text = _state.text.trim();
+      _shippingAddress.text = _billingAddress.text.trim();
+    });
+  }
+
+  void _fillDemoData() {
+    final now = DateTime.now();
+    final lineFieldNames = _items
+        .expand((item) => item.customFields.keys)
+        .toSet()
+        .toList();
+
+    setState(() {
+      _selectedCustomer = null;
+      _customerName.text = 'TBS Enterprises';
+      _phone.text = '9655246269';
+      _email.text = 'test@gmail.com';
+      _gstin.text = '33AHOPY8219N1ZE';
+      _state.text = 'Tamil Nadu';
+      _billingAddress.text =
+          'No: 22, MMS Complex, Pudupattinam Kalpakkam, Tamil Nadu 603102';
+
+      _shipToName.text = 'Site Office - Kalpakkam';
+      _shipToPhone.text = '9840012345';
+      _shipToEmail.text = 'site@example.com';
+      _shipToState.text = 'Tamil Nadu';
+      _shippingAddress.text =
+          'Warehouse Gate 2, Pudupattinam, Kalpakkam, Tamil Nadu';
+      _shipToPincode.text = '603102';
+
+      for (final entry in _customerCustomFields.entries) {
+        entry.value.text = _demoValueForField(entry.key);
+      }
+      for (final entry in _shippingCustomFields.entries) {
+        entry.value.text = _demoValueForField(entry.key);
+      }
+
+      _invoiceDate = now;
+      _dueDate = now.add(const Duration(days: 15));
+      _taxMode = TaxMode.cgstSgst;
+      _status = InvoiceStatus.unpaid;
+      _notes.text = 'Goods once sold will not be taken back.';
+      _terms.text = 'Payment due within 15 days from invoice date.';
+
+      for (final item in _items) {
+        item.dispose();
+      }
+      _items = [
+        _demoItem(
+          name: 'Thermal Invoice Printer',
+          hsnSac: '8443',
+          quantity: '1',
+          unit: 'pcs',
+          rate: '12500',
+          gstRate: '18',
+          customFields: lineFieldNames,
+        ),
+        _demoItem(
+          name: 'Installation & Setup',
+          hsnSac: '9987',
+          quantity: '1',
+          unit: 'service',
+          rate: '2500',
+          gstRate: '18',
+          customFields: lineFieldNames,
+        ),
+      ];
+      for (final item in _items) {
+        item.addListener(_refresh);
+      }
+    });
+  }
+
+  _ItemControllers _demoItem({
+    required String name,
+    required String hsnSac,
+    required String quantity,
+    required String unit,
+    required String rate,
+    required String gstRate,
+    required List<String> customFields,
+  }) {
+    return _ItemControllers(
+      productId: '',
+      name: TextEditingController(text: name),
+      description: TextEditingController(),
+      hsnSac: TextEditingController(text: hsnSac),
+      quantity: TextEditingController(text: quantity),
+      unit: TextEditingController(text: unit),
+      rate: TextEditingController(text: rate),
+      gstInclusiveRate: TextEditingController(text: '0.0'),
+      gstRate: TextEditingController(text: gstRate),
+      customFields: {
+        for (final field in customFields) field: _demoValueForField(field),
+      },
+    );
+  }
+
+  String _demoValueForField(String field) {
+    final key = field.toLowerCase();
+    if (key.contains('state') && key.contains('code')) return '33';
+    if (key.contains('contact')) return 'Yuvraj';
+    if (key.contains('transport')) return 'ABC Transport';
+    if (key == 'lr no' || key.contains('lr')) return 'LR-45821';
+    if (key.contains('batch')) return 'B-2026-05';
+    if (key.contains('serial')) return 'SN-PRN-1007';
+    if (key.contains('warranty')) return '1 Year';
+    if (key.contains('code')) return 'DEMO-01';
+    return 'Demo value';
   }
 
   void _addItem() {
@@ -305,6 +458,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       customerState: _state.text.trim(),
       billingAddress: _billingAddress.text.trim(),
       shippingAddress: _shippingAddress.text.trim(),
+      shipToName: _shipToName.text.trim(),
+      shipToPhone: _shipToPhone.text.trim(),
+      shipToEmail: _shipToEmail.text.trim(),
+      shipToState: _shipToState.text.trim(),
+      shipToPincode: _shipToPincode.text.trim(),
+      shippingCustomFields: _shippingCustomFields.map((key, controller) {
+        return MapEntry(key, controller.text.trim());
+      }),
       customerCustomFields: _customerCustomFields.map((key, controller) {
         return MapEntry(key, controller.text.trim());
       }),
@@ -342,37 +503,40 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     }
   }
 
-  _InvoiceTotals _calculateTotals() {
-    var subtotal = 0.0;
-    var cgst = 0.0;
-    var sgst = 0.0;
-    var igst = 0.0;
+  TextEditingController _shippingCustomField(String field) {
+    return _shippingCustomFields.putIfAbsent(field, () {
+      final controller = TextEditingController();
+      controller.addListener(_refresh);
+      return controller;
+    });
+  }
 
-    for (final item in _items) {
-      final taxable = _round(item.quantityValue * item.rateValue);
-      final tax = _taxMode == TaxMode.none
-          ? 0.0
-          : _round(taxable * item.gstRateValue / 100);
-      subtotal += taxable;
-      if (_taxMode == TaxMode.cgstSgst) {
-        cgst += _round(tax / 2);
-        sgst += _round(tax / 2);
-      }
-      if (_taxMode == TaxMode.igst) {
-        igst += tax;
-      }
+  void _ensureShippingCustomFields(List<String> fields) {
+    for (final field in fields) {
+      _shippingCustomField(field);
     }
+    final allowed = fields.map((field) => field.toLowerCase()).toSet();
+    final staleKeys = _shippingCustomFields.keys
+        .where((field) => !allowed.contains(field.toLowerCase()))
+        .toList();
+    for (final key in staleKeys) {
+      _shippingCustomFields.remove(key)
+        ?..removeListener(_refresh)
+        ..dispose();
+    }
+  }
 
-    subtotal = _round(subtotal);
-    cgst = _round(cgst);
-    sgst = _round(sgst);
-    igst = _round(igst);
+  _InvoiceTotals _calculateTotals() {
+    final totals = _calculator.calculate(
+      items: _items.map((item) => item.toItem()).toList(),
+      taxMode: _taxMode,
+    );
     return _InvoiceTotals(
-      subtotal: subtotal,
-      cgst: cgst,
-      sgst: sgst,
-      igst: igst,
-      grandTotal: _round(subtotal + cgst + sgst + igst),
+      subtotal: totals.subtotal,
+      cgst: totals.cgstAmount,
+      sgst: totals.sgstAmount,
+      igst: totals.igstAmount,
+      grandTotal: totals.grandTotal,
     );
   }
 
@@ -393,12 +557,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     final separator = settings.invoiceSeparator.trim().isEmpty
         ? '-'
         : settings.invoiceSeparator.trim();
-    return [settings.invoicePrefix, date, sequence]
-        .where((segment) => segment.trim().isNotEmpty)
-        .join(separator);
+    return [
+      settings.invoicePrefix,
+      date,
+      sequence,
+    ].where((segment) => segment.trim().isNotEmpty).join(separator);
   }
-
-  double _round(double value) => double.parse(value.toStringAsFixed(2));
 
   void _refresh() {
     if (mounted) setState(() {});
@@ -411,6 +575,8 @@ class _EditorForm extends StatelessWidget {
     required this.products,
     required this.customCustomerFields,
     required this.customerCustomFieldControllers,
+    required this.customShippingFields,
+    required this.shippingCustomFieldControllers,
     required this.showLineItemHsn,
     required this.customLineItemFields,
     required this.selectedCustomer,
@@ -421,6 +587,11 @@ class _EditorForm extends StatelessWidget {
     required this.state,
     required this.billingAddress,
     required this.shippingAddress,
+    required this.shipToName,
+    required this.shipToPhone,
+    required this.shipToEmail,
+    required this.shipToState,
+    required this.shipToPincode,
     required this.invoiceDate,
     required this.dueDate,
     required this.taxMode,
@@ -429,6 +600,7 @@ class _EditorForm extends StatelessWidget {
     required this.notes,
     required this.terms,
     required this.onPickCustomer,
+    required this.onUseBillingForShipping,
     required this.onInvoiceDateChanged,
     required this.onDueDateChanged,
     required this.onTaxModeChanged,
@@ -442,6 +614,8 @@ class _EditorForm extends StatelessWidget {
   final List<ProductService> products;
   final List<String> customCustomerFields;
   final Map<String, TextEditingController> customerCustomFieldControllers;
+  final List<String> customShippingFields;
+  final Map<String, TextEditingController> shippingCustomFieldControllers;
   final bool showLineItemHsn;
   final List<String> customLineItemFields;
   final Customer? selectedCustomer;
@@ -452,6 +626,11 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController state;
   final TextEditingController billingAddress;
   final TextEditingController shippingAddress;
+  final TextEditingController shipToName;
+  final TextEditingController shipToPhone;
+  final TextEditingController shipToEmail;
+  final TextEditingController shipToState;
+  final TextEditingController shipToPincode;
   final DateTime invoiceDate;
   final DateTime dueDate;
   final TaxMode taxMode;
@@ -460,6 +639,7 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController notes;
   final TextEditingController terms;
   final ValueChanged<Customer> onPickCustomer;
+  final VoidCallback onUseBillingForShipping;
   final ValueChanged<DateTime> onInvoiceDateChanged;
   final ValueChanged<DateTime> onDueDateChanged;
   final ValueChanged<TaxMode> onTaxModeChanged;
@@ -482,10 +662,21 @@ class _EditorForm extends StatelessWidget {
           gstin: gstin,
           state: state,
           billingAddress: billingAddress,
-          shippingAddress: shippingAddress,
           customFields: customCustomerFields,
           customFieldControllers: customerCustomFieldControllers,
           onPickCustomer: onPickCustomer,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _ShippedToPanel(
+          shipToName: shipToName,
+          shipToPhone: shipToPhone,
+          shipToEmail: shipToEmail,
+          shippingAddress: shippingAddress,
+          shipToState: shipToState,
+          shipToPincode: shipToPincode,
+          customFields: customShippingFields,
+          customFieldControllers: shippingCustomFieldControllers,
+          onUseBillingDetails: onUseBillingForShipping,
         ),
         const SizedBox(height: AppSpacing.lg),
         _InvoiceMetaPanel(
@@ -520,12 +711,14 @@ class _CommandBar extends StatelessWidget {
     required this.invoiceNumber,
     required this.isSaving,
     required this.onBack,
+    required this.onFillDemo,
     required this.onSave,
   });
 
   final String invoiceNumber;
   final bool isSaving;
   final VoidCallback onBack;
+  final VoidCallback onFillDemo;
   final VoidCallback onSave;
 
   @override
@@ -568,6 +761,12 @@ class _CommandBar extends StatelessWidget {
               ],
             ),
           ),
+          OutlinedButton.icon(
+            onPressed: isSaving ? null : onFillDemo,
+            icon: const Icon(Icons.auto_awesome_outlined),
+            label: const Text('Demo Data'),
+          ),
+          const SizedBox(width: AppSpacing.md),
           ElevatedButton.icon(
             onPressed: isSaving ? null : onSave,
             icon: isSaving
@@ -597,7 +796,6 @@ class _CustomerPanel extends StatelessWidget {
     required this.gstin,
     required this.state,
     required this.billingAddress,
-    required this.shippingAddress,
     required this.customFields,
     required this.customFieldControllers,
     required this.onPickCustomer,
@@ -611,7 +809,6 @@ class _CustomerPanel extends StatelessWidget {
   final TextEditingController gstin;
   final TextEditingController state;
   final TextEditingController billingAddress;
-  final TextEditingController shippingAddress;
   final List<String> customFields;
   final Map<String, TextEditingController> customFieldControllers;
   final ValueChanged<Customer> onPickCustomer;
@@ -622,14 +819,14 @@ class _CustomerPanel extends StatelessWidget {
     final matches = query.isEmpty
         ? customers.take(3).toList()
         : customers
-            .where(
-              (customer) =>
-                  customer.name.toLowerCase().contains(query) ||
-                  customer.phone.toLowerCase().contains(query) ||
-                  customer.email.toLowerCase().contains(query),
-            )
-            .take(4)
-            .toList();
+              .where(
+                (customer) =>
+                    customer.name.toLowerCase().contains(query) ||
+                    customer.phone.toLowerCase().contains(query) ||
+                    customer.email.toLowerCase().contains(query),
+              )
+              .take(4)
+              .toList();
 
     return _Panel(
       icon: Icons.person_outline,
@@ -684,8 +881,6 @@ class _CustomerPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(child: _Field(billingAddress, 'Billing Address')),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: _Field(shippingAddress, 'Shipping Address')),
             ],
           ),
           if (customFields.isNotEmpty) ...[
@@ -695,11 +890,87 @@ class _CustomerPanel extends StatelessWidget {
               runSpacing: AppSpacing.md,
               children: [
                 for (final field in customFields)
-                  _Field(
-                    customFieldControllers[field]!,
-                    field,
-                    width: 260,
-                  ),
+                  _Field(customFieldControllers[field]!, field, width: 260),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ShippedToPanel extends StatelessWidget {
+  const _ShippedToPanel({
+    required this.shipToName,
+    required this.shipToPhone,
+    required this.shipToEmail,
+    required this.shippingAddress,
+    required this.shipToState,
+    required this.shipToPincode,
+    required this.customFields,
+    required this.customFieldControllers,
+    required this.onUseBillingDetails,
+  });
+
+  final TextEditingController shipToName;
+  final TextEditingController shipToPhone;
+  final TextEditingController shipToEmail;
+  final TextEditingController shippingAddress;
+  final TextEditingController shipToState;
+  final TextEditingController shipToPincode;
+  final List<String> customFields;
+  final Map<String, TextEditingController> customFieldControllers;
+  final VoidCallback onUseBillingDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      icon: Icons.local_shipping_outlined,
+      title: 'Shipped To',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: onUseBillingDetails,
+              icon: const Icon(Icons.copy_all_outlined),
+              label: const Text('Use billing details'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(child: _Field(shipToName, 'Ship To Name')),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: _Field(shipToPhone, 'Shipping Phone')),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(child: _Field(shipToEmail, 'Shipping Email')),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: _Field(shipToState, 'Shipping State')),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(child: _Field(shippingAddress, 'Shipping Address')),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: _Field(shipToPincode, 'Shipping Pincode')),
+            ],
+          ),
+          if (customFields.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.md,
+              children: [
+                for (final field in customFields)
+                  _Field(customFieldControllers[field]!, field, width: 260),
               ],
             ),
           ],
@@ -728,9 +999,11 @@ class _CustomerSuggestion extends StatelessWidget {
         size: 18,
         color: selected ? AppColors.success : AppColors.primaryPurple,
       ),
-      label: Text(customer.phone.isEmpty
-          ? customer.name
-          : '${customer.name}  ${customer.phone}'),
+      label: Text(
+        customer.phone.isEmpty
+            ? customer.name
+            : '${customer.name}  ${customer.phone}',
+      ),
       onPressed: onTap,
       side: BorderSide(color: selected ? AppColors.success : AppColors.border),
     );
@@ -812,7 +1085,10 @@ class _InvoiceMetaPanel extends StatelessWidget {
               Expanded(
                 child: DropdownButtonFormField<TaxMode>(
                   initialValue: taxMode,
-                  decoration: const InputDecoration(labelText: 'Tax Mode'),
+                  decoration: const InputDecoration(
+                    labelText: 'Tax Mode',
+                    prefixIcon: Icon(Icons.receipt_long_outlined),
+                  ),
                   items: TaxMode.values
                       .map(
                         (mode) => DropdownMenuItem(
@@ -830,19 +1106,23 @@ class _InvoiceMetaPanel extends StatelessWidget {
               Expanded(
                 child: DropdownButtonFormField<InvoiceStatus>(
                   initialValue: status,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const [
-                    InvoiceStatus.draft,
-                    InvoiceStatus.unpaid,
-                    InvoiceStatus.paid,
-                  ]
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(value.label),
-                        ),
-                      )
-                      .toList(),
+                  decoration: const InputDecoration(
+                    labelText: 'Status',
+                    prefixIcon: Icon(Icons.payments_outlined),
+                  ),
+                  items:
+                      const [
+                            InvoiceStatus.draft,
+                            InvoiceStatus.unpaid,
+                            InvoiceStatus.paid,
+                          ]
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value.label),
+                            ),
+                          )
+                          .toList(),
                   onChanged: (value) {
                     if (value != null) onStatusChanged(value);
                   },
@@ -945,7 +1225,10 @@ class _ItemCard extends StatelessWidget {
                 width: 300,
                 child: DropdownButtonFormField<ProductService?>(
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Saved item'),
+                  decoration: const InputDecoration(
+                    labelText: 'Saved item',
+                    prefixIcon: Icon(Icons.inventory_2_outlined),
+                  ),
                   items: [
                     const DropdownMenuItem<ProductService?>(
                       value: null,
@@ -972,7 +1255,10 @@ class _ItemCard extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   controller: item.name,
-                  decoration: const InputDecoration(labelText: 'Item name'),
+                  decoration: const InputDecoration(
+                    labelText: 'Item name',
+                    prefixIcon: Icon(Icons.sell_outlined),
+                  ),
                   validator: (value) =>
                       (value?.trim().isEmpty ?? true) ? 'Required' : null,
                 ),
@@ -998,13 +1284,10 @@ class _ItemCard extends StatelessWidget {
               _SmallField(item.quantity, 'Quantity', width: 116),
               _SmallField(item.unit, 'Unit', width: 140, numeric: false),
               _SmallField(item.rate, 'Rate', width: 150),
+              _SmallField(item.gstInclusiveRate, 'Rate incl. GST', width: 170),
               _SmallField(item.gstRate, 'GST %', width: 120),
-              if (showHsnSac) _SmallField(
-                item.hsnSac,
-                'HSN/SAC',
-                width: 150,
-                numeric: false,
-              ),
+              if (showHsnSac)
+                _SmallField(item.hsnSac, 'HSN/SAC', width: 150, numeric: false),
               for (final field in customFields)
                 _SmallField(
                   item.customField(field),
@@ -1236,9 +1519,9 @@ class _SummaryLine extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
           ),
           Text(
@@ -1358,6 +1641,7 @@ class _DateField extends StatelessWidget {
       initialValue: _formatDate(date),
       decoration: InputDecoration(
         labelText: label,
+        prefixIcon: Icon(_fieldIconFor(label)),
         suffixIcon: const Icon(Icons.calendar_today_outlined),
       ),
       onTap: () async {
@@ -1380,12 +1664,7 @@ class _DateField extends StatelessWidget {
 }
 
 class _Field extends StatelessWidget {
-  const _Field(
-    this.controller,
-    this.label, {
-    this.width,
-    this.maxLines = 1,
-  });
+  const _Field(this.controller, this.label, {this.width, this.maxLines = 1});
 
   final TextEditingController controller;
   final String label;
@@ -1397,7 +1676,10 @@ class _Field extends StatelessWidget {
     final field = TextFormField(
       controller: controller,
       maxLines: maxLines,
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(_fieldIconFor(label)),
+      ),
     );
     if (width == null) return field;
     return SizedBox(width: width, child: field);
@@ -1424,7 +1706,10 @@ class _SmallField extends StatelessWidget {
       child: TextFormField(
         controller: controller,
         keyboardType: numeric ? TextInputType.number : TextInputType.text,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(_fieldIconFor(label), size: 20),
+        ),
         validator: (value) {
           if (!numeric) return null;
           final text = value?.trim() ?? '';
@@ -1438,6 +1723,26 @@ class _SmallField extends StatelessWidget {
   }
 }
 
+IconData _fieldIconFor(String label) {
+  final key = label.toLowerCase();
+  if (key.contains('phone')) return Icons.phone_outlined;
+  if (key.contains('email')) return Icons.email_outlined;
+  if (key.contains('gst')) return Icons.badge_outlined;
+  if (key.contains('state')) return Icons.map_outlined;
+  if (key.contains('billing')) return Icons.receipt_long_outlined;
+  if (key.contains('shipping')) return Icons.local_shipping_outlined;
+  if (key.contains('date')) return Icons.event_outlined;
+  if (key.contains('quantity')) return Icons.format_list_numbered_outlined;
+  if (key == 'unit' || key.contains('unit')) return Icons.straighten_outlined;
+  if (key.contains('rate')) return Icons.currency_rupee_outlined;
+  if (key.contains('hsn')) return Icons.qr_code_2_outlined;
+  if (key.contains('item')) return Icons.sell_outlined;
+  if (key.contains('notes')) return Icons.notes_outlined;
+  if (key.contains('terms')) return Icons.description_outlined;
+  if (key.contains('code')) return Icons.tag_outlined;
+  return Icons.text_fields_outlined;
+}
+
 class _ItemControllers {
   _ItemControllers({
     required this.productId,
@@ -1447,6 +1752,7 @@ class _ItemControllers {
     required this.quantity,
     required this.unit,
     required this.rate,
+    required this.gstInclusiveRate,
     required this.gstRate,
     required Map<String, String> customFields,
   }) : customFields = {
@@ -1467,6 +1773,9 @@ class _ItemControllers {
       quantity: TextEditingController(text: item.quantity.toString()),
       unit: TextEditingController(text: item.unit),
       rate: TextEditingController(text: item.rate.toString()),
+      gstInclusiveRate: TextEditingController(
+        text: item.rateIncludingGst.toString(),
+      ),
       gstRate: TextEditingController(text: item.gstRate.toString()),
       customFields: item.customFields,
     );
@@ -1479,19 +1788,21 @@ class _ItemControllers {
   final TextEditingController quantity;
   final TextEditingController unit;
   final TextEditingController rate;
+  final TextEditingController gstInclusiveRate;
   final TextEditingController gstRate;
   final Map<String, TextEditingController> customFields;
+  bool _syncingRates = false;
+  bool _inclusiveRateIsSource = false;
 
   double get quantityValue => double.tryParse(quantity.text.trim()) ?? 0;
   double get rateValue => double.tryParse(rate.text.trim()) ?? 0;
+  double get gstInclusiveRateValue =>
+      double.tryParse(gstInclusiveRate.text.trim()) ?? 0;
   double get gstRateValue => double.tryParse(gstRate.text.trim()) ?? 0;
   double get lineTotal => quantityValue * rateValue;
 
   TextEditingController customField(String field) {
-    return customFields.putIfAbsent(
-      field,
-      () => TextEditingController(),
-    );
+    return customFields.putIfAbsent(field, () => TextEditingController());
   }
 
   void ensureCustomFields(List<String> fields) {
@@ -1518,21 +1829,86 @@ class _ItemControllers {
     hsnSac.text = product.hsnSac;
     unit.text = product.unit;
     rate.text = product.defaultRate.toString();
+    gstInclusiveRate.clear();
     gstRate.text = product.gstRate.toString();
   }
 
   void addListener(VoidCallback listener) {
+    void syncInclusiveFromBaseRate() {
+      _inclusiveRateIsSource = false;
+      _applyBaseRate();
+      listener();
+    }
+
+    void syncBaseRateFromInclusive() {
+      _inclusiveRateIsSource = true;
+      _applyInclusiveRate();
+      listener();
+    }
+
+    void syncRateForGstChange() {
+      if (_inclusiveRateIsSource) {
+        _applyInclusiveRate();
+      } else {
+        _applyBaseRate();
+      }
+      listener();
+    }
+
+    rate.addListener(syncInclusiveFromBaseRate);
+    gstInclusiveRate.addListener(syncBaseRateFromInclusive);
+    gstRate.addListener(syncRateForGstChange);
     for (final controller in [
       name,
       description,
       hsnSac,
       quantity,
       unit,
-      rate,
-      gstRate,
       ...customFields.values,
     ]) {
       controller.addListener(listener);
+    }
+  }
+
+  void _applyBaseRate() {
+    if (_syncingRates) return;
+    _syncingRates = true;
+    try {
+      final baseRate = rateValue;
+      final gst = gstRateValue;
+      final calculator = InvoiceCalculator();
+      final inclusiveRate = calculator.rateIncludingTax(
+        rate: baseRate,
+        taxRate: gst,
+      );
+      final formatted = calculator.formatRateInput(inclusiveRate);
+      if (gstInclusiveRate.text != formatted) {
+        gstInclusiveRate.text = formatted;
+      }
+    } finally {
+      _syncingRates = false;
+    }
+  }
+
+  void _applyInclusiveRate() {
+    if (_syncingRates) return;
+    if (gstInclusiveRate.text.trim().isEmpty) return;
+    _syncingRates = true;
+    try {
+      final inclusive = gstInclusiveRateValue;
+      final gst = gstRateValue;
+      if (inclusive <= 0) return;
+      final calculator = InvoiceCalculator();
+      final baseRate = calculator.rateBeforeTax(
+        rateIncludingTax: inclusive,
+        taxRate: gst,
+      );
+      final formatted = calculator.formatRateInput(baseRate);
+      if (rate.text != formatted) {
+        rate.text = formatted;
+      }
+    } finally {
+      _syncingRates = false;
     }
   }
 
@@ -1545,6 +1921,7 @@ class _ItemControllers {
       quantity: quantityValue,
       unit: unit.text.trim(),
       rate: rateValue,
+      rateIncludingGst: gstInclusiveRateValue,
       gstRate: gstRateValue,
       customFields: customFields.map((key, controller) {
         return MapEntry(key, controller.text.trim());
@@ -1559,6 +1936,7 @@ class _ItemControllers {
     quantity.dispose();
     unit.dispose();
     rate.dispose();
+    gstInclusiveRate.dispose();
     gstRate.dispose();
     for (final controller in customFields.values) {
       controller.dispose();

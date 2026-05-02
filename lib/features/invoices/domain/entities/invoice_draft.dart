@@ -13,6 +13,12 @@ class InvoiceDraft extends Equatable {
     required this.customerState,
     required this.billingAddress,
     required this.shippingAddress,
+    this.shipToName = '',
+    this.shipToPhone = '',
+    this.shipToEmail = '',
+    this.shipToState = '',
+    this.shipToPincode = '',
+    this.shippingCustomFields = const {},
     this.customerCustomFields = const {},
     required this.invoiceDate,
     required this.dueDate,
@@ -34,6 +40,12 @@ class InvoiceDraft extends Equatable {
       customerState: '',
       billingAddress: '',
       shippingAddress: '',
+      shipToName: '',
+      shipToPhone: '',
+      shipToEmail: '',
+      shipToState: '',
+      shipToPincode: '',
+      shippingCustomFields: const {},
       customerCustomFields: const {},
       invoiceDate: now,
       dueDate: now.add(const Duration(days: 15)),
@@ -48,6 +60,7 @@ class InvoiceDraft extends Equatable {
           quantity: 1,
           unit: 'service',
           rate: 0,
+          rateIncludingGst: 0,
           gstRate: 18,
           taxableAmount: 0,
           cgstAmount: 0,
@@ -69,6 +82,12 @@ class InvoiceDraft extends Equatable {
   final String customerState;
   final String billingAddress;
   final String shippingAddress;
+  final String shipToName;
+  final String shipToPhone;
+  final String shipToEmail;
+  final String shipToState;
+  final String shipToPincode;
+  final Map<String, String> shippingCustomFields;
   final Map<String, String> customerCustomFields;
   final DateTime invoiceDate;
   final DateTime dueDate;
@@ -116,6 +135,15 @@ class InvoiceDraft extends Equatable {
       'state': customerState,
       'billingAddress': billingAddress,
       'shippingAddress': shippingAddress,
+      'shippedTo': {
+        'name': shipToName,
+        'phone': shipToPhone,
+        'email': shipToEmail,
+        'address': shippingAddress,
+        'state': shipToState,
+        'pincode': shipToPincode,
+        'customFields': shippingCustomFields,
+      },
       'customFields': customerCustomFields,
     };
   }
@@ -130,6 +158,12 @@ class InvoiceDraft extends Equatable {
     customerState,
     billingAddress,
     shippingAddress,
+    shipToName,
+    shipToPhone,
+    shipToEmail,
+    shipToState,
+    shipToPincode,
+    shippingCustomFields,
     customerCustomFields,
     invoiceDate,
     dueDate,

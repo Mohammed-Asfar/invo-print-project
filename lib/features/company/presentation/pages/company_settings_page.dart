@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -72,14 +76,19 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
   final _currencyCode = TextEditingController();
   final _currencySymbol = TextEditingController();
   final _primaryColorHex = TextEditingController();
-  final _customCustomerFields = TextEditingController();
-  final _customLineItemFields = TextEditingController();
+  final _newCustomerField = TextEditingController();
+  final _newShippingField = TextEditingController();
+  final _newLineItemField = TextEditingController();
 
   bool _gstEnabled = true;
   bool _loyaltyEnabled = true;
   bool _showLineItemHsn = true;
+  List<String> _customCustomerFields = const [];
+  List<String> _customShippingFields = const [];
+  List<String> _customLineItemFields = const [];
   String _themeMode = 'dark';
   bool _filledFromState = false;
+  _SettingsPanel _selectedPanel = _SettingsPanel.business;
 
   @override
   void dispose() {
@@ -122,8 +131,9 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
       _currencyCode,
       _currencySymbol,
       _primaryColorHex,
-      _customCustomerFields,
-      _customLineItemFields,
+      _newCustomerField,
+      _newShippingField,
+      _newLineItemField,
     ]) {
       controller.dispose();
     }
@@ -181,224 +191,11 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
                               onSave: () => _save(context),
                             ),
                             const SizedBox(height: AppSpacing.xl),
-                            Text(
-                              'These details will feed invoices, quotations, GST fields, payment blocks, and PDF headers.',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: AppColors.textSecondary),
-                            ),
-                            const SizedBox(height: AppSpacing.xl),
-                            _Section(
-                              title: 'Business',
-                              children: [
-                                _Field(
-                                  _businessName,
-                                  'Business Name',
-                                  required: true,
-                                ),
-                                _Field(_legalName, 'Legal Name'),
-                                _Field(_gstin, 'GSTIN'),
-                                _Field(_pan, 'PAN'),
-                                _Field(_email, 'Email'),
-                                _Field(_phone, 'Phone'),
-                                _Field(_website, 'Website'),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Address',
-                              children: [
-                                _Field(_addressLine1, 'Address Line 1'),
-                                _Field(_addressLine2, 'Address Line 2'),
-                                _Field(_city, 'City'),
-                                _Field(_state, 'State'),
-                                _Field(_pincode, 'Pincode'),
-                                _Field(_country, 'Country'),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Bank & Payment',
-                              children: [
-                                _Field(_bankName, 'Bank Name'),
-                                _Field(_bankAccountName, 'Account Name'),
-                                _Field(_bankAccountNumber, 'Account Number'),
-                                _Field(_ifscCode, 'IFSC Code'),
-                                _Field(_upiId, 'UPI ID'),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Defaults',
-                              children: [
-                                _Field(
-                                  _invoiceTerms,
-                                  'Invoice Terms',
-                                  maxLines: 3,
-                                ),
-                                _Field(
-                                  _quotationTerms,
-                                  'Quotation Terms',
-                                  maxLines: 3,
-                                ),
-                                _Field(_logoBase64, 'Logo Base64'),
-                                _Field(_paymentQrBase64, 'Payment QR Base64'),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Invoice Settings',
-                              children: [
-                                _ToggleField(
-                                  title: 'GST Enabled',
-                                  value: _gstEnabled,
-                                  onChanged: (value) =>
-                                      setState(() => _gstEnabled = value),
-                                ),
-                                _Field(
-                                  _gstRate,
-                                  'Default GST %',
-                                  numeric: true,
-                                ),
-                                _Field(_invoicePrefix, 'Invoice Prefix'),
-                                _Field(
-                                  _invoiceSeparator,
-                                  'Invoice Separator',
-                                  helperText: 'Examples: -, /, //',
-                                ),
-                                _Field(
-                                  _invoiceDateFormat,
-                                  'Invoice Date Format',
-                                  helperText:
-                                      'Blank, yyyy, yyyy/MM, yyyy/MM/dd',
-                                ),
-                                _Field(
-                                  _invoiceNextNumber,
-                                  'Next Invoice Number',
-                                  numeric: true,
-                                ),
-                                _Field(
-                                  _invoicePadding,
-                                  'Invoice Padding',
-                                  numeric: true,
-                                ),
-                                _Field(_currencyCode, 'Currency Code'),
-                                _Field(_currencySymbol, 'Currency Symbol'),
-                                _ToggleField(
-                                  title: 'Show HSN/SAC On Line Items',
-                                  value: _showLineItemHsn,
-                                  onChanged: (value) => setState(
-                                    () => _showLineItemHsn = value,
-                                  ),
-                                ),
-                                _Field(
-                                  _customCustomerFields,
-                                  'Custom Customer Fields',
-                                  helperText:
-                                      'Comma-separated, e.g. State Code, Contact Person',
-                                ),
-                                _Field(
-                                  _customLineItemFields,
-                                  'Custom Line Item Fields',
-                                  helperText:
-                                      'Comma-separated, e.g. Batch No, Serial No, Warranty',
-                                ),
-                                _NumberPreview(
-                                  label: 'Invoice Preview',
-                                  prefixController: _invoicePrefix,
-                                  separatorController: _invoiceSeparator,
-                                  dateFormatController: _invoiceDateFormat,
-                                  numberController: _invoiceNextNumber,
-                                  paddingController: _invoicePadding,
-                                ),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Quotation Settings',
-                              children: [
-                                _Field(_quotationPrefix, 'Quotation Prefix'),
-                                _Field(
-                                  _quotationSeparator,
-                                  'Quotation Separator',
-                                  helperText: 'Examples: -, /, //',
-                                ),
-                                _Field(
-                                  _quotationDateFormat,
-                                  'Quotation Date Format',
-                                  helperText:
-                                      'Blank, yyyy, yyyy/MM, yyyy/MM/dd',
-                                ),
-                                _Field(
-                                  _quotationNextNumber,
-                                  'Next Quotation Number',
-                                  numeric: true,
-                                ),
-                                _Field(
-                                  _quotationPadding,
-                                  'Quotation Padding',
-                                  numeric: true,
-                                ),
-                                _NumberPreview(
-                                  label: 'Quotation Preview',
-                                  prefixController: _quotationPrefix,
-                                  separatorController: _quotationSeparator,
-                                  dateFormatController: _quotationDateFormat,
-                                  numberController: _quotationNextNumber,
-                                  paddingController: _quotationPadding,
-                                ),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Appearance',
-                              children: [
-                                _ThemeModeSelector(
-                                  value: _themeMode,
-                                  onChanged: (value) {
-                                    setState(() => _themeMode = value);
-                                    context.read<ThemeCubit>().apply(
-                                      themeMode: value,
-                                      primaryColorHex: _primaryColorHex.text,
-                                    );
-                                  },
-                                ),
-                                _Field(
-                                  _primaryColorHex,
-                                  'Primary Color',
-                                  helperText: 'Example: #7C4DFF',
-                                  onChanged: (_) {
-                                    context.read<ThemeCubit>().apply(
-                                      themeMode: _themeMode,
-                                      primaryColorHex: _primaryColorHex.text,
-                                    );
-                                  },
-                                ),
-                                _PrimaryColorSwatches(
-                                  selectedHex: _primaryColorHex.text,
-                                  onSelected: (hex) {
-                                    setState(() => _primaryColorHex.text = hex);
-                                    context.read<ThemeCubit>().apply(
-                                      themeMode: _themeMode,
-                                      primaryColorHex: hex,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                            _Section(
-                              title: 'Loyalty Settings',
-                              children: [
-                                _ToggleField(
-                                  title: 'Loyalty Points Enabled',
-                                  value: _loyaltyEnabled,
-                                  onChanged: (value) =>
-                                      setState(() => _loyaltyEnabled = value),
-                                ),
-                                _Field(
-                                  _pointsPerRupee,
-                                  'Points Per Rupee',
-                                  numeric: true,
-                                ),
-                                _Field(
-                                  _pointsRedemptionValue,
-                                  'Point Value',
-                                  numeric: true,
-                                ),
-                              ],
+                            _SettingsWorkspace(
+                              selectedPanel: _selectedPanel,
+                              onPanelSelected: (panel) =>
+                                  setState(() => _selectedPanel = panel),
+                              child: _buildSelectedPanel(context),
                             ),
                             const SizedBox(height: AppSpacing.xxl),
                           ],
@@ -410,6 +207,222 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         );
       },
     );
+  }
+
+  Widget _buildSelectedPanel(BuildContext context) {
+    return switch (_selectedPanel) {
+      _SettingsPanel.business => _Section(
+        title: 'Billing Identity',
+        description: 'Business identity used on invoices and PDF headers.',
+        children: [
+          _AssetUploadField(
+            title: 'Business Logo',
+            helperText: 'PNG, JPG, or WebP for invoice header branding.',
+            controller: _logoBase64,
+            onUpload: () => _pickImageBase64(_logoBase64, 'Business logo'),
+            onRemove: () => setState(_logoBase64.clear),
+          ),
+          _Field(_businessName, 'Business Name', required: true),
+          _Field(_legalName, 'Legal Name'),
+          _Field(_gstin, 'GSTIN'),
+          _Field(_pan, 'PAN'),
+          _Field(_email, 'Email'),
+          _Field(_phone, 'Phone'),
+          _Field(_website, 'Website'),
+        ],
+      ),
+      _SettingsPanel.address => _Section(
+        title: 'Address',
+        description: 'Business address shown in billing documents.',
+        children: [
+          _Field(_addressLine1, 'Address Line 1'),
+          _Field(_addressLine2, 'Address Line 2'),
+          _Field(_city, 'City'),
+          _Field(_state, 'State'),
+          _Field(_pincode, 'Pincode'),
+          _Field(_country, 'Country'),
+        ],
+      ),
+      _SettingsPanel.payment => _Section(
+        title: 'Bank & Payment',
+        description: 'Payment details used in invoice payment blocks.',
+        children: [
+          _Field(_bankName, 'Bank Name'),
+          _Field(_bankAccountName, 'Account Name'),
+          _Field(_bankAccountNumber, 'Account Number'),
+          _Field(_ifscCode, 'IFSC Code'),
+          _Field(_upiId, 'UPI ID'),
+        ],
+      ),
+      _SettingsPanel.invoice => _Section(
+        title: 'Invoice Settings',
+        description: 'GST, currency, invoice numbering, and line item fields.',
+        children: [
+          _ToggleField(
+            title: 'GST Enabled',
+            value: _gstEnabled,
+            onChanged: (value) => setState(() => _gstEnabled = value),
+          ),
+          _Field(_gstRate, 'Default GST %', numeric: true),
+          _Field(_currencyCode, 'Currency Code'),
+          _Field(_currencySymbol, 'Currency Symbol'),
+          _ToggleField(
+            title: 'Show HSN/SAC On Line Items',
+            value: _showLineItemHsn,
+            onChanged: (value) => setState(() => _showLineItemHsn = value),
+          ),
+          _Field(_invoicePrefix, 'Invoice Prefix'),
+          _Field(
+            _invoiceSeparator,
+            'Invoice Separator',
+            helperText: 'Examples: -, /, //',
+          ),
+          _Field(
+            _invoiceDateFormat,
+            'Invoice Date Format',
+            helperText: 'Blank, yyyy, yyyy/MM, yyyy/MM/dd',
+          ),
+          _Field(_invoiceNextNumber, 'Next Invoice Number', numeric: true),
+          _Field(_invoicePadding, 'Invoice Padding', numeric: true),
+          _NumberPreview(
+            label: 'Invoice Preview',
+            prefixController: _invoicePrefix,
+            separatorController: _invoiceSeparator,
+            dateFormatController: _invoiceDateFormat,
+            numberController: _invoiceNextNumber,
+            paddingController: _invoicePadding,
+          ),
+        ],
+      ),
+      _SettingsPanel.quotation => _Section(
+        title: 'Quotation Settings',
+        description: 'Quotation numbering and document defaults.',
+        children: [
+          _Field(_quotationPrefix, 'Quotation Prefix'),
+          _Field(
+            _quotationSeparator,
+            'Quotation Separator',
+            helperText: 'Examples: -, /, //',
+          ),
+          _Field(
+            _quotationDateFormat,
+            'Quotation Date Format',
+            helperText: 'Blank, yyyy, yyyy/MM, yyyy/MM/dd',
+          ),
+          _Field(_quotationNextNumber, 'Next Quotation Number', numeric: true),
+          _Field(_quotationPadding, 'Quotation Padding', numeric: true),
+          _NumberPreview(
+            label: 'Quotation Preview',
+            prefixController: _quotationPrefix,
+            separatorController: _quotationSeparator,
+            dateFormatController: _quotationDateFormat,
+            numberController: _quotationNextNumber,
+            paddingController: _quotationPadding,
+          ),
+        ],
+      ),
+      _SettingsPanel.fields => _Section(
+        title: 'Custom Fields',
+        description:
+            'Choose optional fields customers and line items can show.',
+        children: [
+          _CustomFieldBuilder(
+            title: 'Customer Fields',
+            helperText: 'Shown in customer details, e.g. State Code.',
+            inputController: _newCustomerField,
+            fields: _customCustomerFields,
+            onAdd: () => _addCustomField(
+              controller: _newCustomerField,
+              target: _CustomFieldTarget.customer,
+            ),
+            onRemove: (field) =>
+                _removeCustomField(field, target: _CustomFieldTarget.customer),
+          ),
+          _CustomFieldBuilder(
+            title: 'Shipping Fields',
+            helperText: 'Shown in Shipped To, e.g. Transporter or LR No.',
+            inputController: _newShippingField,
+            fields: _customShippingFields,
+            onAdd: () => _addCustomField(
+              controller: _newShippingField,
+              target: _CustomFieldTarget.shipping,
+            ),
+            onRemove: (field) =>
+                _removeCustomField(field, target: _CustomFieldTarget.shipping),
+          ),
+          _CustomFieldBuilder(
+            title: 'Line Item Fields',
+            helperText: 'Shown per item, e.g. Batch No or Serial No.',
+            inputController: _newLineItemField,
+            fields: _customLineItemFields,
+            onAdd: () => _addCustomField(
+              controller: _newLineItemField,
+              target: _CustomFieldTarget.lineItem,
+            ),
+            onRemove: (field) =>
+                _removeCustomField(field, target: _CustomFieldTarget.lineItem),
+          ),
+        ],
+      ),
+      _SettingsPanel.defaults => _Section(
+        title: 'Defaults',
+        description: 'Reusable document notes, terms, and footer text.',
+        children: [
+          _Field(_invoiceTerms, 'Invoice Terms', maxLines: 3),
+          _Field(_quotationTerms, 'Quotation Terms', maxLines: 3),
+        ],
+      ),
+      _SettingsPanel.appearance => _Section(
+        title: 'Appearance',
+        description: 'Theme and brand accent used by the app.',
+        children: [
+          _ThemeModeSelector(
+            value: _themeMode,
+            onChanged: (value) {
+              setState(() => _themeMode = value);
+              context.read<ThemeCubit>().apply(
+                themeMode: value,
+                primaryColorHex: _primaryColorHex.text,
+              );
+            },
+          ),
+          _Field(
+            _primaryColorHex,
+            'Primary Color',
+            helperText: 'Example: #7C4DFF',
+            onChanged: (_) {
+              context.read<ThemeCubit>().apply(
+                themeMode: _themeMode,
+                primaryColorHex: _primaryColorHex.text,
+              );
+            },
+          ),
+          _PrimaryColorSwatches(
+            selectedHex: _primaryColorHex.text,
+            onSelected: (hex) {
+              setState(() => _primaryColorHex.text = hex);
+              context.read<ThemeCubit>().apply(
+                themeMode: _themeMode,
+                primaryColorHex: hex,
+              );
+            },
+          ),
+        ],
+      ),
+      _SettingsPanel.loyalty => _Section(
+        title: 'Loyalty Settings',
+        description: 'Points earning and redemption behavior.',
+        children: [
+          _ToggleField(
+            title: 'Loyalty Points Enabled',
+            value: _loyaltyEnabled,
+            onChanged: (value) => setState(() => _loyaltyEnabled = value),
+          ),
+          _Field(_pointsPerRupee, 'Points Per Rupee', numeric: true),
+          _Field(_pointsRedemptionValue, 'Point Value', numeric: true),
+        ],
+      ),
+    };
   }
 
   void _fillControllers(CompanyProfile profile, AppSettings settings) {
@@ -455,12 +468,27 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
     _themeMode = settings.themeMode;
     _primaryColorHex.text = settings.primaryColorHex;
     _showLineItemHsn = settings.showLineItemHsn;
-    _customCustomerFields.text = settings.customCustomerFields.join(', ');
-    _customLineItemFields.text = settings.customLineItemFields.join(', ');
+    _customCustomerFields = List.unmodifiable(settings.customCustomerFields);
+    _customShippingFields = List.unmodifiable(settings.customShippingFields);
+    _customLineItemFields = List.unmodifiable(settings.customLineItemFields);
   }
 
   void _save(BuildContext context) {
     if (!_formKey.currentState!.validate()) return;
+    final validationError = _settingsValidationError();
+    if (validationError != null) {
+      setState(() => _selectedPanel = validationError.key);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(validationError.value),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      return;
+    }
+
     context.read<CompanySettingsCubit>().save(
       profile: CompanyProfile(
         businessName: _businessName.text.trim(),
@@ -508,25 +536,150 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         themeMode: _themeMode,
         primaryColorHex: _primaryColorHex.text.trim(),
         showLineItemHsn: _showLineItemHsn,
-        customCustomerFields: _parseCustomFields(_customCustomerFields.text),
-        customLineItemFields: _parseCustomFields(_customLineItemFields.text),
+        customCustomerFields: _customCustomerFields,
+        customShippingFields: _customShippingFields,
+        customLineItemFields: _customLineItemFields,
         updatedAt: DateTime.now(),
       ),
     );
   }
 
-  List<String> _parseCustomFields(String value) {
-    final seen = <String>{};
-    return value
-        .split(',')
-        .map((field) => field.trim())
-        .where((field) {
-          final key = field.toLowerCase();
-          if (field.isEmpty || seen.contains(key)) return false;
-          seen.add(key);
-          return true;
-        })
-        .toList();
+  Future<void> _pickImageBase64(
+    TextEditingController controller,
+    String label,
+  ) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+      withData: true,
+    );
+    final file = result?.files.single;
+    final bytes = file?.bytes;
+    if (bytes == null) return;
+
+    setState(() {
+      controller.text = base64Encode(bytes);
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('$label uploaded.')));
+  }
+
+  void _addCustomField({
+    required TextEditingController controller,
+    required _CustomFieldTarget target,
+  }) {
+    final field = controller.text.trim();
+    if (field.isEmpty) return;
+
+    final existing = switch (target) {
+      _CustomFieldTarget.customer => _customCustomerFields,
+      _CustomFieldTarget.shipping => _customShippingFields,
+      _CustomFieldTarget.lineItem => _customLineItemFields,
+    };
+    final alreadyExists = existing.any(
+      (item) => item.toLowerCase() == field.toLowerCase(),
+    );
+    if (alreadyExists) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('$field already exists.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      return;
+    }
+
+    setState(() {
+      if (target == _CustomFieldTarget.customer) {
+        _customCustomerFields = List.unmodifiable([
+          ..._customCustomerFields,
+          field,
+        ]);
+      } else if (target == _CustomFieldTarget.shipping) {
+        _customShippingFields = List.unmodifiable([
+          ..._customShippingFields,
+          field,
+        ]);
+      } else {
+        _customLineItemFields = List.unmodifiable([
+          ..._customLineItemFields,
+          field,
+        ]);
+      }
+      controller.clear();
+    });
+  }
+
+  void _removeCustomField(String field, {required _CustomFieldTarget target}) {
+    setState(() {
+      if (target == _CustomFieldTarget.customer) {
+        _customCustomerFields = List.unmodifiable(
+          _customCustomerFields.where((item) => item != field),
+        );
+      } else if (target == _CustomFieldTarget.shipping) {
+        _customShippingFields = List.unmodifiable(
+          _customShippingFields.where((item) => item != field),
+        );
+      } else {
+        _customLineItemFields = List.unmodifiable(
+          _customLineItemFields.where((item) => item != field),
+        );
+      }
+    });
+  }
+
+  MapEntry<_SettingsPanel, String>? _settingsValidationError() {
+    if (_businessName.text.trim().isEmpty) {
+      return const MapEntry(
+        _SettingsPanel.business,
+        'Business Name is required',
+      );
+    }
+
+    final numericFields = [
+      MapEntry(_SettingsPanel.invoice, MapEntry(_gstRate, 'Default GST %')),
+      MapEntry(
+        _SettingsPanel.invoice,
+        MapEntry(_invoiceNextNumber, 'Next Invoice Number'),
+      ),
+      MapEntry(
+        _SettingsPanel.invoice,
+        MapEntry(_invoicePadding, 'Invoice Padding'),
+      ),
+      MapEntry(
+        _SettingsPanel.quotation,
+        MapEntry(_quotationNextNumber, 'Next Quotation Number'),
+      ),
+      MapEntry(
+        _SettingsPanel.quotation,
+        MapEntry(_quotationPadding, 'Quotation Padding'),
+      ),
+      MapEntry(
+        _SettingsPanel.loyalty,
+        MapEntry(_pointsPerRupee, 'Points Per Rupee'),
+      ),
+      MapEntry(
+        _SettingsPanel.loyalty,
+        MapEntry(_pointsRedemptionValue, 'Point Value'),
+      ),
+    ];
+
+    for (final field in numericFields) {
+      final value = field.value.key.text.trim();
+      if (value.isNotEmpty && double.tryParse(value) == null) {
+        return MapEntry(
+          field.key,
+          'Enter a valid number for ${field.value.value}',
+        );
+      }
+    }
+
+    return null;
   }
 
   int _intValue(TextEditingController controller, int fallback) {
@@ -538,21 +691,227 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
   }
 }
 
+enum _SettingsPanel {
+  business('Billing Identity', 'Business, logo, QR', Icons.storefront_outlined),
+  address('Address', 'Registered location', Icons.location_on_outlined),
+  payment('Bank & Payment', 'Bank and UPI', Icons.account_balance_outlined),
+  invoice('Invoice', 'GST and numbering', Icons.receipt_long_outlined),
+  quotation('Quotation', 'Quote numbering', Icons.request_quote_outlined),
+  fields('Fields', 'Customer and item fields', Icons.view_column_outlined),
+  defaults('Defaults', 'Terms and notes', Icons.tune_outlined),
+  appearance('Appearance', 'Theme and accent', Icons.palette_outlined),
+  loyalty('Loyalty', 'Points rules', Icons.stars_outlined);
+
+  const _SettingsPanel(this.label, this.description, this.icon);
+
+  final String label;
+  final String description;
+  final IconData icon;
+}
+
+enum _CustomFieldTarget { customer, shipping, lineItem }
+
+class _SettingsWorkspace extends StatelessWidget {
+  const _SettingsWorkspace({
+    required this.selectedPanel,
+    required this.onPanelSelected,
+    required this.child,
+  });
+
+  final _SettingsPanel selectedPanel;
+  final ValueChanged<_SettingsPanel> onPanelSelected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 920;
+        if (isCompact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsPanelRail(
+                selectedPanel: selectedPanel,
+                onPanelSelected: onPanelSelected,
+                isCompact: true,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              child,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 260,
+              child: _SettingsPanelRail(
+                selectedPanel: selectedPanel,
+                onPanelSelected: onPanelSelected,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xl),
+            Expanded(child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SettingsPanelRail extends StatelessWidget {
+  const _SettingsPanelRail({
+    required this.selectedPanel,
+    required this.onPanelSelected,
+    this.isCompact = false,
+  });
+
+  final _SettingsPanel selectedPanel;
+  final ValueChanged<_SettingsPanel> onPanelSelected;
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    final children = [
+      for (final panel in _SettingsPanel.values)
+        _SettingsPanelTile(
+          panel: panel,
+          selected: panel == selectedPanel,
+          onTap: () => onPanelSelected(panel),
+        ),
+    ];
+
+    if (isCompact) {
+      return SizedBox(
+        height: 74,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _SettingsPanel.values.length,
+          separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+          itemBuilder: (context, index) =>
+              SizedBox(width: 190, child: children[index]),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow,
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _SettingsPanelTile extends StatelessWidget {
+  const _SettingsPanelTile({
+    required this.panel,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _SettingsPanel panel;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.primaryLight : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 58,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                color: selected ? AppColors.primaryPurple : Colors.transparent,
+                width: 3,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                panel.icon,
+                size: 20,
+                color: selected ? AppColors.primaryPurple : AppColors.textMuted,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      panel.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: selected
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      panel.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
+  const _Section({
+    required this.title,
+    required this.children,
+    this.description,
+  });
 
   final String title;
   final List<Widget> children;
+  final String? description;
 
   @override
   Widget build(BuildContext context) {
     final icon = switch (title) {
       'Business' => Icons.storefront_outlined,
+      'Billing Identity' => Icons.storefront_outlined,
       'Address' => Icons.location_on_outlined,
       'Bank & Payment' => Icons.account_balance_outlined,
       'Defaults' => Icons.tune_outlined,
       'Invoice Settings' => Icons.receipt_long_outlined,
       'Quotation Settings' => Icons.request_quote_outlined,
+      'Custom Fields' => Icons.view_column_outlined,
       'Appearance' => Icons.palette_outlined,
       'Loyalty Settings' => Icons.stars_outlined,
       _ => Icons.widgets_outlined,
@@ -576,8 +935,10 @@ class _Section extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            height: 58,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
             decoration: BoxDecoration(
               color: AppColors.surface,
               border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -594,10 +955,26 @@ class _Section extends StatelessWidget {
                   child: Icon(icon, size: 18, color: AppColors.primaryPurple),
                 ),
                 const SizedBox(width: AppSpacing.md),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      if (description != null) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          description!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -785,6 +1162,222 @@ class _Field extends StatelessWidget {
         }
         return null;
       },
+    );
+  }
+}
+
+class _AssetUploadField extends StatelessWidget {
+  const _AssetUploadField({
+    required this.title,
+    required this.helperText,
+    required this.controller,
+    required this.onUpload,
+    required this.onRemove,
+  });
+
+  final String title;
+  final String helperText;
+  final TextEditingController controller;
+  final VoidCallback onUpload;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final value = controller.text.trim();
+        final hasAsset = value.isNotEmpty;
+        final previewBytes = _decodePreview(value);
+
+        return Container(
+          height: 146,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceSoft,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 86,
+                height: 86,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: previewBytes == null
+                    ? Icon(
+                        hasAsset
+                            ? Icons.image_not_supported_outlined
+                            : Icons.add_photo_alternate_outlined,
+                        color: AppColors.primaryPurple,
+                        size: 32,
+                      )
+                    : Image.memory(previewBytes, fit: BoxFit.contain),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      hasAsset ? 'Image ready for invoice output.' : helperText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: onUpload,
+                          icon: Icon(
+                            hasAsset
+                                ? Icons.swap_horiz_outlined
+                                : Icons.upload_file_outlined,
+                            size: 18,
+                          ),
+                          label: Text(hasAsset ? 'Replace' : 'Upload'),
+                        ),
+                        if (hasAsset)
+                          IconButton(
+                            tooltip: 'Remove $title',
+                            onPressed: onRemove,
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Uint8List? _decodePreview(String value) {
+    if (value.isEmpty) return null;
+    try {
+      final normalized = value.contains(',')
+          ? value.substring(value.indexOf(',') + 1)
+          : value;
+      return base64Decode(normalized);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class _CustomFieldBuilder extends StatelessWidget {
+  const _CustomFieldBuilder({
+    required this.title,
+    required this.helperText,
+    required this.inputController,
+    required this.fields,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final String title;
+  final String helperText;
+  final TextEditingController inputController;
+  final List<String> fields;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 178),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            helperText,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: inputController,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => onAdd(),
+                  decoration: const InputDecoration(
+                    labelText: 'Field name',
+                    hintText: 'State Code',
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              IconButton.filled(
+                tooltip: 'Add field',
+                onPressed: onAdd,
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (fields.isEmpty)
+            Text(
+              'No custom fields yet.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
+            )
+          else
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final field in fields)
+                  InputChip(
+                    label: Text(field),
+                    onDeleted: () => onRemove(field),
+                    deleteIcon: const Icon(Icons.close, size: 18),
+                  ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 }

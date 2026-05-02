@@ -23,6 +23,7 @@ class AppSettingsModel extends AppSettings {
     required super.primaryColorHex,
     required super.showLineItemHsn,
     required super.customCustomerFields,
+    required super.customShippingFields,
     required super.customLineItemFields,
     required super.updatedAt,
   });
@@ -50,6 +51,7 @@ class AppSettingsModel extends AppSettings {
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
       customCustomerFields: settings.customCustomerFields,
+      customShippingFields: settings.customShippingFields,
       customLineItemFields: settings.customLineItemFields,
       updatedAt: settings.updatedAt,
     );
@@ -98,6 +100,10 @@ class AppSettingsModel extends AppSettings {
         map['customCustomerFields'],
         defaults.customCustomerFields,
       ),
+      customShippingFields: _toStringList(
+        map['customShippingFields'],
+        defaults.customShippingFields,
+      ),
       customLineItemFields: _toStringList(
         map['customLineItemFields'],
         defaults.customLineItemFields,
@@ -129,6 +135,7 @@ class AppSettingsModel extends AppSettings {
       'primaryColorHex': primaryColorHex,
       'showLineItemHsn': showLineItemHsn,
       'customCustomerFields': customCustomerFields,
+      'customShippingFields': customShippingFields,
       'customLineItemFields': customLineItemFields,
       'updatedAt': updatedAt,
     };

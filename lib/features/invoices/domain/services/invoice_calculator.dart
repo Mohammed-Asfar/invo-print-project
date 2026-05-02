@@ -22,6 +22,26 @@ class InvoiceTotals {
 }
 
 class InvoiceCalculator {
+  double rateBeforeTax({
+    required double rateIncludingTax,
+    required double taxRate,
+  }) {
+    if (rateIncludingTax <= 0) return 0;
+    if (taxRate <= 0) return rateIncludingTax;
+    return rateIncludingTax / (1 + taxRate / 100);
+  }
+
+  double rateIncludingTax({required double rate, required double taxRate}) {
+    if (rate <= 0) return 0;
+    if (taxRate <= 0) return rate;
+    return rate * (1 + taxRate / 100);
+  }
+
+  String formatRateInput(double value) {
+    final fixed = value.toStringAsFixed(6);
+    return fixed.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
   InvoiceTotals calculate({
     required List<InvoiceItem> items,
     required TaxMode taxMode,

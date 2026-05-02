@@ -23,6 +23,7 @@ class AppSettings extends Equatable {
     required this.primaryColorHex,
     required this.showLineItemHsn,
     required this.customCustomerFields,
+    required this.customShippingFields,
     required this.customLineItemFields,
     required this.updatedAt,
   });
@@ -50,6 +51,7 @@ class AppSettings extends Equatable {
       primaryColorHex: '#7C4DFF',
       showLineItemHsn: true,
       customCustomerFields: const [],
+      customShippingFields: const [],
       customLineItemFields: const [],
       updatedAt: DateTime.now(),
     );
@@ -76,6 +78,7 @@ class AppSettings extends Equatable {
   final String primaryColorHex;
   final bool showLineItemHsn;
   final List<String> customCustomerFields;
+  final List<String> customShippingFields;
   final List<String> customLineItemFields;
   final DateTime updatedAt;
 
@@ -102,6 +105,7 @@ class AppSettings extends Equatable {
     primaryColorHex,
     showLineItemHsn,
     customCustomerFields,
+    customShippingFields,
     customLineItemFields,
     updatedAt,
   ];

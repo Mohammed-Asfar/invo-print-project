@@ -9,6 +9,7 @@ class InvoiceItem extends Equatable {
     required this.quantity,
     required this.unit,
     required this.rate,
+    required this.rateIncludingGst,
     required this.gstRate,
     required this.taxableAmount,
     required this.cgstAmount,
@@ -27,6 +28,7 @@ class InvoiceItem extends Equatable {
       quantity: 1,
       unit: 'service',
       rate: 0,
+      rateIncludingGst: 0,
       gstRate: 0,
       taxableAmount: 0,
       cgstAmount: 0,
@@ -44,6 +46,7 @@ class InvoiceItem extends Equatable {
   final double quantity;
   final String unit;
   final double rate;
+  final double rateIncludingGst;
   final double gstRate;
   final double taxableAmount;
   final double cgstAmount;
@@ -60,6 +63,7 @@ class InvoiceItem extends Equatable {
     double? quantity,
     String? unit,
     double? rate,
+    double? rateIncludingGst,
     double? gstRate,
     double? taxableAmount,
     double? cgstAmount,
@@ -76,6 +80,7 @@ class InvoiceItem extends Equatable {
       quantity: quantity ?? this.quantity,
       unit: unit ?? this.unit,
       rate: rate ?? this.rate,
+      rateIncludingGst: rateIncludingGst ?? this.rateIncludingGst,
       gstRate: gstRate ?? this.gstRate,
       taxableAmount: taxableAmount ?? this.taxableAmount,
       cgstAmount: cgstAmount ?? this.cgstAmount,
@@ -95,6 +100,7 @@ class InvoiceItem extends Equatable {
     quantity,
     unit,
     rate,
+    rateIncludingGst,
     gstRate,
     taxableAmount,
     cgstAmount,

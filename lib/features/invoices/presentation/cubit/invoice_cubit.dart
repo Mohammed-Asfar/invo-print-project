@@ -140,7 +140,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         invoiceDate: draft.invoiceDate,
         dueDate: draft.dueDate,
         customerId: customer.id,
-        customerSnapshot: _customerSnapshot(customer),
+        customerSnapshot: draft.customerSnapshot,
         companySnapshot: _companySnapshot(companyProfile),
         items: totals.items,
         taxMode: draft.taxMode,
@@ -210,6 +210,12 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       customerState: '',
       billingAddress: '',
       shippingAddress: '',
+      shipToName: '',
+      shipToPhone: '',
+      shipToEmail: '',
+      shipToState: '',
+      shipToPincode: '',
+      shippingCustomFields: const {},
       invoiceDate: now,
       dueDate: now.add(const Duration(days: 15)),
       taxMode: settings.gstEnabled ? TaxMode.cgstSgst : TaxMode.none,
@@ -243,22 +249,10 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
       customCustomerFields: settings.customCustomerFields,
+      customShippingFields: settings.customShippingFields,
       customLineItemFields: settings.customLineItemFields,
       updatedAt: DateTime.now(),
     );
-  }
-
-  Map<String, dynamic> _customerSnapshot(Customer customer) {
-    return {
-      'name': customer.name,
-      'phone': customer.phone,
-      'email': customer.email,
-      'gstin': customer.gstin,
-      'state': customer.state,
-      'billingAddress': customer.billingAddress,
-      'shippingAddress': customer.shippingAddress,
-      'customFields': customer.customFields,
-    };
   }
 
   Map<String, dynamic> _companySnapshot(CompanyProfile profile) {
