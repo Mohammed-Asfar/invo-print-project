@@ -101,6 +101,9 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
         currencySymbol: settings.currencySymbol,
         themeMode: settings.themeMode,
         primaryColorHex: settings.primaryColorHex,
+        showLineItemHsn: settings.showLineItemHsn,
+        customCustomerFields: settings.customCustomerFields,
+        customLineItemFields: settings.customLineItemFields,
         updatedAt: now,
       );
 

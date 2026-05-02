@@ -11,6 +11,8 @@ import '../../features/auth/presentation/pages/setup_required_page.dart';
 import '../../features/company/presentation/pages/company_settings_page.dart';
 import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
+import '../../features/invoices/presentation/pages/create_invoice_page.dart';
+import '../../features/invoices/presentation/pages/invoices_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
 import '../shell/app_shell.dart';
 
@@ -61,6 +63,14 @@ GoRouter createAppRouter(AuthBloc authBloc) {
           GoRoute(
             path: CompanySettingsPage.routePath,
             builder: (context, state) => const CompanySettingsPage(),
+          ),
+          GoRoute(
+            path: InvoicesPage.routePath,
+            builder: (context, state) => const InvoicesPage(),
+          ),
+          GoRoute(
+            path: CreateInvoicePage.routePath,
+            builder: (context, state) => const CreateInvoicePage(),
           ),
           GoRoute(
             path: CustomersPage.routePath,

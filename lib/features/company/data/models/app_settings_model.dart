@@ -21,6 +21,9 @@ class AppSettingsModel extends AppSettings {
     required super.currencySymbol,
     required super.themeMode,
     required super.primaryColorHex,
+    required super.showLineItemHsn,
+    required super.customCustomerFields,
+    required super.customLineItemFields,
     required super.updatedAt,
   });
 
@@ -45,6 +48,9 @@ class AppSettingsModel extends AppSettings {
       currencySymbol: settings.currencySymbol,
       themeMode: settings.themeMode,
       primaryColorHex: settings.primaryColorHex,
+      showLineItemHsn: settings.showLineItemHsn,
+      customCustomerFields: settings.customCustomerFields,
+      customLineItemFields: settings.customLineItemFields,
       updatedAt: settings.updatedAt,
     );
   }
@@ -86,6 +92,16 @@ class AppSettingsModel extends AppSettings {
       themeMode: map['themeMode'] as String? ?? defaults.themeMode,
       primaryColorHex:
           map['primaryColorHex'] as String? ?? defaults.primaryColorHex,
+      showLineItemHsn:
+          map['showLineItemHsn'] as bool? ?? defaults.showLineItemHsn,
+      customCustomerFields: _toStringList(
+        map['customCustomerFields'],
+        defaults.customCustomerFields,
+      ),
+      customLineItemFields: _toStringList(
+        map['customLineItemFields'],
+        defaults.customLineItemFields,
+      ),
       updatedAt: _toDateTime(map['updatedAt']) ?? defaults.updatedAt,
     );
   }
@@ -111,8 +127,22 @@ class AppSettingsModel extends AppSettings {
       'currencySymbol': currencySymbol,
       'themeMode': themeMode,
       'primaryColorHex': primaryColorHex,
+      'showLineItemHsn': showLineItemHsn,
+      'customCustomerFields': customCustomerFields,
+      'customLineItemFields': customLineItemFields,
       'updatedAt': updatedAt,
     };
+  }
+
+  static List<String> _toStringList(dynamic value, List<String> fallback) {
+    if (value is List) {
+      return value
+          .whereType<String>()
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    return fallback;
   }
 
   static double _toDouble(dynamic value, double fallback) {

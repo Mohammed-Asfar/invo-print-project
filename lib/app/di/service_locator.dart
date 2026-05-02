@@ -12,6 +12,9 @@ import '../../features/company/data/repositories/company_settings_repository.dar
 import '../../features/company/presentation/cubit/company_settings_cubit.dart';
 import '../../features/customers/data/repositories/customer_repository.dart';
 import '../../features/customers/presentation/cubit/customer_cubit.dart';
+import '../../features/invoices/data/repositories/invoice_repository.dart';
+import '../../features/invoices/domain/services/invoice_calculator.dart';
+import '../../features/invoices/presentation/cubit/invoice_cubit.dart';
 import '../../features/products/data/repositories/product_repository.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
 import '../theme/theme_cubit.dart';
@@ -45,6 +48,11 @@ void setupServiceLocator() {
     ..registerLazySingleton<ProductRepository>(
       () => ProductRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<InvoiceRepository>(
+      () => InvoiceRepository(sl<CustomerFirestoreRestClient>()),
+    )
+    ..registerLazySingleton<InvoiceCalculator>(InvoiceCalculator.new)
+    ..registerLazySingleton<NumberingService>(NumberingService.new)
     ..registerFactory(() => AdminSetupCubit(sl<AdminSetupRepository>()))
     ..registerFactory(
       () => CompanySettingsCubit(sl<CompanySettingsRepository>()),
@@ -56,6 +64,16 @@ void setupServiceLocator() {
       ),
     )
     ..registerFactory(() => ProductCubit(sl<ProductRepository>()))
+    ..registerFactory(
+      () => InvoiceCubit(
+        sl<InvoiceRepository>(),
+        sl<CustomerRepository>(),
+        sl<ProductRepository>(),
+        sl<CompanySettingsRepository>(),
+        sl<InvoiceCalculator>(),
+        sl<NumberingService>(),
+      ),
+    )
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)
     ..registerFactory(() => AuthBloc(sl<AuthRepository>()));
 }

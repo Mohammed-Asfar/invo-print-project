@@ -348,6 +348,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         isActive: true,
         createdAt: existing.createdAt,
         updatedAt: DateTime.now(),
+        customFields: existing.customFields,
       ),
     );
     Navigator.of(context).pop();

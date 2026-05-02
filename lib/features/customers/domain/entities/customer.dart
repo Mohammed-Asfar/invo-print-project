@@ -23,6 +23,7 @@ class Customer extends Equatable {
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
+    this.customFields = const {},
     this.lastInvoiceAt,
   });
 
@@ -50,6 +51,7 @@ class Customer extends Equatable {
       isActive: true,
       createdAt: now,
       updatedAt: now,
+      customFields: {},
     );
   }
 
@@ -75,6 +77,7 @@ class Customer extends Equatable {
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final Map<String, String> customFields;
 
   @override
   List<Object?> get props => [
@@ -100,5 +103,6 @@ class Customer extends Equatable {
     isActive,
     createdAt,
     updatedAt,
+    customFields,
   ];
 }

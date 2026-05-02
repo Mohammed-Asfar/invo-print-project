@@ -72,9 +72,12 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
   final _currencyCode = TextEditingController();
   final _currencySymbol = TextEditingController();
   final _primaryColorHex = TextEditingController();
+  final _customCustomerFields = TextEditingController();
+  final _customLineItemFields = TextEditingController();
 
   bool _gstEnabled = true;
   bool _loyaltyEnabled = true;
+  bool _showLineItemHsn = true;
   String _themeMode = 'dark';
   bool _filledFromState = false;
 
@@ -119,6 +122,8 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
       _currencyCode,
       _currencySymbol,
       _primaryColorHex,
+      _customCustomerFields,
+      _customLineItemFields,
     ]) {
       controller.dispose();
     }
@@ -274,6 +279,25 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
                                 ),
                                 _Field(_currencyCode, 'Currency Code'),
                                 _Field(_currencySymbol, 'Currency Symbol'),
+                                _ToggleField(
+                                  title: 'Show HSN/SAC On Line Items',
+                                  value: _showLineItemHsn,
+                                  onChanged: (value) => setState(
+                                    () => _showLineItemHsn = value,
+                                  ),
+                                ),
+                                _Field(
+                                  _customCustomerFields,
+                                  'Custom Customer Fields',
+                                  helperText:
+                                      'Comma-separated, e.g. State Code, Contact Person',
+                                ),
+                                _Field(
+                                  _customLineItemFields,
+                                  'Custom Line Item Fields',
+                                  helperText:
+                                      'Comma-separated, e.g. Batch No, Serial No, Warranty',
+                                ),
                                 _NumberPreview(
                                   label: 'Invoice Preview',
                                   prefixController: _invoicePrefix,
@@ -430,6 +454,9 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
     _currencySymbol.text = settings.currencySymbol;
     _themeMode = settings.themeMode;
     _primaryColorHex.text = settings.primaryColorHex;
+    _showLineItemHsn = settings.showLineItemHsn;
+    _customCustomerFields.text = settings.customCustomerFields.join(', ');
+    _customLineItemFields.text = settings.customLineItemFields.join(', ');
   }
 
   void _save(BuildContext context) {
@@ -480,9 +507,26 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         currencySymbol: _currencySymbol.text.trim(),
         themeMode: _themeMode,
         primaryColorHex: _primaryColorHex.text.trim(),
+        showLineItemHsn: _showLineItemHsn,
+        customCustomerFields: _parseCustomFields(_customCustomerFields.text),
+        customLineItemFields: _parseCustomFields(_customLineItemFields.text),
         updatedAt: DateTime.now(),
       ),
     );
+  }
+
+  List<String> _parseCustomFields(String value) {
+    final seen = <String>{};
+    return value
+        .split(',')
+        .map((field) => field.trim())
+        .where((field) {
+          final key = field.toLowerCase();
+          if (field.isEmpty || seen.contains(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .toList();
   }
 
   int _intValue(TextEditingController controller, int fallback) {

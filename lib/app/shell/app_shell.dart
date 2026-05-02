@@ -6,6 +6,7 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/company/presentation/pages/company_settings_page.dart';
 import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
+import '../../features/invoices/presentation/pages/invoices_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -118,7 +119,8 @@ class _SideNavigation extends StatelessWidget {
               _NavItem(
                 icon: Icons.receipt_long_outlined,
                 label: 'Invoices',
-                selected: false,
+                routePath: InvoicesPage.routePath,
+                selected: location.startsWith(InvoicesPage.routePath),
               ),
               _NavItem(
                 icon: Icons.request_quote_outlined,

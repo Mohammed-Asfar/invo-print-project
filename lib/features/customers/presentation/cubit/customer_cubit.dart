@@ -103,6 +103,7 @@ class CustomerCubit extends Cubit<CustomerState> {
       isActive: customer.isActive,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
+      customFields: customer.customFields,
     );
   }
 

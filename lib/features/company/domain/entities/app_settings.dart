@@ -21,6 +21,9 @@ class AppSettings extends Equatable {
     required this.currencySymbol,
     required this.themeMode,
     required this.primaryColorHex,
+    required this.showLineItemHsn,
+    required this.customCustomerFields,
+    required this.customLineItemFields,
     required this.updatedAt,
   });
 
@@ -45,6 +48,9 @@ class AppSettings extends Equatable {
       currencySymbol: 'Rs',
       themeMode: 'dark',
       primaryColorHex: '#7C4DFF',
+      showLineItemHsn: true,
+      customCustomerFields: const [],
+      customLineItemFields: const [],
       updatedAt: DateTime.now(),
     );
   }
@@ -68,6 +74,9 @@ class AppSettings extends Equatable {
   final String currencySymbol;
   final String themeMode;
   final String primaryColorHex;
+  final bool showLineItemHsn;
+  final List<String> customCustomerFields;
+  final List<String> customLineItemFields;
   final DateTime updatedAt;
 
   @override
@@ -91,6 +100,9 @@ class AppSettings extends Equatable {
     currencySymbol,
     themeMode,
     primaryColorHex,
+    showLineItemHsn,
+    customCustomerFields,
+    customLineItemFields,
     updatedAt,
   ];
 }

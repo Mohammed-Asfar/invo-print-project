@@ -23,6 +23,7 @@ class CustomerModel extends Customer {
     required super.isActive,
     required super.createdAt,
     required super.updatedAt,
+    super.customFields,
     super.lastInvoiceAt,
   });
 
@@ -50,6 +51,7 @@ class CustomerModel extends Customer {
       isActive: customer.isActive,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
+      customFields: customer.customFields,
     );
   }
 
@@ -91,6 +93,7 @@ class CustomerModel extends Customer {
       isActive: map['isActive'] as bool? ?? defaults.isActive,
       createdAt: _toDateTime(map['createdAt']) ?? defaults.createdAt,
       updatedAt: _toDateTime(map['updatedAt']) ?? defaults.updatedAt,
+      customFields: _toStringMap(map['customFields']),
     );
   }
 
@@ -117,7 +120,22 @@ class CustomerModel extends Customer {
       'isActive': isActive,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'customFields': customFields,
     };
+  }
+
+  static Map<String, String> _toStringMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value.map((key, fieldValue) {
+        return MapEntry(key, fieldValue?.toString() ?? '');
+      });
+    }
+    if (value is Map) {
+      return value.map((key, fieldValue) {
+        return MapEntry(key.toString(), fieldValue?.toString() ?? '');
+      });
+    }
+    return {};
   }
 
   static double _toDouble(dynamic value, double fallback) {
