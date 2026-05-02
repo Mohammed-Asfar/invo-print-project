@@ -11,6 +11,7 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/company/data/repositories/company_settings_repository.dart';
 import '../../features/company/presentation/cubit/company_settings_cubit.dart';
 import '../../features/customers/data/repositories/customer_repository.dart';
+import '../../features/customers/data/services/gstin_lookup_service.dart';
 import '../../features/customers/presentation/cubit/customer_cubit.dart';
 import '../../features/invoices/data/repositories/invoice_repository.dart';
 import '../../features/invoices/domain/services/invoice_calculator.dart';
@@ -45,6 +46,7 @@ void setupServiceLocator() {
     ..registerLazySingleton<CustomerRepository>(
       () => CustomerRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<GstinLookupService>(GstinLookupService.new)
     ..registerLazySingleton<ProductRepository>(
       () => ProductRepository(sl<CustomerFirestoreRestClient>()),
     )
@@ -72,6 +74,7 @@ void setupServiceLocator() {
         sl<CompanySettingsRepository>(),
         sl<InvoiceCalculator>(),
         sl<NumberingService>(),
+        sl<GstinLookupService>(),
       ),
     )
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)

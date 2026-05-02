@@ -76,16 +76,30 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
   final _currencyCode = TextEditingController();
   final _currencySymbol = TextEditingController();
   final _primaryColorHex = TextEditingController();
+  final _gstinLookupApiKey = TextEditingController();
+  final _gstinLookupApiHost = TextEditingController();
+  final _gstinValidationApiPath = TextEditingController();
+  final _gstinLookupApiPath = TextEditingController();
+  final _defaultCustomerState = TextEditingController();
+  final _defaultShippingState = TextEditingController();
+  final _defaultLineItemUnit = TextEditingController();
   final _newCustomerField = TextEditingController();
+  final _newCustomerFieldDefault = TextEditingController();
   final _newShippingField = TextEditingController();
+  final _newShippingFieldDefault = TextEditingController();
   final _newLineItemField = TextEditingController();
+  final _newLineItemFieldDefault = TextEditingController();
 
   bool _gstEnabled = true;
   bool _loyaltyEnabled = true;
   bool _showLineItemHsn = true;
-  List<String> _customCustomerFields = const [];
-  List<String> _customShippingFields = const [];
-  List<String> _customLineItemFields = const [];
+  bool _gstinLookupEnabled = false;
+  bool _newCustomerFieldRequired = false;
+  bool _newShippingFieldRequired = false;
+  bool _newLineItemFieldRequired = false;
+  List<CustomFieldDefinition> _customCustomerFields = const [];
+  List<CustomFieldDefinition> _customShippingFields = const [];
+  List<CustomFieldDefinition> _customLineItemFields = const [];
   String _themeMode = 'dark';
   bool _filledFromState = false;
   _SettingsPanel _selectedPanel = _SettingsPanel.business;
@@ -131,9 +145,19 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
       _currencyCode,
       _currencySymbol,
       _primaryColorHex,
+      _gstinLookupApiKey,
+      _gstinLookupApiHost,
+      _gstinValidationApiPath,
+      _gstinLookupApiPath,
+      _defaultCustomerState,
+      _defaultShippingState,
+      _defaultLineItemUnit,
       _newCustomerField,
+      _newCustomerFieldDefault,
       _newShippingField,
+      _newShippingFieldDefault,
       _newLineItemField,
+      _newLineItemFieldDefault,
     ]) {
       controller.dispose();
     }
@@ -271,6 +295,34 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
             value: _showLineItemHsn,
             onChanged: (value) => setState(() => _showLineItemHsn = value),
           ),
+          _ToggleField(
+            title: 'Enable GSTIN API Lookup',
+            value: _gstinLookupEnabled,
+            onChanged: (value) => setState(() => _gstinLookupEnabled = value),
+          ),
+          _Field(
+            _gstinLookupApiKey,
+            'RapidAPI Key',
+            helperText: 'Stored in Firebase settings for this workspace.',
+            obscureText: true,
+          ),
+          _Field(
+            _gstinLookupApiHost,
+            'RapidAPI Host',
+            helperText: 'Default: powerful-gstin-tool.p.rapidapi.com',
+          ),
+          _Field(
+            _gstinValidationApiPath,
+            'GST Validation Path',
+            helperText:
+                'Example: /v1/gstin/{gstin}/status. Uses the cheaper validation request first.',
+          ),
+          _Field(
+            _gstinLookupApiPath,
+            'GST Details Path',
+            helperText:
+                'Paste the endpoint path from RapidAPI sample code. Use {gstin} where the GST number should go.',
+          ),
           _Field(_invoicePrefix, 'Invoice Prefix'),
           _Field(
             _invoiceSeparator,
@@ -330,37 +382,67 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
             title: 'Customer Fields',
             helperText: 'Shown in customer details, e.g. State Code.',
             inputController: _newCustomerField,
+            defaultController: _newCustomerFieldDefault,
+            requiredValue: _newCustomerFieldRequired,
+            onRequiredChanged: (value) =>
+                setState(() => _newCustomerFieldRequired = value),
             fields: _customCustomerFields,
             onAdd: () => _addCustomField(
               controller: _newCustomerField,
+              defaultController: _newCustomerFieldDefault,
+              requiredValue: _newCustomerFieldRequired,
               target: _CustomFieldTarget.customer,
             ),
-            onRemove: (field) =>
-                _removeCustomField(field, target: _CustomFieldTarget.customer),
+            onChanged: (field) =>
+                _updateCustomField(field, target: _CustomFieldTarget.customer),
+            onRemove: (field) => _removeCustomField(
+              field.name,
+              target: _CustomFieldTarget.customer,
+            ),
           ),
           _CustomFieldBuilder(
             title: 'Shipping Fields',
             helperText: 'Shown in Shipped To, e.g. Transporter or LR No.',
             inputController: _newShippingField,
+            defaultController: _newShippingFieldDefault,
+            requiredValue: _newShippingFieldRequired,
+            onRequiredChanged: (value) =>
+                setState(() => _newShippingFieldRequired = value),
             fields: _customShippingFields,
             onAdd: () => _addCustomField(
               controller: _newShippingField,
+              defaultController: _newShippingFieldDefault,
+              requiredValue: _newShippingFieldRequired,
               target: _CustomFieldTarget.shipping,
             ),
-            onRemove: (field) =>
-                _removeCustomField(field, target: _CustomFieldTarget.shipping),
+            onChanged: (field) =>
+                _updateCustomField(field, target: _CustomFieldTarget.shipping),
+            onRemove: (field) => _removeCustomField(
+              field.name,
+              target: _CustomFieldTarget.shipping,
+            ),
           ),
           _CustomFieldBuilder(
             title: 'Line Item Fields',
             helperText: 'Shown per item, e.g. Batch No or Serial No.',
             inputController: _newLineItemField,
+            defaultController: _newLineItemFieldDefault,
+            requiredValue: _newLineItemFieldRequired,
+            onRequiredChanged: (value) =>
+                setState(() => _newLineItemFieldRequired = value),
             fields: _customLineItemFields,
             onAdd: () => _addCustomField(
               controller: _newLineItemField,
+              defaultController: _newLineItemFieldDefault,
+              requiredValue: _newLineItemFieldRequired,
               target: _CustomFieldTarget.lineItem,
             ),
-            onRemove: (field) =>
-                _removeCustomField(field, target: _CustomFieldTarget.lineItem),
+            onChanged: (field) =>
+                _updateCustomField(field, target: _CustomFieldTarget.lineItem),
+            onRemove: (field) => _removeCustomField(
+              field.name,
+              target: _CustomFieldTarget.lineItem,
+            ),
           ),
         ],
       ),
@@ -368,6 +450,9 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         title: 'Defaults',
         description: 'Reusable document notes, terms, and footer text.',
         children: [
+          _Field(_defaultCustomerState, 'Default Customer State'),
+          _Field(_defaultShippingState, 'Default Shipping State'),
+          _Field(_defaultLineItemUnit, 'Default Line Item Unit'),
           _Field(_invoiceTerms, 'Invoice Terms', maxLines: 3),
           _Field(_quotationTerms, 'Quotation Terms', maxLines: 3),
         ],
@@ -468,6 +553,14 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
     _themeMode = settings.themeMode;
     _primaryColorHex.text = settings.primaryColorHex;
     _showLineItemHsn = settings.showLineItemHsn;
+    _gstinLookupEnabled = settings.gstinLookupEnabled;
+    _gstinLookupApiKey.text = settings.gstinLookupApiKey;
+    _gstinLookupApiHost.text = settings.gstinLookupApiHost;
+    _gstinValidationApiPath.text = settings.gstinValidationApiPath;
+    _gstinLookupApiPath.text = settings.gstinLookupApiPath;
+    _defaultCustomerState.text = settings.defaultCustomerState;
+    _defaultShippingState.text = settings.defaultShippingState;
+    _defaultLineItemUnit.text = settings.defaultLineItemUnit;
     _customCustomerFields = List.unmodifiable(settings.customCustomerFields);
     _customShippingFields = List.unmodifiable(settings.customShippingFields);
     _customLineItemFields = List.unmodifiable(settings.customLineItemFields);
@@ -536,6 +629,20 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         themeMode: _themeMode,
         primaryColorHex: _primaryColorHex.text.trim(),
         showLineItemHsn: _showLineItemHsn,
+        gstinLookupEnabled: _gstinLookupEnabled,
+        gstinLookupApiKey: _gstinLookupApiKey.text.trim(),
+        gstinLookupApiHost: _gstinLookupApiHost.text.trim().isEmpty
+            ? AppSettings.initial().gstinLookupApiHost
+            : _gstinLookupApiHost.text.trim(),
+        gstinValidationApiPath: _gstinValidationApiPath.text.trim().isEmpty
+            ? AppSettings.initial().gstinValidationApiPath
+            : _gstinValidationApiPath.text.trim(),
+        gstinLookupApiPath: _gstinLookupApiPath.text.trim(),
+        defaultCustomerState: _defaultCustomerState.text.trim(),
+        defaultShippingState: _defaultShippingState.text.trim(),
+        defaultLineItemUnit: _defaultLineItemUnit.text.trim().isEmpty
+            ? 'service'
+            : _defaultLineItemUnit.text.trim(),
         customCustomerFields: _customCustomerFields,
         customShippingFields: _customShippingFields,
         customLineItemFields: _customLineItemFields,
@@ -569,6 +676,8 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
 
   void _addCustomField({
     required TextEditingController controller,
+    required TextEditingController defaultController,
+    required bool requiredValue,
     required _CustomFieldTarget target,
   }) {
     final field = controller.text.trim();
@@ -580,7 +689,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
       _CustomFieldTarget.lineItem => _customLineItemFields,
     };
     final alreadyExists = existing.any(
-      (item) => item.toLowerCase() == field.toLowerCase(),
+      (item) => item.name.toLowerCase() == field.toLowerCase(),
     );
     if (alreadyExists) {
       ScaffoldMessenger.of(context)
@@ -594,24 +703,33 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
       return;
     }
 
+    final definition = CustomFieldDefinition(
+      name: field,
+      defaultValue: defaultController.text.trim(),
+      isRequired: requiredValue,
+    );
     setState(() {
       if (target == _CustomFieldTarget.customer) {
         _customCustomerFields = List.unmodifiable([
           ..._customCustomerFields,
-          field,
+          definition,
         ]);
+        _newCustomerFieldRequired = false;
       } else if (target == _CustomFieldTarget.shipping) {
         _customShippingFields = List.unmodifiable([
           ..._customShippingFields,
-          field,
+          definition,
         ]);
+        _newShippingFieldRequired = false;
       } else {
         _customLineItemFields = List.unmodifiable([
           ..._customLineItemFields,
-          field,
+          definition,
         ]);
+        _newLineItemFieldRequired = false;
       }
       controller.clear();
+      defaultController.clear();
     });
   }
 
@@ -619,16 +737,37 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
     setState(() {
       if (target == _CustomFieldTarget.customer) {
         _customCustomerFields = List.unmodifiable(
-          _customCustomerFields.where((item) => item != field),
+          _customCustomerFields.where((item) => item.name != field),
         );
       } else if (target == _CustomFieldTarget.shipping) {
         _customShippingFields = List.unmodifiable(
-          _customShippingFields.where((item) => item != field),
+          _customShippingFields.where((item) => item.name != field),
         );
       } else {
         _customLineItemFields = List.unmodifiable(
-          _customLineItemFields.where((item) => item != field),
+          _customLineItemFields.where((item) => item.name != field),
         );
+      }
+    });
+  }
+
+  void _updateCustomField(
+    CustomFieldDefinition field, {
+    required _CustomFieldTarget target,
+  }) {
+    List<CustomFieldDefinition> replace(List<CustomFieldDefinition> fields) {
+      return List.unmodifiable(
+        fields.map((item) => item.name == field.name ? field : item),
+      );
+    }
+
+    setState(() {
+      if (target == _CustomFieldTarget.customer) {
+        _customCustomerFields = replace(_customCustomerFields);
+      } else if (target == _CustomFieldTarget.shipping) {
+        _customShippingFields = replace(_customShippingFields);
+      } else {
+        _customLineItemFields = replace(_customLineItemFields);
       }
     });
   }
@@ -639,6 +778,27 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         _SettingsPanel.business,
         'Business Name is required',
       );
+    }
+
+    if (_gstinLookupEnabled) {
+      if (_gstinLookupApiKey.text.trim().isEmpty) {
+        return const MapEntry(
+          _SettingsPanel.invoice,
+          'RapidAPI Key is required when GSTIN lookup is enabled',
+        );
+      }
+      if (_gstinValidationApiPath.text.trim().isEmpty) {
+        return const MapEntry(
+          _SettingsPanel.invoice,
+          'GST Validation Path is required when GSTIN lookup is enabled',
+        );
+      }
+      if (_gstinLookupApiPath.text.trim().isEmpty) {
+        return const MapEntry(
+          _SettingsPanel.invoice,
+          'GST Details Path is required when GSTIN lookup is enabled',
+        );
+      }
     }
 
     final numericFields = [
@@ -1136,6 +1296,7 @@ class _Field extends StatelessWidget {
     this.maxLines = 1,
     this.helperText,
     this.onChanged,
+    this.obscureText = false,
   });
 
   final TextEditingController controller;
@@ -1145,12 +1306,14 @@ class _Field extends StatelessWidget {
   final int maxLines;
   final String? helperText;
   final ValueChanged<String>? onChanged;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
+      obscureText: obscureText,
       keyboardType: numeric ? TextInputType.number : TextInputType.text,
       decoration: InputDecoration(labelText: label, helperText: helperText),
       onChanged: onChanged,
@@ -1294,17 +1457,25 @@ class _CustomFieldBuilder extends StatelessWidget {
     required this.title,
     required this.helperText,
     required this.inputController,
+    required this.defaultController,
+    required this.requiredValue,
+    required this.onRequiredChanged,
     required this.fields,
     required this.onAdd,
+    required this.onChanged,
     required this.onRemove,
   });
 
   final String title;
   final String helperText;
   final TextEditingController inputController;
-  final List<String> fields;
+  final TextEditingController defaultController;
+  final bool requiredValue;
+  final ValueChanged<bool> onRequiredChanged;
+  final List<CustomFieldDefinition> fields;
   final VoidCallback onAdd;
-  final ValueChanged<String> onRemove;
+  final ValueChanged<CustomFieldDefinition> onChanged;
+  final ValueChanged<CustomFieldDefinition> onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -1348,6 +1519,23 @@ class _CustomFieldBuilder extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: TextField(
+                  controller: defaultController,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => onAdd(),
+                  decoration: const InputDecoration(
+                    labelText: 'Default value',
+                    hintText: 'Optional',
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _MiniRequiredToggle(
+                value: requiredValue,
+                onChanged: onRequiredChanged,
+              ),
+              const SizedBox(width: AppSpacing.sm),
               IconButton.filled(
                 tooltip: 'Add field',
                 onPressed: onAdd,
@@ -1364,18 +1552,118 @@ class _CustomFieldBuilder extends StatelessWidget {
               ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
             )
           else
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
+            Column(
               children: [
                 for (final field in fields)
-                  InputChip(
-                    label: Text(field),
-                    onDeleted: () => onRemove(field),
-                    deleteIcon: const Icon(Icons.close, size: 18),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _CustomFieldRow(
+                      field: field,
+                      onChanged: onChanged,
+                      onRemove: () => onRemove(field),
+                    ),
                   ),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniRequiredToggle extends StatelessWidget {
+  const _MiniRequiredToggle({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Required field',
+      child: FilterChip(
+        selected: value,
+        label: const Text('Required'),
+        avatar: Icon(value ? Icons.check_circle : Icons.circle_outlined),
+        onSelected: onChanged,
+      ),
+    );
+  }
+}
+
+class _CustomFieldRow extends StatelessWidget {
+  const _CustomFieldRow({
+    required this.field,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final CustomFieldDefinition field;
+  final ValueChanged<CustomFieldDefinition> onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.view_column_outlined,
+                size: 18,
+                color: AppColors.primaryPurple,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  field.name.isEmpty ? 'Unnamed field' : field.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove field',
+                onPressed: onRemove,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: ValueKey(field.name),
+                  initialValue: field.defaultValue,
+                  decoration: const InputDecoration(labelText: 'Default value'),
+                  onChanged: (value) =>
+                      onChanged(field.copyWith(defaultValue: value.trim())),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FilterChip(
+                selected: field.isRequired,
+                label: const Text('Required'),
+                avatar: Icon(
+                  field.isRequired ? Icons.check_circle : Icons.circle_outlined,
+                ),
+                onSelected: (value) =>
+                    onChanged(field.copyWith(isRequired: value)),
+              ),
+            ],
+          ),
         ],
       ),
     );

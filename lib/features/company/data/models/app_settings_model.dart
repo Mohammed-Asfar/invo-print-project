@@ -22,6 +22,14 @@ class AppSettingsModel extends AppSettings {
     required super.themeMode,
     required super.primaryColorHex,
     required super.showLineItemHsn,
+    required super.gstinLookupEnabled,
+    required super.gstinLookupApiKey,
+    required super.gstinLookupApiHost,
+    required super.gstinValidationApiPath,
+    required super.gstinLookupApiPath,
+    required super.defaultCustomerState,
+    required super.defaultShippingState,
+    required super.defaultLineItemUnit,
     required super.customCustomerFields,
     required super.customShippingFields,
     required super.customLineItemFields,
@@ -50,6 +58,14 @@ class AppSettingsModel extends AppSettings {
       themeMode: settings.themeMode,
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
+      gstinLookupEnabled: settings.gstinLookupEnabled,
+      gstinLookupApiKey: settings.gstinLookupApiKey,
+      gstinLookupApiHost: settings.gstinLookupApiHost,
+      gstinValidationApiPath: settings.gstinValidationApiPath,
+      gstinLookupApiPath: settings.gstinLookupApiPath,
+      defaultCustomerState: settings.defaultCustomerState,
+      defaultShippingState: settings.defaultShippingState,
+      defaultLineItemUnit: settings.defaultLineItemUnit,
       customCustomerFields: settings.customCustomerFields,
       customShippingFields: settings.customShippingFields,
       customLineItemFields: settings.customLineItemFields,
@@ -96,15 +112,34 @@ class AppSettingsModel extends AppSettings {
           map['primaryColorHex'] as String? ?? defaults.primaryColorHex,
       showLineItemHsn:
           map['showLineItemHsn'] as bool? ?? defaults.showLineItemHsn,
-      customCustomerFields: _toStringList(
+      gstinLookupEnabled:
+          map['gstinLookupEnabled'] as bool? ?? defaults.gstinLookupEnabled,
+      gstinLookupApiKey:
+          map['gstinLookupApiKey'] as String? ?? defaults.gstinLookupApiKey,
+      gstinLookupApiHost:
+          map['gstinLookupApiHost'] as String? ?? defaults.gstinLookupApiHost,
+      gstinValidationApiPath:
+          map['gstinValidationApiPath'] as String? ??
+          defaults.gstinValidationApiPath,
+      gstinLookupApiPath:
+          map['gstinLookupApiPath'] as String? ?? defaults.gstinLookupApiPath,
+      defaultCustomerState:
+          map['defaultCustomerState'] as String? ??
+          defaults.defaultCustomerState,
+      defaultShippingState:
+          map['defaultShippingState'] as String? ??
+          defaults.defaultShippingState,
+      defaultLineItemUnit:
+          map['defaultLineItemUnit'] as String? ?? defaults.defaultLineItemUnit,
+      customCustomerFields: _toCustomFields(
         map['customCustomerFields'],
         defaults.customCustomerFields,
       ),
-      customShippingFields: _toStringList(
+      customShippingFields: _toCustomFields(
         map['customShippingFields'],
         defaults.customShippingFields,
       ),
-      customLineItemFields: _toStringList(
+      customLineItemFields: _toCustomFields(
         map['customLineItemFields'],
         defaults.customLineItemFields,
       ),
@@ -134,22 +169,54 @@ class AppSettingsModel extends AppSettings {
       'themeMode': themeMode,
       'primaryColorHex': primaryColorHex,
       'showLineItemHsn': showLineItemHsn,
-      'customCustomerFields': customCustomerFields,
-      'customShippingFields': customShippingFields,
-      'customLineItemFields': customLineItemFields,
+      'gstinLookupEnabled': gstinLookupEnabled,
+      'gstinLookupApiKey': gstinLookupApiKey,
+      'gstinLookupApiHost': gstinLookupApiHost,
+      'gstinValidationApiPath': gstinValidationApiPath,
+      'gstinLookupApiPath': gstinLookupApiPath,
+      'defaultCustomerState': defaultCustomerState,
+      'defaultShippingState': defaultShippingState,
+      'defaultLineItemUnit': defaultLineItemUnit,
+      'customCustomerFields': customCustomerFields.map(_fieldToMap).toList(),
+      'customShippingFields': customShippingFields.map(_fieldToMap).toList(),
+      'customLineItemFields': customLineItemFields.map(_fieldToMap).toList(),
       'updatedAt': updatedAt,
     };
   }
 
-  static List<String> _toStringList(dynamic value, List<String> fallback) {
+  static List<CustomFieldDefinition> _toCustomFields(
+    dynamic value,
+    List<CustomFieldDefinition> fallback,
+  ) {
     if (value is List) {
       return value
-          .whereType<String>()
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
+          .map(_fieldFromValue)
+          .where((item) => item.name.trim().isNotEmpty)
           .toList();
     }
     return fallback;
+  }
+
+  static CustomFieldDefinition _fieldFromValue(dynamic value) {
+    if (value is String) {
+      return CustomFieldDefinition(name: value.trim());
+    }
+    if (value is Map) {
+      return CustomFieldDefinition(
+        name: value['name']?.toString().trim() ?? '',
+        defaultValue: value['defaultValue']?.toString() ?? '',
+        isRequired: value['required'] as bool? ?? false,
+      );
+    }
+    return const CustomFieldDefinition(name: '');
+  }
+
+  static Map<String, dynamic> _fieldToMap(CustomFieldDefinition field) {
+    return {
+      'name': field.name,
+      'defaultValue': field.defaultValue,
+      'required': field.isRequired,
+    };
   }
 
   static double _toDouble(dynamic value, double fallback) {

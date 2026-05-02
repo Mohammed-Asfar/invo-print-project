@@ -12,6 +12,7 @@ class InvoiceDraft extends Equatable {
     required this.customerGstin,
     required this.customerState,
     required this.billingAddress,
+    required this.shippingEnabled,
     required this.shippingAddress,
     this.shipToName = '',
     this.shipToPhone = '',
@@ -24,6 +25,7 @@ class InvoiceDraft extends Equatable {
     required this.dueDate,
     required this.taxMode,
     required this.status,
+    required this.roundOffEnabled,
     required this.items,
     required this.notes,
     required this.terms,
@@ -39,6 +41,7 @@ class InvoiceDraft extends Equatable {
       customerGstin: '',
       customerState: '',
       billingAddress: '',
+      shippingEnabled: false,
       shippingAddress: '',
       shipToName: '',
       shipToPhone: '',
@@ -51,6 +54,7 @@ class InvoiceDraft extends Equatable {
       dueDate: now.add(const Duration(days: 15)),
       taxMode: TaxMode.cgstSgst,
       status: InvoiceStatus.unpaid,
+      roundOffEnabled: false,
       items: const [
         InvoiceItem(
           productId: '',
@@ -81,6 +85,7 @@ class InvoiceDraft extends Equatable {
   final String customerGstin;
   final String customerState;
   final String billingAddress;
+  final bool shippingEnabled;
   final String shippingAddress;
   final String shipToName;
   final String shipToPhone;
@@ -93,6 +98,7 @@ class InvoiceDraft extends Equatable {
   final DateTime dueDate;
   final TaxMode taxMode;
   final InvoiceStatus status;
+  final bool roundOffEnabled;
   final List<InvoiceItem> items;
   final String notes;
   final String terms;
@@ -105,7 +111,9 @@ class InvoiceDraft extends Equatable {
       phone: customerPhone,
       email: customerEmail,
       billingAddress: billingAddress,
-      shippingAddress: shippingAddress,
+      shippingAddress: shippingEnabled
+          ? shippingAddress
+          : existing.shippingAddress,
       gstin: customerGstin,
       state: customerState,
       defaultDiscountType: existing.defaultDiscountType,
@@ -127,15 +135,18 @@ class InvoiceDraft extends Equatable {
   }
 
   Map<String, dynamic> get customerSnapshot {
-    return {
+    final snapshot = <String, dynamic>{
       'name': customerName,
       'phone': customerPhone,
       'email': customerEmail,
       'gstin': customerGstin,
       'state': customerState,
       'billingAddress': billingAddress,
-      'shippingAddress': shippingAddress,
-      'shippedTo': {
+      'customFields': customerCustomFields,
+    };
+    if (shippingEnabled) {
+      snapshot['shippingAddress'] = shippingAddress;
+      snapshot['shippedTo'] = {
         'name': shipToName,
         'phone': shipToPhone,
         'email': shipToEmail,
@@ -143,9 +154,9 @@ class InvoiceDraft extends Equatable {
         'state': shipToState,
         'pincode': shipToPincode,
         'customFields': shippingCustomFields,
-      },
-      'customFields': customerCustomFields,
-    };
+      };
+    }
+    return snapshot;
   }
 
   @override
@@ -157,6 +168,7 @@ class InvoiceDraft extends Equatable {
     customerGstin,
     customerState,
     billingAddress,
+    shippingEnabled,
     shippingAddress,
     shipToName,
     shipToPhone,
@@ -169,6 +181,7 @@ class InvoiceDraft extends Equatable {
     dueDate,
     taxMode,
     status,
+    roundOffEnabled,
     items,
     notes,
     terms,

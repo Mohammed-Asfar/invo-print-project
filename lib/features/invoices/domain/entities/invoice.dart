@@ -24,6 +24,8 @@ class Invoice extends Equatable {
     required this.cgstAmount,
     required this.sgstAmount,
     required this.igstAmount,
+    required this.roundOffEnabled,
+    required this.roundOffAmount,
     required this.grandTotal,
     required this.amountPaid,
     required this.notes,
@@ -55,6 +57,8 @@ class Invoice extends Equatable {
   final double cgstAmount;
   final double sgstAmount;
   final double igstAmount;
+  final bool roundOffEnabled;
+  final double roundOffAmount;
   final double grandTotal;
   final double amountPaid;
   final DateTime? paidAt;
@@ -87,6 +91,8 @@ class Invoice extends Equatable {
     cgstAmount,
     sgstAmount,
     igstAmount,
+    roundOffEnabled,
+    roundOffAmount,
     grandTotal,
     amountPaid,
     paidAt,

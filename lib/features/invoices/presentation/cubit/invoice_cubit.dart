@@ -14,6 +14,7 @@ import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
 import '../../domain/services/invoice_calculator.dart';
+import '../../../customers/data/services/gstin_lookup_service.dart';
 
 part 'invoice_state.dart';
 
@@ -25,6 +26,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     this._settingsRepository,
     this._calculator,
     this._numberingService,
+    this._gstinLookupService,
   ) : super(const InvoiceState());
 
   final InvoiceRepository _invoiceRepository;
@@ -33,6 +35,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   final CompanySettingsRepository _settingsRepository;
   final InvoiceCalculator _calculator;
   final NumberingService _numberingService;
+  final GstinLookupService _gstinLookupService;
 
   Future<void> load() async {
     emit(state.copyWith(status: InvoiceStatusView.loading, clearMessage: true));
@@ -78,6 +81,42 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     emit(state.copyWith(searchQuery: value));
   }
 
+  Future<GstinBusinessDetails> lookupGstin(String gstin) {
+    final settings = state.settings;
+    if (settings == null) {
+      throw const AppException('Company settings are not loaded yet.');
+    }
+    if (!settings.gstinLookupEnabled) {
+      throw const AppException(
+        'Enable GSTIN lookup in Company Settings before using this action.',
+      );
+    }
+    return _gstinLookupService.lookup(
+      gstin: gstin,
+      apiKey: settings.gstinLookupApiKey,
+      host: settings.gstinLookupApiHost,
+      endpointPath: settings.gstinLookupApiPath,
+    );
+  }
+
+  Future<GstinValidationResult> validateGstin(String gstin) {
+    final settings = state.settings;
+    if (settings == null) {
+      throw const AppException('Company settings are not loaded yet.');
+    }
+    if (!settings.gstinLookupEnabled) {
+      throw const AppException(
+        'Enable GSTIN lookup in Company Settings before using this action.',
+      );
+    }
+    return _gstinLookupService.validate(
+      gstin: gstin,
+      apiKey: settings.gstinLookupApiKey,
+      host: settings.gstinLookupApiHost,
+      endpointPath: settings.gstinValidationApiPath,
+    );
+  }
+
   Future<void> saveDraft(InvoiceDraft draft) async {
     if (state.settings == null || state.companyProfile == null) {
       emit(
@@ -121,6 +160,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       final totals = _calculator.calculate(
         items: validItems,
         taxMode: draft.taxMode,
+        roundOffEnabled: draft.roundOffEnabled,
       );
       final now = DateTime.now();
       final sequence = settings.invoiceNextNumber;
@@ -153,6 +193,8 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         cgstAmount: totals.cgstAmount,
         sgstAmount: totals.sgstAmount,
         igstAmount: totals.igstAmount,
+        roundOffEnabled: draft.roundOffEnabled,
+        roundOffAmount: totals.roundOffAmount,
         grandTotal: totals.grandTotal,
         amountPaid: draft.status == InvoiceStatus.paid ? totals.grandTotal : 0,
         paidAt: draft.status == InvoiceStatus.paid ? now : null,
@@ -207,20 +249,27 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       customerPhone: '',
       customerEmail: '',
       customerGstin: '',
-      customerState: '',
+      customerState: settings.defaultCustomerState,
       billingAddress: '',
+      shippingEnabled: false,
       shippingAddress: '',
       shipToName: '',
       shipToPhone: '',
       shipToEmail: '',
-      shipToState: '',
+      shipToState: settings.defaultShippingState,
       shipToPincode: '',
       shippingCustomFields: const {},
       invoiceDate: now,
       dueDate: now.add(const Duration(days: 15)),
       taxMode: settings.gstEnabled ? TaxMode.cgstSgst : TaxMode.none,
       status: InvoiceStatus.unpaid,
-      items: [InvoiceItem.empty().copyWith(gstRate: settings.defaultGstRate)],
+      roundOffEnabled: false,
+      items: [
+        InvoiceItem.empty().copyWith(
+          unit: settings.defaultLineItemUnit,
+          gstRate: settings.defaultGstRate,
+        ),
+      ],
       notes: '',
       terms: '',
     );
@@ -248,6 +297,14 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       themeMode: settings.themeMode,
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
+      gstinLookupEnabled: settings.gstinLookupEnabled,
+      gstinLookupApiKey: settings.gstinLookupApiKey,
+      gstinLookupApiHost: settings.gstinLookupApiHost,
+      gstinValidationApiPath: settings.gstinValidationApiPath,
+      gstinLookupApiPath: settings.gstinLookupApiPath,
+      defaultCustomerState: settings.defaultCustomerState,
+      defaultShippingState: settings.defaultShippingState,
+      defaultLineItemUnit: settings.defaultLineItemUnit,
       customCustomerFields: settings.customCustomerFields,
       customShippingFields: settings.customShippingFields,
       customLineItemFields: settings.customLineItemFields,

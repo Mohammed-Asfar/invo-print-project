@@ -64,38 +64,19 @@ class CustomerRepository {
 
   Future<Customer> findOrCreateFromInvoice(Customer customer) async {
     final customers = await fetchCustomers();
+    final selectedMatches = customer.id.isEmpty
+        ? <Customer>[]
+        : customers.where((existing) => existing.id == customer.id).toList();
+    final selectedMatch = selectedMatches.isEmpty
+        ? null
+        : selectedMatches.first;
+    if (selectedMatch != null) {
+      return saveAndReturnCustomer(_mergeCustomer(selectedMatch, customer));
+    }
+
     final match = _findBestMatch(customers, customer);
     if (match != null) {
-      final merged = Customer(
-        id: match.id,
-        name: customer.name.isEmpty ? match.name : customer.name,
-        phone: customer.phone.isEmpty ? match.phone : customer.phone,
-        email: customer.email.isEmpty ? match.email : customer.email,
-        billingAddress: customer.billingAddress.isEmpty
-            ? match.billingAddress
-            : customer.billingAddress,
-        shippingAddress: customer.shippingAddress.isEmpty
-            ? match.shippingAddress
-            : customer.shippingAddress,
-        gstin: customer.gstin.isEmpty ? match.gstin : customer.gstin,
-        state: customer.state.isEmpty ? match.state : customer.state,
-        defaultDiscountType: match.defaultDiscountType,
-        defaultDiscountValue: match.defaultDiscountValue,
-        loyaltyEnabled: match.loyaltyEnabled,
-        loyaltyPointsBalance: match.loyaltyPointsBalance,
-        lifetimePointsEarned: match.lifetimePointsEarned,
-        lifetimePointsRedeemed: match.lifetimePointsRedeemed,
-        totalBilled: match.totalBilled,
-        totalPaid: match.totalPaid,
-        outstandingAmount: match.outstandingAmount,
-        lastInvoiceAt: match.lastInvoiceAt,
-        notes: match.notes,
-        isActive: true,
-        createdAt: match.createdAt,
-        updatedAt: DateTime.now(),
-        customFields: {...match.customFields, ...customer.customFields},
-      );
-      return saveAndReturnCustomer(merged);
+      return saveAndReturnCustomer(_mergeCustomer(match, customer));
     }
     return saveAndReturnCustomer(customer);
   }
@@ -105,17 +86,49 @@ class CustomerRepository {
     final email = candidate.email.trim().toLowerCase();
     final gstin = candidate.gstin.trim().toLowerCase();
     for (final customer in customers) {
-      if (phone.isNotEmpty && customer.phone.toLowerCase() == phone) {
+      if (gstin.isNotEmpty && customer.gstin.toLowerCase() == gstin) {
         return customer;
       }
       if (email.isNotEmpty && customer.email.toLowerCase() == email) {
         return customer;
       }
-      if (gstin.isNotEmpty && customer.gstin.toLowerCase() == gstin) {
+      if (phone.isNotEmpty && customer.phone.toLowerCase() == phone) {
         return customer;
       }
     }
     return null;
+  }
+
+  Customer _mergeCustomer(Customer existing, Customer incoming) {
+    return Customer(
+      id: existing.id,
+      name: incoming.name.isEmpty ? existing.name : incoming.name,
+      phone: incoming.phone.isEmpty ? existing.phone : incoming.phone,
+      email: incoming.email.isEmpty ? existing.email : incoming.email,
+      billingAddress: incoming.billingAddress.isEmpty
+          ? existing.billingAddress
+          : incoming.billingAddress,
+      shippingAddress: incoming.shippingAddress.isEmpty
+          ? existing.shippingAddress
+          : incoming.shippingAddress,
+      gstin: incoming.gstin.isEmpty ? existing.gstin : incoming.gstin,
+      state: incoming.state.isEmpty ? existing.state : incoming.state,
+      defaultDiscountType: existing.defaultDiscountType,
+      defaultDiscountValue: existing.defaultDiscountValue,
+      loyaltyEnabled: existing.loyaltyEnabled,
+      loyaltyPointsBalance: existing.loyaltyPointsBalance,
+      lifetimePointsEarned: existing.lifetimePointsEarned,
+      lifetimePointsRedeemed: existing.lifetimePointsRedeemed,
+      totalBilled: existing.totalBilled,
+      totalPaid: existing.totalPaid,
+      outstandingAmount: existing.outstandingAmount,
+      lastInvoiceAt: existing.lastInvoiceAt,
+      notes: existing.notes,
+      isActive: true,
+      createdAt: existing.createdAt,
+      updatedAt: DateTime.now(),
+      customFields: {...existing.customFields, ...incoming.customFields},
+    );
   }
 
   Future<void> archiveCustomer(Customer customer) {

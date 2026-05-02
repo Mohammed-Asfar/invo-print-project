@@ -9,6 +9,7 @@ class InvoiceTotals {
     required this.cgstAmount,
     required this.sgstAmount,
     required this.igstAmount,
+    required this.roundOffAmount,
     required this.grandTotal,
   });
 
@@ -18,6 +19,7 @@ class InvoiceTotals {
   final double cgstAmount;
   final double sgstAmount;
   final double igstAmount;
+  final double roundOffAmount;
   final double grandTotal;
 }
 
@@ -45,6 +47,7 @@ class InvoiceCalculator {
   InvoiceTotals calculate({
     required List<InvoiceItem> items,
     required TaxMode taxMode,
+    bool roundOffEnabled = false,
   }) {
     final calculatedItems = items
         .map((item) => calculateItem(item: item, taxMode: taxMode))
@@ -53,6 +56,12 @@ class InvoiceCalculator {
     final cgst = _sum(calculatedItems.map((item) => item.cgstAmount));
     final sgst = _sum(calculatedItems.map((item) => item.sgstAmount));
     final igst = _sum(calculatedItems.map((item) => item.igstAmount));
+    final totalBeforeRoundOff = _round(subtotal + cgst + sgst + igst);
+    final grandTotal = roundOffEnabled
+        ? totalBeforeRoundOff.roundToDouble()
+        : totalBeforeRoundOff;
+    final roundOffAmount = _round(grandTotal - totalBeforeRoundOff);
+
     return InvoiceTotals(
       items: calculatedItems,
       subtotal: subtotal,
@@ -60,7 +69,8 @@ class InvoiceCalculator {
       cgstAmount: cgst,
       sgstAmount: sgst,
       igstAmount: igst,
-      grandTotal: subtotal + cgst + sgst + igst,
+      roundOffAmount: roundOffAmount,
+      grandTotal: grandTotal,
     );
   }
 

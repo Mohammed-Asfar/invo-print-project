@@ -22,6 +22,14 @@ class AppSettings extends Equatable {
     required this.themeMode,
     required this.primaryColorHex,
     required this.showLineItemHsn,
+    required this.gstinLookupEnabled,
+    required this.gstinLookupApiKey,
+    required this.gstinLookupApiHost,
+    required this.gstinValidationApiPath,
+    required this.gstinLookupApiPath,
+    required this.defaultCustomerState,
+    required this.defaultShippingState,
+    required this.defaultLineItemUnit,
     required this.customCustomerFields,
     required this.customShippingFields,
     required this.customLineItemFields,
@@ -50,6 +58,14 @@ class AppSettings extends Equatable {
       themeMode: 'dark',
       primaryColorHex: '#7C4DFF',
       showLineItemHsn: true,
+      gstinLookupEnabled: false,
+      gstinLookupApiKey: '',
+      gstinLookupApiHost: 'powerful-gstin-tool.p.rapidapi.com',
+      gstinValidationApiPath: '/v1/gstin/{gstin}/status',
+      gstinLookupApiPath: '/v1/gstin/{gstin}/details',
+      defaultCustomerState: '',
+      defaultShippingState: '',
+      defaultLineItemUnit: 'service',
       customCustomerFields: const [],
       customShippingFields: const [],
       customLineItemFields: const [],
@@ -77,9 +93,17 @@ class AppSettings extends Equatable {
   final String themeMode;
   final String primaryColorHex;
   final bool showLineItemHsn;
-  final List<String> customCustomerFields;
-  final List<String> customShippingFields;
-  final List<String> customLineItemFields;
+  final bool gstinLookupEnabled;
+  final String gstinLookupApiKey;
+  final String gstinLookupApiHost;
+  final String gstinValidationApiPath;
+  final String gstinLookupApiPath;
+  final String defaultCustomerState;
+  final String defaultShippingState;
+  final String defaultLineItemUnit;
+  final List<CustomFieldDefinition> customCustomerFields;
+  final List<CustomFieldDefinition> customShippingFields;
+  final List<CustomFieldDefinition> customLineItemFields;
   final DateTime updatedAt;
 
   @override
@@ -104,9 +128,44 @@ class AppSettings extends Equatable {
     themeMode,
     primaryColorHex,
     showLineItemHsn,
+    gstinLookupEnabled,
+    gstinLookupApiKey,
+    gstinLookupApiHost,
+    gstinValidationApiPath,
+    gstinLookupApiPath,
+    defaultCustomerState,
+    defaultShippingState,
+    defaultLineItemUnit,
     customCustomerFields,
     customShippingFields,
     customLineItemFields,
     updatedAt,
   ];
+}
+
+class CustomFieldDefinition extends Equatable {
+  const CustomFieldDefinition({
+    required this.name,
+    this.defaultValue = '',
+    this.isRequired = false,
+  });
+
+  final String name;
+  final String defaultValue;
+  final bool isRequired;
+
+  CustomFieldDefinition copyWith({
+    String? name,
+    String? defaultValue,
+    bool? isRequired,
+  }) {
+    return CustomFieldDefinition(
+      name: name ?? this.name,
+      defaultValue: defaultValue ?? this.defaultValue,
+      isRequired: isRequired ?? this.isRequired,
+    );
+  }
+
+  @override
+  List<Object?> get props => [name, defaultValue, isRequired];
 }

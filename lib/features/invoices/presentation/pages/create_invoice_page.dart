@@ -1,16 +1,22 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
+import '../../../../core/errors/app_exception.dart';
 import '../../../company/domain/entities/app_settings.dart';
 import '../../../customers/domain/entities/customer.dart';
+import '../../../customers/data/services/gstin_lookup_service.dart';
 import '../../../products/domain/entities/product_service.dart';
 import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
+import '../../domain/services/hsn_gst_lookup.dart';
 import '../../domain/services/invoice_calculator.dart';
 import '../cubit/invoice_cubit.dart';
 import 'invoices_page.dart';
@@ -57,16 +63,25 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   final _calculator = InvoiceCalculator();
   late TaxMode _taxMode;
   late InvoiceStatus _status;
+  late bool _roundOffEnabled;
+  late bool _shippingEnabled;
   late DateTime _invoiceDate;
   late DateTime _dueDate;
   late List<_ItemControllers> _items;
   Customer? _selectedCustomer;
   bool _seeded = false;
+  bool _isSeedingControllers = false;
+  bool _isLookingUpGstin = false;
+  bool _isValidatingGstin = false;
+  _GstinValidationState? _gstinValidation;
+  HsnGstLookup? _hsnGstLookup;
 
   @override
   void initState() {
     super.initState();
     _seedFromDraft(InvoiceDraft.initial());
+    _loadHsnGstLookup();
+    _gstin.addListener(_handleGstinTextChanged);
     for (final controller in [
       _customerName,
       _phone,
@@ -91,6 +106,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   @override
   void dispose() {
+    _gstin.removeListener(_handleGstinTextChanged);
     for (final controller in [
       _customerName,
       _phone,
@@ -150,6 +166,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
           _seeded = true;
         }
 
+        final settings = state.settings ?? AppSettings.initial();
         final totals = _calculateTotals();
         final invoiceNumber = _invoiceNumberPreview(state);
 
@@ -173,8 +190,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                       : LayoutBuilder(
                           builder: (context, constraints) {
                             final stackSummary = constraints.maxWidth < 1100;
-                            final editorSettings =
-                                state.settings ?? AppSettings.initial();
+                            final editorSettings = settings;
                             for (final item in _items) {
                               item.ensureCustomFields(
                                 editorSettings.customLineItemFields,
@@ -207,6 +223,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               gstin: _gstin,
                               state: _state,
                               billingAddress: _billingAddress,
+                              gstinLookupEnabled:
+                                  editorSettings.gstinLookupEnabled,
+                              gstinValidation: _gstinValidation,
+                              isValidatingGstin: _isValidatingGstin,
+                              isLookingUpGstin: _isLookingUpGstin,
+                              shippingEnabled: _shippingEnabled,
                               shippingAddress: _shippingAddress,
                               shipToName: _shipToName,
                               shipToPhone: _shipToPhone,
@@ -217,10 +239,20 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               dueDate: _dueDate,
                               taxMode: _taxMode,
                               status: _status,
+                              roundOffEnabled: _roundOffEnabled,
                               items: _items,
                               notes: _notes,
                               terms: _terms,
                               onPickCustomer: _applyCustomer,
+                              onValidateGstin: () => _validateGstin(context),
+                              onLookupGstin: () => _lookupGstinDetails(context),
+                              onShippingEnabledChanged: (value) => setState(() {
+                                _shippingEnabled = value;
+                                if (value && _shipToState.text.trim().isEmpty) {
+                                  _shipToState.text =
+                                      editorSettings.defaultShippingState;
+                                }
+                              }),
                               onUseBillingForShipping:
                                   _copyBillingDetailsToShipping,
                               onInvoiceDateChanged: (date) =>
@@ -231,9 +263,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                   setState(() => _taxMode = value),
                               onStatusChanged: (value) =>
                                   setState(() => _status = value),
+                              onRoundOffChanged: (value) =>
+                                  setState(() => _roundOffEnabled = value),
                               onAddItem: _addItem,
                               onRemoveItem: _removeItem,
                               onChanged: _refresh,
+                              onProductApplied: _applyHsnRate,
                             );
                             final summary = _SummaryPanel(
                               invoiceNumber: invoiceNumber,
@@ -285,13 +320,51 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   }
 
   void _seedFromDraft(InvoiceDraft draft) {
+    _isSeedingControllers = true;
+    _selectedCustomer = draft.existingCustomer;
+    _customerName.text = draft.customerName;
+    _phone.text = draft.customerPhone;
+    _email.text = draft.customerEmail;
+    _gstin.text = draft.customerGstin;
+    _state.text = draft.customerState;
+    _billingAddress.text = draft.billingAddress;
+    _shippingAddress.text = draft.shippingAddress;
+    _shipToName.text = draft.shipToName;
+    _shipToPhone.text = draft.shipToPhone;
+    _shipToEmail.text = draft.shipToEmail;
+    _shipToState.text = draft.shipToState;
+    _shipToPincode.text = draft.shipToPincode;
+    for (final entry in draft.customerCustomFields.entries) {
+      _customerCustomField(entry.key).text = entry.value;
+    }
+    for (final entry in draft.shippingCustomFields.entries) {
+      _shippingCustomField(entry.key).text = entry.value;
+    }
     _taxMode = draft.taxMode;
     _status = draft.status;
+    _roundOffEnabled = draft.roundOffEnabled;
+    _shippingEnabled = draft.shippingEnabled;
     _invoiceDate = draft.invoiceDate;
     _dueDate = draft.dueDate;
     _items = draft.items.map(_ItemControllers.fromItem).toList();
     for (final item in _items) {
-      item.addListener(_refresh);
+      _attachItem(item);
+    }
+    _isSeedingControllers = false;
+  }
+
+  Future<void> _loadHsnGstLookup() async {
+    try {
+      final raw = await rootBundle.loadString('assets/hsn_gst_dataset.json');
+      final decoded = jsonDecode(raw);
+      if (!mounted || decoded is! Map<String, dynamic>) return;
+      _hsnGstLookup = HsnGstLookup.fromJsonMap(decoded);
+      for (final item in _items) {
+        _applyHsnRate(item);
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Keep manual GST entry working even if the lookup asset is unavailable.
     }
   }
 
@@ -305,6 +378,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _state.text = customer.state;
       _billingAddress.text = customer.billingAddress;
       _shippingAddress.text = customer.shippingAddress;
+      _shippingEnabled = customer.shippingAddress.trim().isNotEmpty;
       _shipToName.text = customer.name;
       _shipToPhone.text = customer.phone;
       _shipToEmail.text = customer.email;
@@ -317,12 +391,174 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   void _copyBillingDetailsToShipping() {
     setState(() {
+      _shippingEnabled = true;
       _shipToName.text = _customerName.text.trim();
       _shipToPhone.text = _phone.text.trim();
       _shipToEmail.text = _email.text.trim();
       _shipToState.text = _state.text.trim();
       _shippingAddress.text = _billingAddress.text.trim();
     });
+  }
+
+  void _handleGstinTextChanged() {
+    final current = _gstin.text.trim().toUpperCase();
+    final cached = _gstinValidation;
+    if (cached != null && cached.gstin != current) {
+      setState(() => _gstinValidation = null);
+    }
+  }
+
+  Future<_GstinValidationState?> _validateGstin(BuildContext context) async {
+    final gstin = _gstin.text.trim().toUpperCase();
+    if (gstin.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Enter a GSTIN before validating.')),
+        );
+      return null;
+    }
+    if (_gstinValidation?.gstin == gstin && _gstinValidation != null) {
+      return _gstinValidation;
+    }
+
+    setState(() => _isValidatingGstin = true);
+    try {
+      final result = await context.read<InvoiceCubit>().validateGstin(gstin);
+      if (!mounted) return null;
+      final validation = _GstinValidationState(
+        gstin: result.gstin,
+        isValid: result.isValid,
+      );
+      setState(() => _gstinValidation = validation);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              result.isValid
+                  ? 'GSTIN format is valid.'
+                  : 'GSTIN format is invalid.',
+            ),
+            backgroundColor: result.isValid
+                ? AppColors.success
+                : AppColors.warning,
+          ),
+        );
+      return validation;
+    } on AppException catch (error) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(error.message),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      return null;
+    } catch (error) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Unable to validate GSTIN: $error'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() => _isValidatingGstin = false);
+      }
+    }
+  }
+
+  Future<void> _lookupGstinDetails(BuildContext context) async {
+    final gstin = _gstin.text.trim().toUpperCase();
+    if (gstin.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Enter a GSTIN before fetching details.'),
+          ),
+        );
+      return;
+    }
+
+    final validation = await _validateGstin(context);
+    if (!mounted || validation == null) return;
+    if (!validation.isValid) {
+      return;
+    }
+
+    setState(() => _isLookingUpGstin = true);
+    try {
+      final details = await context.read<InvoiceCubit>().lookupGstin(gstin);
+      if (!mounted) return;
+      setState(() {
+        _selectedCustomer = null;
+        _gstin.text = details.gstin;
+        if (details.displayName.isNotEmpty) {
+          _customerName.text = details.displayName;
+        }
+        if (details.stateName.isNotEmpty) {
+          _state.text = details.stateName;
+        }
+        if (details.formattedAddress.isNotEmpty) {
+          _billingAddress.text = details.formattedAddress;
+        }
+        _applyStateCodeCustomField(details);
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              details.displayName.isEmpty
+                  ? 'GSTIN details fetched.'
+                  : 'Fetched GST details for ${details.displayName}.',
+            ),
+            backgroundColor: AppColors.success,
+          ),
+        );
+    } on AppException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(error.message),
+            backgroundColor: AppColors.error,
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Unable to fetch GSTIN details: $error'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _isLookingUpGstin = false);
+      }
+    }
+  }
+
+  void _applyStateCodeCustomField(GstinBusinessDetails details) {
+    if (details.stateCode.isEmpty) return;
+    for (final entry in _customerCustomFields.entries) {
+      final key = entry.key.toLowerCase();
+      if (key.contains('state') && key.contains('code')) {
+        entry.value.text = details.stateCode;
+      }
+    }
   }
 
   void _fillDemoData() {
@@ -342,6 +578,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _billingAddress.text =
           'No: 22, MMS Complex, Pudupattinam Kalpakkam, Tamil Nadu 603102';
 
+      _shippingEnabled = true;
       _shipToName.text = 'Site Office - Kalpakkam';
       _shipToPhone.text = '9840012345';
       _shipToEmail.text = 'site@example.com';
@@ -361,6 +598,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _dueDate = now.add(const Duration(days: 15));
       _taxMode = TaxMode.cgstSgst;
       _status = InvoiceStatus.unpaid;
+      _roundOffEnabled = true;
       _notes.text = 'Goods once sold will not be taken back.';
       _terms.text = 'Payment due within 15 days from invoice date.';
 
@@ -388,7 +626,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
         ),
       ];
       for (final item in _items) {
-        item.addListener(_refresh);
+        _attachItem(item);
       }
     });
   }
@@ -433,8 +671,16 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   void _addItem() {
     setState(() {
-      final item = _ItemControllers.empty();
-      item.addListener(_refresh);
+      final settings = context.read<InvoiceCubit>().state.settings;
+      final item = settings == null
+          ? _ItemControllers.empty()
+          : _ItemControllers.fromItem(
+              InvoiceItem.empty().copyWith(
+                unit: settings.defaultLineItemUnit,
+                gstRate: settings.defaultGstRate,
+              ),
+            );
+      _attachItem(item);
       _items.add(item);
     });
   }
@@ -447,25 +693,43 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     });
   }
 
-  void _save(BuildContext context) {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _save(BuildContext context) async {
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Complete the required fields.')),
+        );
+      return;
+    }
+    final resolvedCustomer = await _resolveCustomerBeforeSave(
+      context,
+      context.read<InvoiceCubit>().state.customers,
+    );
+    if (!context.mounted || resolvedCustomer.isCancelled) {
+      return;
+    }
+    final existingCustomer = resolvedCustomer.customer ?? _selectedCustomer;
     final draft = InvoiceDraft(
-      existingCustomer: _selectedCustomer,
+      existingCustomer: existingCustomer,
       customerName: _customerName.text.trim(),
       customerPhone: _phone.text.trim(),
       customerEmail: _email.text.trim(),
       customerGstin: _gstin.text.trim(),
       customerState: _state.text.trim(),
       billingAddress: _billingAddress.text.trim(),
-      shippingAddress: _shippingAddress.text.trim(),
-      shipToName: _shipToName.text.trim(),
-      shipToPhone: _shipToPhone.text.trim(),
-      shipToEmail: _shipToEmail.text.trim(),
-      shipToState: _shipToState.text.trim(),
-      shipToPincode: _shipToPincode.text.trim(),
-      shippingCustomFields: _shippingCustomFields.map((key, controller) {
-        return MapEntry(key, controller.text.trim());
-      }),
+      shippingEnabled: _shippingEnabled,
+      shippingAddress: _shippingEnabled ? _shippingAddress.text.trim() : '',
+      shipToName: _shippingEnabled ? _shipToName.text.trim() : '',
+      shipToPhone: _shippingEnabled ? _shipToPhone.text.trim() : '',
+      shipToEmail: _shippingEnabled ? _shipToEmail.text.trim() : '',
+      shipToState: _shippingEnabled ? _shipToState.text.trim() : '',
+      shipToPincode: _shippingEnabled ? _shipToPincode.text.trim() : '',
+      shippingCustomFields: _shippingEnabled
+          ? _shippingCustomFields.map((key, controller) {
+              return MapEntry(key, controller.text.trim());
+            })
+          : const {},
       customerCustomFields: _customerCustomFields.map((key, controller) {
         return MapEntry(key, controller.text.trim());
       }),
@@ -473,6 +737,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       dueDate: _dueDate,
       taxMode: _taxMode,
       status: _status,
+      roundOffEnabled: _roundOffEnabled,
       items: _items.map((item) => item.toItem()).toList(),
       notes: _notes.text.trim(),
       terms: _terms.text.trim(),
@@ -480,19 +745,255 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     context.read<InvoiceCubit>().saveDraft(draft);
   }
 
+  Future<_CustomerResolve> _resolveCustomerBeforeSave(
+    BuildContext context,
+    List<Customer> customers,
+  ) async {
+    final phone = _phone.text.trim().toLowerCase();
+    final name = _customerName.text.trim();
+    final normalizedName = _normalizeCustomerName(name);
+    final selected = _selectedCustomer;
+    final phoneMatches = phone.isEmpty
+        ? <Customer>[]
+        : customers
+              .where(
+                (customer) =>
+                    customer.phone.trim().toLowerCase() == phone &&
+                    customer.id != selected?.id,
+              )
+              .toList();
+    final phoneOwner = phoneMatches.isEmpty ? null : phoneMatches.first;
+
+    if (selected != null && phoneOwner != null) {
+      final action = await _showSelectedCustomerPhoneConflict(
+        context,
+        selectedCustomer: selected,
+        phoneOwner: phoneOwner,
+      );
+      if (!mounted) return _CustomerResolve.cancelled;
+      if (action == _SelectedCustomerConflictAction.cancel) {
+        return _CustomerResolve.cancelled;
+      }
+      if (action == _SelectedCustomerConflictAction.usePhoneOwner) {
+        _applyCustomer(phoneOwner);
+        return _CustomerResolve(phoneOwner);
+      }
+      return _CustomerResolve(selected);
+    }
+
+    if (selected == null && phoneOwner != null) {
+      final useExisting = await _showExistingPhoneCustomerDialog(
+        context,
+        phoneOwner,
+      );
+      if (!mounted) return _CustomerResolve.cancelled;
+      if (useExisting == null) return _CustomerResolve.cancelled;
+      if (useExisting) {
+        setState(() => _selectedCustomer = phoneOwner);
+        return _CustomerResolve(phoneOwner);
+      }
+    }
+
+    if (selected == null && normalizedName.isNotEmpty) {
+      final possibleMatches = customers
+          .where((customer) {
+            final existingName = _normalizeCustomerName(customer.name);
+            if (existingName.isEmpty) return false;
+            if (customer.phone.trim().toLowerCase() == phone) return false;
+            return existingName == normalizedName ||
+                existingName.contains(normalizedName) ||
+                normalizedName.contains(existingName);
+          })
+          .take(5)
+          .toList();
+      if (possibleMatches.isNotEmpty) {
+        final chosen = await _showPossibleDuplicateCustomerDialog(
+          context,
+          possibleMatches,
+        );
+        if (!mounted) return _CustomerResolve.cancelled;
+        if (chosen.isCancelled) {
+          return _CustomerResolve.cancelled;
+        }
+        if (chosen.customer != null) {
+          setState(() => _selectedCustomer = chosen.customer);
+          return chosen;
+        }
+      }
+    }
+
+    return _CustomerResolve(_selectedCustomer);
+  }
+
+  String _normalizeCustomerName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  Future<_SelectedCustomerConflictAction> _showSelectedCustomerPhoneConflict(
+    BuildContext context, {
+    required Customer selectedCustomer,
+    required Customer phoneOwner,
+  }) async {
+    final action = await showDialog<_SelectedCustomerConflictAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Phone number already used'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This phone number belongs to ${phoneOwner.name}.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _CustomerConflictTile(
+                label: 'Selected customer',
+                customer: selectedCustomer,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _CustomerConflictTile(label: 'Phone owner', customer: phoneOwner),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(_SelectedCustomerConflictAction.cancel),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(_SelectedCustomerConflictAction.keepSelected),
+              child: const Text('Keep Selected'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(_SelectedCustomerConflictAction.usePhoneOwner),
+              child: const Text('Use Phone Owner'),
+            ),
+          ],
+        );
+      },
+    );
+    return action ?? _SelectedCustomerConflictAction.cancel;
+  }
+
+  Future<bool?> _showExistingPhoneCustomerDialog(
+    BuildContext context,
+    Customer customer,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Existing customer found'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This phone number is already saved. Use that customer so loyalty and invoice history stay together.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _CustomerConflictTile(
+                label: 'Matched customer',
+                customer: customer,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Use Existing Customer'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<_CustomerResolve> _showPossibleDuplicateCustomerDialog(
+    BuildContext context,
+    List<Customer> customers,
+  ) async {
+    final chosen = await showDialog<Object?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Possible duplicate customer'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'A similar customer already exists. Choose one to merge history, or create a new customer.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                for (final customer in customers)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _CustomerConflictTile(
+                      label: 'Possible match',
+                      customer: customer,
+                      onTap: () => Navigator.of(context).pop(customer),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_CustomerDialogExit.createNew),
+              child: const Text('Create New'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_CustomerDialogExit.cancel),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    if (chosen == _CustomerDialogExit.cancel) return _CustomerResolve.cancelled;
+    if (chosen == _CustomerDialogExit.createNew)
+      return const _CustomerResolve(null);
+    return _CustomerResolve(chosen is Customer ? chosen : null);
+  }
+
   TextEditingController _customerCustomField(String field) {
     return _customerCustomFields.putIfAbsent(field, () {
-      final controller = TextEditingController();
+      final definition = _currentSettingsCustomField(
+        context.read<InvoiceCubit>().state.settings?.customCustomerFields,
+        field,
+      );
+      final controller = TextEditingController(
+        text: definition?.defaultValue ?? '',
+      );
       controller.addListener(_refresh);
       return controller;
     });
   }
 
-  void _ensureCustomerCustomFields(List<String> fields) {
+  void _ensureCustomerCustomFields(List<CustomFieldDefinition> fields) {
     for (final field in fields) {
-      _customerCustomField(field);
+      _customerCustomField(field.name);
     }
-    final allowed = fields.map((field) => field.toLowerCase()).toSet();
+    final allowed = fields.map((field) => field.name.toLowerCase()).toSet();
     final staleKeys = _customerCustomFields.keys
         .where((field) => !allowed.contains(field.toLowerCase()))
         .toList();
@@ -505,17 +1006,23 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   TextEditingController _shippingCustomField(String field) {
     return _shippingCustomFields.putIfAbsent(field, () {
-      final controller = TextEditingController();
+      final definition = _currentSettingsCustomField(
+        context.read<InvoiceCubit>().state.settings?.customShippingFields,
+        field,
+      );
+      final controller = TextEditingController(
+        text: definition?.defaultValue ?? '',
+      );
       controller.addListener(_refresh);
       return controller;
     });
   }
 
-  void _ensureShippingCustomFields(List<String> fields) {
+  void _ensureShippingCustomFields(List<CustomFieldDefinition> fields) {
     for (final field in fields) {
-      _shippingCustomField(field);
+      _shippingCustomField(field.name);
     }
-    final allowed = fields.map((field) => field.toLowerCase()).toSet();
+    final allowed = fields.map((field) => field.name.toLowerCase()).toSet();
     final staleKeys = _shippingCustomFields.keys
         .where((field) => !allowed.contains(field.toLowerCase()))
         .toList();
@@ -530,12 +1037,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     final totals = _calculator.calculate(
       items: _items.map((item) => item.toItem()).toList(),
       taxMode: _taxMode,
+      roundOffEnabled: _roundOffEnabled,
     );
     return _InvoiceTotals(
       subtotal: totals.subtotal,
       cgst: totals.cgstAmount,
       sgst: totals.sgstAmount,
       igst: totals.igstAmount,
+      roundOff: totals.roundOffAmount,
       grandTotal: totals.grandTotal,
     );
   }
@@ -565,7 +1074,125 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   }
 
   void _refresh() {
+    if (_isSeedingControllers) return;
     if (mounted) setState(() {});
+  }
+
+  void _attachItem(_ItemControllers item) {
+    item.addListener(_refresh, onHsnChanged: (_) => _applyHsnRate(item));
+  }
+
+  void _applyHsnRate(_ItemControllers item) {
+    final lookup = _hsnGstLookup;
+    if (lookup == null) return;
+    final matchedRate = lookup.findRate(item.hsnSac.text.trim());
+    if (matchedRate == null) return;
+    final formatted = InvoiceCalculator().formatRateInput(matchedRate);
+    if (item.gstRate.text != formatted) {
+      item.gstRate.text = formatted;
+    }
+  }
+
+  CustomFieldDefinition? _currentSettingsCustomField(
+    List<CustomFieldDefinition>? fields,
+    String name,
+  ) {
+    if (fields == null) return null;
+    for (final field in fields) {
+      if (field.name.toLowerCase() == name.toLowerCase()) return field;
+    }
+    return null;
+  }
+}
+
+enum _SelectedCustomerConflictAction { keepSelected, usePhoneOwner, cancel }
+
+enum _CustomerDialogExit { createNew, cancel }
+
+class _CustomerResolve {
+  const _CustomerResolve(this.customer);
+
+  static const cancelled = _CustomerResolve._cancelled();
+
+  const _CustomerResolve._cancelled() : customer = null;
+
+  final Customer? customer;
+
+  bool get isCancelled => identical(this, cancelled);
+}
+
+class _GstinValidationState {
+  const _GstinValidationState({required this.gstin, required this.isValid});
+
+  final String gstin;
+  final bool isValid;
+}
+
+class _CustomerConflictTile extends StatelessWidget {
+  const _CustomerConflictTile({
+    required this.label,
+    required this.customer,
+    this.onTap,
+  });
+
+  final String label;
+  final Customer customer;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceSoft,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.person_outline, color: AppColors.primaryPurple),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    customer.name.isEmpty ? 'Unnamed customer' : customer.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    customer.phone.isEmpty ? 'No phone' : customer.phone,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onTap != null)
+              Icon(Icons.chevron_right, color: AppColors.textSecondary),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -586,6 +1213,11 @@ class _EditorForm extends StatelessWidget {
     required this.gstin,
     required this.state,
     required this.billingAddress,
+    required this.gstinLookupEnabled,
+    required this.gstinValidation,
+    required this.isValidatingGstin,
+    required this.isLookingUpGstin,
+    required this.shippingEnabled,
     required this.shippingAddress,
     required this.shipToName,
     required this.shipToPhone,
@@ -596,28 +1228,34 @@ class _EditorForm extends StatelessWidget {
     required this.dueDate,
     required this.taxMode,
     required this.status,
+    required this.roundOffEnabled,
     required this.items,
     required this.notes,
     required this.terms,
     required this.onPickCustomer,
+    required this.onValidateGstin,
+    required this.onLookupGstin,
+    required this.onShippingEnabledChanged,
     required this.onUseBillingForShipping,
     required this.onInvoiceDateChanged,
     required this.onDueDateChanged,
     required this.onTaxModeChanged,
     required this.onStatusChanged,
+    required this.onRoundOffChanged,
     required this.onAddItem,
     required this.onRemoveItem,
     required this.onChanged,
+    required this.onProductApplied,
   });
 
   final List<Customer> customers;
   final List<ProductService> products;
-  final List<String> customCustomerFields;
+  final List<CustomFieldDefinition> customCustomerFields;
   final Map<String, TextEditingController> customerCustomFieldControllers;
-  final List<String> customShippingFields;
+  final List<CustomFieldDefinition> customShippingFields;
   final Map<String, TextEditingController> shippingCustomFieldControllers;
   final bool showLineItemHsn;
-  final List<String> customLineItemFields;
+  final List<CustomFieldDefinition> customLineItemFields;
   final Customer? selectedCustomer;
   final TextEditingController customerName;
   final TextEditingController phone;
@@ -625,6 +1263,11 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController gstin;
   final TextEditingController state;
   final TextEditingController billingAddress;
+  final bool gstinLookupEnabled;
+  final _GstinValidationState? gstinValidation;
+  final bool isValidatingGstin;
+  final bool isLookingUpGstin;
+  final bool shippingEnabled;
   final TextEditingController shippingAddress;
   final TextEditingController shipToName;
   final TextEditingController shipToPhone;
@@ -635,18 +1278,24 @@ class _EditorForm extends StatelessWidget {
   final DateTime dueDate;
   final TaxMode taxMode;
   final InvoiceStatus status;
+  final bool roundOffEnabled;
   final List<_ItemControllers> items;
   final TextEditingController notes;
   final TextEditingController terms;
   final ValueChanged<Customer> onPickCustomer;
+  final Future<_GstinValidationState?> Function() onValidateGstin;
+  final VoidCallback onLookupGstin;
+  final ValueChanged<bool> onShippingEnabledChanged;
   final VoidCallback onUseBillingForShipping;
   final ValueChanged<DateTime> onInvoiceDateChanged;
   final ValueChanged<DateTime> onDueDateChanged;
   final ValueChanged<TaxMode> onTaxModeChanged;
   final ValueChanged<InvoiceStatus> onStatusChanged;
+  final ValueChanged<bool> onRoundOffChanged;
   final VoidCallback onAddItem;
   final ValueChanged<_ItemControllers> onRemoveItem;
   final VoidCallback onChanged;
+  final ValueChanged<_ItemControllers> onProductApplied;
 
   @override
   Widget build(BuildContext context) {
@@ -662,12 +1311,19 @@ class _EditorForm extends StatelessWidget {
           gstin: gstin,
           state: state,
           billingAddress: billingAddress,
+          gstinLookupEnabled: gstinLookupEnabled,
+          gstinValidation: gstinValidation,
+          isValidatingGstin: isValidatingGstin,
+          isLookingUpGstin: isLookingUpGstin,
           customFields: customCustomerFields,
           customFieldControllers: customerCustomFieldControllers,
           onPickCustomer: onPickCustomer,
+          onValidateGstin: onValidateGstin,
+          onLookupGstin: onLookupGstin,
         ),
         const SizedBox(height: AppSpacing.lg),
         _ShippedToPanel(
+          enabled: shippingEnabled,
           shipToName: shipToName,
           shipToPhone: shipToPhone,
           shipToEmail: shipToEmail,
@@ -676,6 +1332,7 @@ class _EditorForm extends StatelessWidget {
           shipToPincode: shipToPincode,
           customFields: customShippingFields,
           customFieldControllers: shippingCustomFieldControllers,
+          onEnabledChanged: onShippingEnabledChanged,
           onUseBillingDetails: onUseBillingForShipping,
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -684,10 +1341,12 @@ class _EditorForm extends StatelessWidget {
           dueDate: dueDate,
           taxMode: taxMode,
           status: status,
+          roundOffEnabled: roundOffEnabled,
           onInvoiceDateChanged: onInvoiceDateChanged,
           onDueDateChanged: onDueDateChanged,
           onTaxModeChanged: onTaxModeChanged,
           onStatusChanged: onStatusChanged,
+          onRoundOffChanged: onRoundOffChanged,
         ),
         const SizedBox(height: AppSpacing.lg),
         _ItemsPanel(
@@ -698,6 +1357,7 @@ class _EditorForm extends StatelessWidget {
           onAdd: onAddItem,
           onRemove: onRemoveItem,
           onChanged: onChanged,
+          onProductApplied: onProductApplied,
         ),
         const SizedBox(height: AppSpacing.lg),
         _NotesPanel(notes: notes, terms: terms),
@@ -796,9 +1456,15 @@ class _CustomerPanel extends StatelessWidget {
     required this.gstin,
     required this.state,
     required this.billingAddress,
+    required this.gstinLookupEnabled,
+    required this.gstinValidation,
+    required this.isValidatingGstin,
+    required this.isLookingUpGstin,
     required this.customFields,
     required this.customFieldControllers,
     required this.onPickCustomer,
+    required this.onValidateGstin,
+    required this.onLookupGstin,
   });
 
   final List<Customer> customers;
@@ -809,25 +1475,18 @@ class _CustomerPanel extends StatelessWidget {
   final TextEditingController gstin;
   final TextEditingController state;
   final TextEditingController billingAddress;
-  final List<String> customFields;
+  final bool gstinLookupEnabled;
+  final _GstinValidationState? gstinValidation;
+  final bool isValidatingGstin;
+  final bool isLookingUpGstin;
+  final List<CustomFieldDefinition> customFields;
   final Map<String, TextEditingController> customFieldControllers;
   final ValueChanged<Customer> onPickCustomer;
+  final Future<_GstinValidationState?> Function() onValidateGstin;
+  final VoidCallback onLookupGstin;
 
   @override
   Widget build(BuildContext context) {
-    final query = customerName.text.trim().toLowerCase();
-    final matches = query.isEmpty
-        ? customers.take(3).toList()
-        : customers
-              .where(
-                (customer) =>
-                    customer.name.toLowerCase().contains(query) ||
-                    customer.phone.toLowerCase().contains(query) ||
-                    customer.email.toLowerCase().contains(query),
-              )
-              .take(4)
-              .toList();
-
     return _Panel(
       icon: Icons.person_outline,
       title: 'Invoice Detail',
@@ -835,36 +1494,46 @@ class _CustomerPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _FieldCaption('Billed to'),
-          TextFormField(
+          _CustomerDropdownField(
             controller: customerName,
-            decoration: const InputDecoration(
-              hintText: 'Search or create customer',
-              prefixIcon: Icon(Icons.search),
-            ),
+            customers: customers,
+            selectedCustomer: selectedCustomer,
+            label: 'Customer Name',
+            hintText: 'Enter customer name',
+            icon: Icons.person_outline,
+            requiredField: true,
+            displayStringForOption: (customer) => customer.name,
+            optionMatchesQuery: (customer, query) {
+              return customer.name.toLowerCase().contains(query) ||
+                  customer.email.toLowerCase().contains(query);
+            },
             validator: (value) => (value?.trim().isEmpty ?? true)
                 ? 'Customer name is required'
                 : null,
+            onPickCustomer: onPickCustomer,
           ),
-          if (matches.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: matches
-                  .map(
-                    (customer) => _CustomerSuggestion(
-                      customer: customer,
-                      selected: selectedCustomer?.id == customer.id,
-                      onTap: () => onPickCustomer(customer),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
           const SizedBox(height: AppSpacing.xl),
           Row(
             children: [
-              Expanded(child: _Field(phone, 'Phone')),
+              Expanded(
+                child: _CustomerDropdownField(
+                  controller: phone,
+                  customers: customers,
+                  selectedCustomer: selectedCustomer,
+                  label: 'Phone',
+                  icon: Icons.phone_outlined,
+                  requiredField: true,
+                  displayStringForOption: (customer) => customer.phone,
+                  optionMatchesQuery: (customer, query) {
+                    return customer.phone.toLowerCase().contains(query) ||
+                        customer.name.toLowerCase().contains(query);
+                  },
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? 'Phone is required'
+                      : null,
+                  onPickCustomer: onPickCustomer,
+                ),
+              ),
               const SizedBox(width: AppSpacing.md),
               Expanded(child: _Field(email, 'Email')),
             ],
@@ -873,10 +1542,52 @@ class _CustomerPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(child: _Field(gstin, 'GSTIN')),
+              if (gstinLookupEnabled) ...[
+                const SizedBox(width: AppSpacing.md),
+                SizedBox(
+                  height: 56,
+                  child: OutlinedButton.icon(
+                    onPressed: isValidatingGstin ? null : onValidateGstin,
+                    icon: isValidatingGstin
+                        ? SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primaryPurple,
+                            ),
+                          )
+                        : const Icon(Icons.verified_outlined),
+                    label: Text(
+                      isValidatingGstin ? 'Validating...' : 'Validate GST',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                SizedBox(
+                  height: 56,
+                  child: OutlinedButton.icon(
+                    onPressed: isLookingUpGstin ? null : onLookupGstin,
+                    icon: isLookingUpGstin
+                        ? SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primaryPurple,
+                            ),
+                          )
+                        : const Icon(Icons.travel_explore_outlined),
+                    label: Text(isLookingUpGstin ? 'Fetching...' : 'Fetch GST'),
+                  ),
+                ),
+              ],
               const SizedBox(width: AppSpacing.md),
               Expanded(child: _Field(state, 'State')),
             ],
           ),
+          if (gstinLookupEnabled && gstinValidation != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _GstinValidationBanner(validation: gstinValidation!),
+          ],
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
@@ -890,7 +1601,12 @@ class _CustomerPanel extends StatelessWidget {
               runSpacing: AppSpacing.md,
               children: [
                 for (final field in customFields)
-                  _Field(customFieldControllers[field]!, field, width: 260),
+                  _Field(
+                    customFieldControllers[field.name]!,
+                    field.name,
+                    width: 260,
+                    requiredField: field.isRequired,
+                  ),
               ],
             ),
           ],
@@ -902,6 +1618,7 @@ class _CustomerPanel extends StatelessWidget {
 
 class _ShippedToPanel extends StatelessWidget {
   const _ShippedToPanel({
+    required this.enabled,
     required this.shipToName,
     required this.shipToPhone,
     required this.shipToEmail,
@@ -910,17 +1627,20 @@ class _ShippedToPanel extends StatelessWidget {
     required this.shipToPincode,
     required this.customFields,
     required this.customFieldControllers,
+    required this.onEnabledChanged,
     required this.onUseBillingDetails,
   });
 
+  final bool enabled;
   final TextEditingController shipToName;
   final TextEditingController shipToPhone;
   final TextEditingController shipToEmail;
   final TextEditingController shippingAddress;
   final TextEditingController shipToState;
   final TextEditingController shipToPincode;
-  final List<String> customFields;
+  final List<CustomFieldDefinition> customFields;
   final Map<String, TextEditingController> customFieldControllers;
+  final ValueChanged<bool> onEnabledChanged;
   final VoidCallback onUseBillingDetails;
 
   @override
@@ -931,48 +1651,69 @@ class _ShippedToPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: onUseBillingDetails,
-              icon: const Icon(Icons.copy_all_outlined),
-              label: const Text('Use billing details'),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(child: _Field(shipToName, 'Ship To Name')),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: _Field(shipToPhone, 'Shipping Phone')),
+              Expanded(
+                child: _SwitchRow(
+                  title: 'Add Shipping Details',
+                  subtitle: enabled
+                      ? 'Shipping data will be saved with this invoice.'
+                      : 'Shipping fields will not be saved for this invoice.',
+                  value: enabled,
+                  onChanged: onEnabledChanged,
+                ),
+              ),
+              if (enabled) ...[
+                const SizedBox(width: AppSpacing.md),
+                OutlinedButton.icon(
+                  onPressed: onUseBillingDetails,
+                  icon: const Icon(Icons.copy_all_outlined),
+                  label: const Text('Use billing details'),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(child: _Field(shipToEmail, 'Shipping Email')),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: _Field(shipToState, 'Shipping State')),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(child: _Field(shippingAddress, 'Shipping Address')),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: _Field(shipToPincode, 'Shipping Pincode')),
-            ],
-          ),
-          if (customFields.isNotEmpty) ...[
+          if (enabled) ...[
             const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
+            Row(
               children: [
-                for (final field in customFields)
-                  _Field(customFieldControllers[field]!, field, width: 260),
+                Expanded(child: _Field(shipToName, 'Ship To Name')),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _Field(shipToPhone, 'Shipping Phone')),
               ],
             ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Expanded(child: _Field(shipToEmail, 'Shipping Email')),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _Field(shipToState, 'Shipping State')),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Expanded(child: _Field(shippingAddress, 'Shipping Address')),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _Field(shipToPincode, 'Shipping Pincode')),
+              ],
+            ),
+            if (customFields.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  for (final field in customFields)
+                    _Field(
+                      customFieldControllers[field.name]!,
+                      field.name,
+                      width: 260,
+                      requiredField: field.isRequired,
+                    ),
+                ],
+              ),
+            ],
           ],
         ],
       ),
@@ -980,32 +1721,177 @@ class _ShippedToPanel extends StatelessWidget {
   }
 }
 
-class _CustomerSuggestion extends StatelessWidget {
-  const _CustomerSuggestion({
-    required this.customer,
-    required this.selected,
-    required this.onTap,
+class _CustomerDropdownField extends StatefulWidget {
+  const _CustomerDropdownField({
+    required this.controller,
+    required this.customers,
+    required this.selectedCustomer,
+    required this.label,
+    required this.icon,
+    this.requiredField = false,
+    required this.displayStringForOption,
+    required this.optionMatchesQuery,
+    required this.onPickCustomer,
+    this.hintText,
+    this.validator,
   });
 
-  final Customer customer;
-  final bool selected;
-  final VoidCallback onTap;
+  final TextEditingController controller;
+  final List<Customer> customers;
+  final Customer? selectedCustomer;
+  final String label;
+  final String? hintText;
+  final IconData icon;
+  final bool requiredField;
+  final String Function(Customer customer) displayStringForOption;
+  final bool Function(Customer customer, String query) optionMatchesQuery;
+  final ValueChanged<Customer> onPickCustomer;
+  final String? Function(String? value)? validator;
+
+  @override
+  State<_CustomerDropdownField> createState() => _CustomerDropdownFieldState();
+}
+
+class _CustomerDropdownFieldState extends State<_CustomerDropdownField> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: Icon(
-        selected ? Icons.check_circle : Icons.person_outline,
-        size: 18,
-        color: selected ? AppColors.success : AppColors.primaryPurple,
-      ),
-      label: Text(
-        customer.phone.isEmpty
-            ? customer.name
-            : '${customer.name}  ${customer.phone}',
-      ),
-      onPressed: onTap,
-      side: BorderSide(color: selected ? AppColors.success : AppColors.border),
+    return RawAutocomplete<Customer>(
+      textEditingController: widget.controller,
+      focusNode: _focusNode,
+      displayStringForOption: widget.displayStringForOption,
+      optionsBuilder: (textEditingValue) {
+        final query = textEditingValue.text.trim().toLowerCase();
+        if (query.isEmpty) return const Iterable<Customer>.empty();
+        return widget.customers
+            .where((customer) => widget.optionMatchesQuery(customer, query))
+            .take(20);
+      },
+      onSelected: widget.onPickCustomer,
+      fieldViewBuilder:
+          (context, textEditingController, focusNode, onFieldSubmitted) {
+            return TextFormField(
+              controller: textEditingController,
+              focusNode: focusNode,
+              decoration: InputDecoration(
+                labelText: widget.requiredField
+                    ? '${widget.label} *'
+                    : widget.label,
+                hintText: widget.hintText,
+                prefixIcon: Icon(widget.icon),
+                suffixIcon: const Icon(Icons.arrow_drop_down),
+              ),
+              validator: widget.validator,
+            );
+          },
+      optionsViewBuilder: (context, onSelected, options) {
+        final visibleOptions = options.take(12).toList();
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            color: Colors.transparent,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 280),
+              child: Container(
+                margin: const EdgeInsets.only(top: AppSpacing.xs),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                  itemCount: visibleOptions.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: AppColors.border.withValues(alpha: 0.6),
+                  ),
+                  itemBuilder: (context, index) {
+                    final customer = visibleOptions[index];
+                    final selected = widget.selectedCustomer?.id == customer.id;
+                    return InkWell(
+                      onTap: () => onSelected(customer),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              selected
+                                  ? Icons.check_circle
+                                  : Icons.person_outline,
+                              color: selected
+                                  ? AppColors.success
+                                  : AppColors.primaryPurple,
+                              size: 20,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    customer.name.isEmpty
+                                        ? 'Unnamed customer'
+                                        : customer.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppColors.textPrimary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                  ),
+                                  Text(
+                                    customer.phone.isEmpty
+                                        ? 'No phone'
+                                        : customer.phone,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1031,26 +1917,136 @@ class _FieldCaption extends StatelessWidget {
   }
 }
 
+class _GstinValidationBanner extends StatelessWidget {
+  const _GstinValidationBanner({required this.validation});
+
+  final _GstinValidationState validation;
+
+  @override
+  Widget build(BuildContext context) {
+    final isValid = validation.isValid;
+    final color = isValid ? AppColors.success : AppColors.warning;
+    final background = color.withValues(alpha: 0.12);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.verified_outlined : Icons.warning_amber_rounded,
+            color: color,
+            size: 18,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              isValid
+                  ? 'GSTIN format is valid. You can fetch business details now.'
+                  : 'GSTIN format looks invalid. Fix it before fetching details.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.calculate_outlined,
+            color: value ? AppColors.primaryPurple : AppColors.textSecondary,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
 class _InvoiceMetaPanel extends StatelessWidget {
   const _InvoiceMetaPanel({
     required this.invoiceDate,
     required this.dueDate,
     required this.taxMode,
     required this.status,
+    required this.roundOffEnabled,
     required this.onInvoiceDateChanged,
     required this.onDueDateChanged,
     required this.onTaxModeChanged,
     required this.onStatusChanged,
+    required this.onRoundOffChanged,
   });
 
   final DateTime invoiceDate;
   final DateTime dueDate;
   final TaxMode taxMode;
   final InvoiceStatus status;
+  final bool roundOffEnabled;
   final ValueChanged<DateTime> onInvoiceDateChanged;
   final ValueChanged<DateTime> onDueDateChanged;
   final ValueChanged<TaxMode> onTaxModeChanged;
   final ValueChanged<InvoiceStatus> onStatusChanged;
+  final ValueChanged<bool> onRoundOffChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1130,6 +2126,13 @@ class _InvoiceMetaPanel extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          _SwitchRow(
+            title: 'Round Off This Invoice',
+            subtitle: 'Round the grand total to the nearest rupee.',
+            value: roundOffEnabled,
+            onChanged: onRoundOffChanged,
+          ),
         ],
       ),
     );
@@ -1145,15 +2148,17 @@ class _ItemsPanel extends StatelessWidget {
     required this.onAdd,
     required this.onRemove,
     required this.onChanged,
+    required this.onProductApplied,
   });
 
   final List<_ItemControllers> items;
   final List<ProductService> products;
   final bool showHsnSac;
-  final List<String> customFields;
+  final List<CustomFieldDefinition> customFields;
   final VoidCallback onAdd;
   final ValueChanged<_ItemControllers> onRemove;
   final VoidCallback onChanged;
+  final ValueChanged<_ItemControllers> onProductApplied;
 
   @override
   Widget build(BuildContext context) {
@@ -1178,6 +2183,7 @@ class _ItemsPanel extends StatelessWidget {
                 canRemove: items.length > 1,
                 onRemove: () => onRemove(item),
                 onChanged: onChanged,
+                onProductApplied: () => onProductApplied(item),
               ),
             ),
           ),
@@ -1196,15 +2202,17 @@ class _ItemCard extends StatelessWidget {
     required this.canRemove,
     required this.onRemove,
     required this.onChanged,
+    required this.onProductApplied,
   });
 
   final _ItemControllers item;
   final List<ProductService> products;
   final bool showHsnSac;
-  final List<String> customFields;
+  final List<CustomFieldDefinition> customFields;
   final bool canRemove;
   final VoidCallback onRemove;
   final VoidCallback onChanged;
+  final VoidCallback onProductApplied;
 
   @override
   Widget build(BuildContext context) {
@@ -1247,6 +2255,7 @@ class _ItemCard extends StatelessWidget {
                   ],
                   onChanged: (product) {
                     item.applyProduct(product);
+                    onProductApplied();
                     onChanged();
                   },
                 ),
@@ -1256,11 +2265,12 @@ class _ItemCard extends StatelessWidget {
                 child: TextFormField(
                   controller: item.name,
                   decoration: const InputDecoration(
-                    labelText: 'Item name',
+                    labelText: 'Item name *',
                     prefixIcon: Icon(Icons.sell_outlined),
                   ),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? 'Required' : null,
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? 'Item name is required'
+                      : null,
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -1281,19 +2291,45 @@ class _ItemCard extends StatelessWidget {
             runSpacing: AppSpacing.md,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _SmallField(item.quantity, 'Quantity', width: 116),
-              _SmallField(item.unit, 'Unit', width: 140, numeric: false),
-              _SmallField(item.rate, 'Rate', width: 150),
+              _SmallField(
+                item.quantity,
+                'Quantity',
+                width: 116,
+                requiredField: true,
+                mustBeGreaterThanZero: true,
+              ),
+              _SmallField(
+                item.unit,
+                'Unit',
+                width: 140,
+                numeric: false,
+                requiredField: true,
+              ),
+              _SmallField(
+                item.rate,
+                'Rate',
+                width: 150,
+                requiredField: true,
+                mustBeGreaterThanZero: true,
+              ),
               _SmallField(item.gstInclusiveRate, 'Rate incl. GST', width: 170),
-              _SmallField(item.gstRate, 'GST %', width: 120),
+              _SmallField(
+                item.gstRate,
+                'GST %',
+                width: 120,
+                requiredField: true,
+                minValue: 0,
+                maxValue: 100,
+              ),
               if (showHsnSac)
                 _SmallField(item.hsnSac, 'HSN/SAC', width: 150, numeric: false),
               for (final field in customFields)
                 _SmallField(
-                  item.customField(field),
-                  field,
+                  item.customField(field.name),
+                  field.name,
                   width: 150,
                   numeric: false,
+                  requiredField: field.isRequired,
                 ),
               _LineAmount(value: item.lineTotal),
             ],
@@ -1427,6 +2463,8 @@ class _SummaryPanel extends StatelessWidget {
             _MoneyLine('CGST', totals.cgst),
             _MoneyLine('SGST', totals.sgst),
             _MoneyLine('IGST', totals.igst),
+            if (totals.roundOff != 0)
+              _MoneyLine('Round Off', totals.roundOff, signed: true),
             const Divider(height: AppSpacing.xl),
             _MoneyLine('Grand Total', totals.grandTotal, strong: true),
             if (expanded)
@@ -1538,11 +2576,17 @@ class _SummaryLine extends StatelessWidget {
 }
 
 class _MoneyLine extends StatelessWidget {
-  const _MoneyLine(this.label, this.value, {this.strong = false});
+  const _MoneyLine(
+    this.label,
+    this.value, {
+    this.strong = false,
+    this.signed = false,
+  });
 
   final String label;
   final double value;
   final bool strong;
+  final bool signed;
 
   @override
   Widget build(BuildContext context) {
@@ -1560,7 +2604,7 @@ class _MoneyLine extends StatelessWidget {
             ),
           ),
           Text(
-            value.toStringAsFixed(2),
+            _formattedValue,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.textPrimary,
               fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
@@ -1569,6 +2613,12 @@ class _MoneyLine extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String get _formattedValue {
+    final formatted = value.toStringAsFixed(2);
+    if (!signed || value <= 0) return formatted;
+    return '+$formatted';
   }
 }
 
@@ -1664,12 +2714,19 @@ class _DateField extends StatelessWidget {
 }
 
 class _Field extends StatelessWidget {
-  const _Field(this.controller, this.label, {this.width, this.maxLines = 1});
+  const _Field(
+    this.controller,
+    this.label, {
+    this.width,
+    this.maxLines = 1,
+    this.requiredField = false,
+  });
 
   final TextEditingController controller;
   final String label;
   final double? width;
   final int maxLines;
+  final bool requiredField;
 
   @override
   Widget build(BuildContext context) {
@@ -1677,9 +2734,13 @@ class _Field extends StatelessWidget {
       controller: controller,
       maxLines: maxLines,
       decoration: InputDecoration(
-        labelText: label,
+        labelText: requiredField ? '$label *' : label,
         prefixIcon: Icon(_fieldIconFor(label)),
       ),
+      validator: requiredField
+          ? (value) =>
+                (value?.trim().isEmpty ?? true) ? '$label is required' : null
+          : null,
     );
     if (width == null) return field;
     return SizedBox(width: width, child: field);
@@ -1692,12 +2753,20 @@ class _SmallField extends StatelessWidget {
     this.label, {
     required this.width,
     this.numeric = true,
+    this.requiredField = false,
+    this.mustBeGreaterThanZero = false,
+    this.minValue,
+    this.maxValue,
   });
 
   final TextEditingController controller;
   final String label;
   final double width;
   final bool numeric;
+  final bool requiredField;
+  final bool mustBeGreaterThanZero;
+  final double? minValue;
+  final double? maxValue;
 
   @override
   Widget build(BuildContext context) {
@@ -1707,14 +2776,30 @@ class _SmallField extends StatelessWidget {
         controller: controller,
         keyboardType: numeric ? TextInputType.number : TextInputType.text,
         decoration: InputDecoration(
-          labelText: label,
+          labelText: requiredField ? '$label *' : label,
           prefixIcon: Icon(_fieldIconFor(label), size: 20),
         ),
         validator: (value) {
-          if (!numeric) return null;
           final text = value?.trim() ?? '';
-          if (text.isNotEmpty && double.tryParse(text) == null) {
+          if (requiredField && text.isEmpty) {
+            return '$label is required';
+          }
+          if (!numeric) return null;
+          if (text.isEmpty) return null;
+          final number = double.tryParse(text);
+          if (number == null) {
             return 'Invalid';
+          }
+          if (mustBeGreaterThanZero && number <= 0) {
+            return 'Must be > 0';
+          }
+          final min = minValue;
+          if (min != null && number < min) {
+            return 'Min ${min.toStringAsFixed(0)}';
+          }
+          final max = maxValue;
+          if (max != null && number > max) {
+            return 'Max ${max.toStringAsFixed(0)}';
           }
           return null;
         },
@@ -1805,11 +2890,14 @@ class _ItemControllers {
     return customFields.putIfAbsent(field, () => TextEditingController());
   }
 
-  void ensureCustomFields(List<String> fields) {
+  void ensureCustomFields(List<CustomFieldDefinition> fields) {
     for (final field in fields) {
-      customField(field);
+      customFields.putIfAbsent(
+        field.name,
+        () => TextEditingController(text: field.defaultValue),
+      );
     }
-    final allowed = fields.map((field) => field.toLowerCase()).toSet();
+    final allowed = fields.map((field) => field.name.toLowerCase()).toSet();
     final staleKeys = customFields.keys
         .where((field) => !allowed.contains(field.toLowerCase()))
         .toList();
@@ -1833,7 +2921,10 @@ class _ItemControllers {
     gstRate.text = product.gstRate.toString();
   }
 
-  void addListener(VoidCallback listener) {
+  void addListener(
+    VoidCallback listener, {
+    ValueChanged<String>? onHsnChanged,
+  }) {
     void syncInclusiveFromBaseRate() {
       _inclusiveRateIsSource = false;
       _applyBaseRate();
@@ -1855,13 +2946,18 @@ class _ItemControllers {
       listener();
     }
 
+    void handleHsnChange() {
+      onHsnChanged?.call(hsnSac.text.trim());
+      listener();
+    }
+
     rate.addListener(syncInclusiveFromBaseRate);
     gstInclusiveRate.addListener(syncBaseRateFromInclusive);
     gstRate.addListener(syncRateForGstChange);
+    hsnSac.addListener(handleHsnChange);
     for (final controller in [
       name,
       description,
-      hsnSac,
       quantity,
       unit,
       ...customFields.values,
@@ -1950,6 +3046,7 @@ class _InvoiceTotals {
     required this.cgst,
     required this.sgst,
     required this.igst,
+    required this.roundOff,
     required this.grandTotal,
   });
 
@@ -1957,5 +3054,6 @@ class _InvoiceTotals {
   final double cgst;
   final double sgst;
   final double igst;
+  final double roundOff;
   final double grandTotal;
 }
