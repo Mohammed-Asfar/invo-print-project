@@ -102,6 +102,7 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
         themeMode: settings.themeMode,
         primaryColorHex: settings.primaryColorHex,
         showLineItemHsn: settings.showLineItemHsn,
+        showCustomerStateCode: settings.showCustomerStateCode,
         gstinLookupEnabled: settings.gstinLookupEnabled,
         gstinLookupApiKey: settings.gstinLookupApiKey,
         gstinLookupApiHost: settings.gstinLookupApiHost,

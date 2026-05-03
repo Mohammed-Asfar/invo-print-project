@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -5,7 +8,10 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
+import '../../../company/domain/entities/app_settings.dart';
+import '../../../company/domain/entities/company_profile.dart';
 import '../../domain/entities/invoice.dart';
+import '../../domain/services/invoice_pdf_service.dart';
 import '../cubit/invoice_cubit.dart';
 import 'create_invoice_page.dart';
 
@@ -65,7 +71,11 @@ class _InvoicesView extends StatelessWidget {
                 Expanded(
                   child: state.status == InvoiceStatusView.loading
                       ? const Center(child: CircularProgressIndicator())
-                      : _InvoiceList(invoices: state.filteredInvoices),
+                      : _InvoiceList(
+                          invoices: state.filteredInvoices,
+                          settings: state.settings,
+                          companyProfile: state.companyProfile,
+                        ),
                 ),
               ],
             ),
@@ -140,9 +150,15 @@ class _Header extends StatelessWidget {
 }
 
 class _InvoiceList extends StatelessWidget {
-  const _InvoiceList({required this.invoices});
+  const _InvoiceList({
+    required this.invoices,
+    required this.settings,
+    required this.companyProfile,
+  });
 
   final List<Invoice> invoices;
+  final AppSettings? settings;
+  final CompanyProfile? companyProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -187,16 +203,191 @@ class _InvoiceList extends StatelessWidget {
                 invoice.taxMode.label,
               ].join('  |  '),
             ),
-            trailing: Text(
-              invoice.grandTotal.toStringAsFixed(2),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w800,
-              ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  invoice.grandTotal.toStringAsFixed(2),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                PopupMenuButton<_InvoiceAction>(
+                  tooltip: 'Invoice actions',
+                  color: AppColors.surface,
+                  onSelected: (action) async {
+                    switch (action) {
+                      case _InvoiceAction.duplicate:
+                        context.go(
+                          CreateInvoicePage.routePath,
+                          extra: CreateInvoicePageArgs.duplicate(invoice),
+                        );
+                        break;
+                      case _InvoiceAction.cancel:
+                        await _confirmAndCancel(context, invoice);
+                        break;
+                      case _InvoiceAction.delete:
+                        await _confirmAndDelete(context, invoice);
+                        break;
+                      case _InvoiceAction.exportPdf:
+                        await _exportPdf(context, invoice);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _InvoiceAction.duplicate,
+                      child: Row(
+                        children: [
+                          Icon(Icons.copy_all_outlined),
+                          SizedBox(width: AppSpacing.sm),
+                          Text('Duplicate'),
+                        ],
+                      ),
+                    ),
+                    if (invoice.status != InvoiceStatus.cancelled)
+                      const PopupMenuItem(
+                        value: _InvoiceAction.cancel,
+                        child: Row(
+                          children: [
+                            Icon(Icons.block_outlined),
+                            SizedBox(width: AppSpacing.sm),
+                            Text('Cancel invoice'),
+                          ],
+                        ),
+                      ),
+                    const PopupMenuItem(
+                      value: _InvoiceAction.exportPdf,
+                      child: Row(
+                        children: [
+                          Icon(Icons.picture_as_pdf_outlined),
+                          SizedBox(width: AppSpacing.sm),
+                          Text('Export PDF'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _InvoiceAction.delete,
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline, color: AppColors.error),
+                          const SizedBox(width: AppSpacing.sm),
+                          Text(
+                            'Delete',
+                            style: TextStyle(color: AppColors.error),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  child: Icon(Icons.more_horiz, color: AppColors.textSecondary),
+                ),
+              ],
             ),
           );
         },
       ),
     );
   }
+
+  Future<void> _exportPdf(BuildContext context, Invoice invoice) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    try {
+      final defaultName = '${_sanitizeFileName(invoice.invoiceNumber)}.pdf';
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Save invoice PDF',
+        fileName: defaultName,
+        type: FileType.custom,
+        allowedExtensions: const ['pdf'],
+      );
+      if (path == null || path.trim().isEmpty) {
+        return;
+      }
+
+      final pdfBytes = await sl<InvoicePdfService>().buildInvoicePdf(
+        invoice: invoice,
+        currencySymbol: settings?.currencySymbol ?? 'Rs',
+        currentCompanyProfile: companyProfile,
+        settings: settings,
+      );
+      await File(path).writeAsBytes(pdfBytes, flush: true);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Invoice PDF saved to $path'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Unable to export PDF: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmAndCancel(BuildContext context, Invoice invoice) async {
+    final confirmed = await _confirmAction(
+      context,
+      title: 'Cancel invoice?',
+      message:
+          'This will keep ${invoice.invoiceNumber} in your records and mark it as cancelled.',
+      confirmLabel: 'Cancel Invoice',
+      confirmColor: AppColors.warning,
+    );
+    if (confirmed != true || !context.mounted) return;
+    await context.read<InvoiceCubit>().cancelInvoice(invoice);
+  }
+
+  Future<void> _confirmAndDelete(BuildContext context, Invoice invoice) async {
+    final confirmed = await _confirmAction(
+      context,
+      title: 'Delete invoice?',
+      message:
+          'This will permanently remove ${invoice.invoiceNumber} from the invoice list.',
+      confirmLabel: 'Delete',
+      confirmColor: AppColors.error,
+    );
+    if (confirmed != true || !context.mounted) return;
+    await context.read<InvoiceCubit>().deleteInvoice(invoice);
+  }
+
+  Future<bool?> _confirmAction(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: confirmColor),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _sanitizeFileName(String value) {
+    final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
+    return sanitized.isEmpty ? 'invoice' : sanitized;
+  }
 }
+
+enum _InvoiceAction { duplicate, cancel, exportPdf, delete }

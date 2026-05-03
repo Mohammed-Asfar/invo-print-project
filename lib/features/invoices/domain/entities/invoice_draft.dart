@@ -11,6 +11,7 @@ class InvoiceDraft extends Equatable {
     required this.customerEmail,
     required this.customerGstin,
     required this.customerState,
+    required this.customerStateCode,
     required this.billingAddress,
     required this.shippingEnabled,
     required this.shippingAddress,
@@ -40,6 +41,7 @@ class InvoiceDraft extends Equatable {
       customerEmail: '',
       customerGstin: '',
       customerState: '',
+      customerStateCode: '',
       billingAddress: '',
       shippingEnabled: false,
       shippingAddress: '',
@@ -84,6 +86,7 @@ class InvoiceDraft extends Equatable {
   final String customerEmail;
   final String customerGstin;
   final String customerState;
+  final String customerStateCode;
   final String billingAddress;
   final bool shippingEnabled;
   final String shippingAddress;
@@ -130,7 +133,12 @@ class InvoiceDraft extends Equatable {
       isActive: true,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),
-      customFields: {...existing.customFields, ...customerCustomFields},
+      customFields: {
+        ...existing.customFields,
+        ...customerCustomFields,
+        if (customerStateCode.trim().isNotEmpty)
+          '_builtinStateCode': customerStateCode.trim(),
+      },
     );
   }
 
@@ -144,6 +152,9 @@ class InvoiceDraft extends Equatable {
       'billingAddress': billingAddress,
       'customFields': customerCustomFields,
     };
+    if (customerStateCode.trim().isNotEmpty) {
+      snapshot['stateCode'] = customerStateCode.trim();
+    }
     if (shippingEnabled) {
       snapshot['shippingAddress'] = shippingAddress;
       snapshot['shippedTo'] = {
@@ -167,6 +178,7 @@ class InvoiceDraft extends Equatable {
     customerEmail,
     customerGstin,
     customerState,
+    customerStateCode,
     billingAddress,
     shippingEnabled,
     shippingAddress,

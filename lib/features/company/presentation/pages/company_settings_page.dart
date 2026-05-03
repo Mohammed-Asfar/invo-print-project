@@ -93,6 +93,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
   bool _gstEnabled = true;
   bool _loyaltyEnabled = true;
   bool _showLineItemHsn = true;
+  bool _showCustomerStateCode = true;
   bool _gstinLookupEnabled = false;
   bool _newCustomerFieldRequired = false;
   bool _newShippingFieldRequired = false;
@@ -296,6 +297,12 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
             onChanged: (value) => setState(() => _showLineItemHsn = value),
           ),
           _ToggleField(
+            title: 'Show Customer State Code',
+            value: _showCustomerStateCode,
+            onChanged: (value) =>
+                setState(() => _showCustomerStateCode = value),
+          ),
+          _ToggleField(
             title: 'Enable GSTIN API Lookup',
             value: _gstinLookupEnabled,
             onChanged: (value) => setState(() => _gstinLookupEnabled = value),
@@ -380,7 +387,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         children: [
           _CustomFieldBuilder(
             title: 'Customer Fields',
-            helperText: 'Shown in customer details, e.g. State Code.',
+            helperText: 'Shown in customer details, e.g. Contact Person.',
             inputController: _newCustomerField,
             defaultController: _newCustomerFieldDefault,
             requiredValue: _newCustomerFieldRequired,
@@ -553,6 +560,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
     _themeMode = settings.themeMode;
     _primaryColorHex.text = settings.primaryColorHex;
     _showLineItemHsn = settings.showLineItemHsn;
+    _showCustomerStateCode = settings.showCustomerStateCode;
     _gstinLookupEnabled = settings.gstinLookupEnabled;
     _gstinLookupApiKey.text = settings.gstinLookupApiKey;
     _gstinLookupApiHost.text = settings.gstinLookupApiHost;
@@ -629,6 +637,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         themeMode: _themeMode,
         primaryColorHex: _primaryColorHex.text.trim(),
         showLineItemHsn: _showLineItemHsn,
+        showCustomerStateCode: _showCustomerStateCode,
         gstinLookupEnabled: _gstinLookupEnabled,
         gstinLookupApiKey: _gstinLookupApiKey.text.trim(),
         gstinLookupApiHost: _gstinLookupApiHost.text.trim().isEmpty

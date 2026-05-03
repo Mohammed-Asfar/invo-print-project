@@ -22,6 +22,7 @@ class AppSettingsModel extends AppSettings {
     required super.themeMode,
     required super.primaryColorHex,
     required super.showLineItemHsn,
+    required super.showCustomerStateCode,
     required super.gstinLookupEnabled,
     required super.gstinLookupApiKey,
     required super.gstinLookupApiHost,
@@ -58,6 +59,7 @@ class AppSettingsModel extends AppSettings {
       themeMode: settings.themeMode,
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
+      showCustomerStateCode: settings.showCustomerStateCode,
       gstinLookupEnabled: settings.gstinLookupEnabled,
       gstinLookupApiKey: settings.gstinLookupApiKey,
       gstinLookupApiHost: settings.gstinLookupApiHost,
@@ -112,6 +114,9 @@ class AppSettingsModel extends AppSettings {
           map['primaryColorHex'] as String? ?? defaults.primaryColorHex,
       showLineItemHsn:
           map['showLineItemHsn'] as bool? ?? defaults.showLineItemHsn,
+      showCustomerStateCode:
+          map['showCustomerStateCode'] as bool? ??
+          defaults.showCustomerStateCode,
       gstinLookupEnabled:
           map['gstinLookupEnabled'] as bool? ?? defaults.gstinLookupEnabled,
       gstinLookupApiKey:
@@ -169,6 +174,7 @@ class AppSettingsModel extends AppSettings {
       'themeMode': themeMode,
       'primaryColorHex': primaryColorHex,
       'showLineItemHsn': showLineItemHsn,
+      'showCustomerStateCode': showCustomerStateCode,
       'gstinLookupEnabled': gstinLookupEnabled,
       'gstinLookupApiKey': gstinLookupApiKey,
       'gstinLookupApiHost': gstinLookupApiHost,

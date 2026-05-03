@@ -242,6 +242,80 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     }
   }
 
+  Future<void> cancelInvoice(Invoice invoice) async {
+    if (invoice.status == InvoiceStatus.cancelled) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: '${invoice.invoiceNumber} is already cancelled.',
+        ),
+      );
+      return;
+    }
+
+    emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
+    try {
+      final updatedInvoice = invoice.copyWith(
+        status: InvoiceStatus.cancelled,
+        amountPaid: 0,
+        clearPaidAt: true,
+        updatedAt: DateTime.now(),
+      );
+      await _invoiceRepository.saveInvoice(updatedInvoice);
+      final invoices = await _invoiceRepository.fetchInvoices();
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.saved,
+          invoices: invoices,
+          message: '${invoice.invoiceNumber} cancelled.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: error.message,
+        ),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Unable to cancel invoice: $error',
+        ),
+      );
+    }
+  }
+
+  Future<void> deleteInvoice(Invoice invoice) async {
+    emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
+    try {
+      await _invoiceRepository.deleteInvoice(invoice.id);
+      final invoices = await _invoiceRepository.fetchInvoices();
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.saved,
+          invoices: invoices,
+          message: '${invoice.invoiceNumber} deleted.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: error.message,
+        ),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Unable to delete invoice: $error',
+        ),
+      );
+    }
+  }
+
   InvoiceDraft _defaultDraft(AppSettings settings) {
     final now = DateTime.now();
     return InvoiceDraft(
@@ -250,6 +324,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       customerEmail: '',
       customerGstin: '',
       customerState: settings.defaultCustomerState,
+      customerStateCode: '',
       billingAddress: '',
       shippingEnabled: false,
       shippingAddress: '',
@@ -297,6 +372,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       themeMode: settings.themeMode,
       primaryColorHex: settings.primaryColorHex,
       showLineItemHsn: settings.showLineItemHsn,
+      showCustomerStateCode: settings.showCustomerStateCode,
       gstinLookupEnabled: settings.gstinLookupEnabled,
       gstinLookupApiKey: settings.gstinLookupApiKey,
       gstinLookupApiHost: settings.gstinLookupApiHost,
@@ -320,6 +396,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       'pan': profile.pan,
       'email': profile.email,
       'phone': profile.phone,
+      'website': profile.website,
       'addressLine1': profile.addressLine1,
       'addressLine2': profile.addressLine2,
       'city': profile.city,
@@ -331,6 +408,8 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       'bankAccountNumber': profile.bankAccountNumber,
       'ifscCode': profile.ifscCode,
       'upiId': profile.upiId,
+      'logoBase64': profile.logoBase64,
+      'paymentQrBase64': profile.paymentQrBase64,
     };
   }
 }

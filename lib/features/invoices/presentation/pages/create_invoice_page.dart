@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
@@ -18,25 +19,44 @@ import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
 import '../../domain/services/hsn_gst_lookup.dart';
 import '../../domain/services/invoice_calculator.dart';
+import '../../domain/services/invoice_output_builder.dart';
 import '../cubit/invoice_cubit.dart';
 import 'invoices_page.dart';
 
 class CreateInvoicePage extends StatelessWidget {
-  const CreateInvoicePage({super.key});
+  const CreateInvoicePage({super.key, this.args});
 
   static const routePath = '/invoices/new';
+
+  final CreateInvoicePageArgs? args;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<InvoiceCubit>()..load(),
-      child: const _CreateInvoiceView(),
+      child: _CreateInvoiceView(args: args),
     );
   }
 }
 
+class CreateInvoicePageArgs {
+  const CreateInvoicePageArgs({
+    required this.sourceInvoice,
+    this.title = 'New Invoice',
+  });
+
+  const CreateInvoicePageArgs.duplicate(Invoice invoice)
+    : sourceInvoice = invoice,
+      title = 'Duplicate Invoice';
+
+  final Invoice? sourceInvoice;
+  final String title;
+}
+
 class _CreateInvoiceView extends StatefulWidget {
-  const _CreateInvoiceView();
+  const _CreateInvoiceView({this.args});
+
+  final CreateInvoicePageArgs? args;
 
   @override
   State<_CreateInvoiceView> createState() => _CreateInvoiceViewState();
@@ -44,11 +64,13 @@ class _CreateInvoiceView extends StatefulWidget {
 
 class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   final _formKey = GlobalKey<FormState>();
+  static const _builtInCustomerStateCodeKey = '_builtinStateCode';
   final _customerName = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
   final _gstin = TextEditingController();
   final _state = TextEditingController();
+  final _stateCode = TextEditingController();
   final _billingAddress = TextEditingController();
   final _shippingAddress = TextEditingController();
   final _shipToName = TextEditingController();
@@ -61,6 +83,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   final Map<String, TextEditingController> _customerCustomFields = {};
   final Map<String, TextEditingController> _shippingCustomFields = {};
   final _calculator = InvoiceCalculator();
+  final _outputBuilder = const InvoiceOutputBuilder();
   late TaxMode _taxMode;
   late InvoiceStatus _status;
   late bool _roundOffEnabled;
@@ -74,6 +97,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   bool _isLookingUpGstin = false;
   bool _isValidatingGstin = false;
   _GstinValidationState? _gstinValidation;
+  _GstinAutofillSnapshot? _gstinAutofill;
   HsnGstLookup? _hsnGstLookup;
 
   @override
@@ -88,6 +112,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _email,
       _gstin,
       _state,
+      _stateCode,
       _billingAddress,
       _shippingAddress,
       _shipToName,
@@ -113,6 +138,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _email,
       _gstin,
       _state,
+      _stateCode,
       _billingAddress,
       _shippingAddress,
       _shipToName,
@@ -162,7 +188,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
           for (final item in _items) {
             item.dispose();
           }
-          _seedFromDraft(state.draft!);
+          _seedFromDraft(_initialDraft(state));
           _seeded = true;
         }
 
@@ -177,6 +203,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
             child: Column(
               children: [
                 _CommandBar(
+                  title: widget.args?.title ?? 'New Invoice',
                   invoiceNumber: invoiceNumber,
                   isSaving: state.status == InvoiceStatusView.saving,
                   onBack: () => context.go(InvoicesPage.routePath),
@@ -191,13 +218,22 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                           builder: (context, constraints) {
                             final stackSummary = constraints.maxWidth < 1100;
                             final editorSettings = settings;
+                            final visibleCustomerCustomFields =
+                                editorSettings.showCustomerStateCode
+                                ? editorSettings.customCustomerFields
+                                      .where(
+                                        (field) =>
+                                            !_isStateCodeFieldName(field.name),
+                                      )
+                                      .toList(growable: false)
+                                : editorSettings.customCustomerFields;
                             for (final item in _items) {
                               item.ensureCustomFields(
                                 editorSettings.customLineItemFields,
                               );
                             }
                             _ensureCustomerCustomFields(
-                              editorSettings.customCustomerFields,
+                              visibleCustomerCustomFields,
                             );
                             _ensureShippingCustomFields(
                               editorSettings.customShippingFields,
@@ -205,8 +241,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                             final formContent = _EditorForm(
                               customers: state.customers,
                               products: state.products,
-                              customCustomerFields:
-                                  editorSettings.customCustomerFields,
+                              customCustomerFields: visibleCustomerCustomFields,
                               customerCustomFieldControllers:
                                   _customerCustomFields,
                               customShippingFields:
@@ -222,6 +257,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               email: _email,
                               gstin: _gstin,
                               state: _state,
+                              stateCode: _stateCode,
+                              showCustomerStateCode:
+                                  editorSettings.showCustomerStateCode,
                               billingAddress: _billingAddress,
                               gstinLookupEnabled:
                                   editorSettings.gstinLookupEnabled,
@@ -274,6 +312,11 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               status: _status,
                               taxMode: _taxMode,
                               totals: totals,
+                              paymentData: _outputBuilder.buildPaymentData(
+                                companyProfile: state.companyProfile,
+                                invoiceNumber: invoiceNumber,
+                                grandTotal: totals.grandTotal,
+                              ),
                               isSaving:
                                   state.status == InvoiceStatusView.saving,
                               onSave: () => _save(context),
@@ -319,12 +362,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   void _seedFromDraft(InvoiceDraft draft) {
     _isSeedingControllers = true;
+    _gstinAutofill = null;
     _selectedCustomer = draft.existingCustomer;
     _customerName.text = draft.customerName;
     _phone.text = draft.customerPhone;
     _email.text = draft.customerEmail;
     _gstin.text = draft.customerGstin;
     _state.text = draft.customerState;
+    _stateCode.text = draft.customerStateCode;
     _billingAddress.text = draft.billingAddress;
     _shippingAddress.text = draft.shippingAddress;
     _shipToName.text = draft.shipToName;
@@ -351,6 +396,112 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     _isSeedingControllers = false;
   }
 
+  InvoiceDraft _initialDraft(InvoiceState state) {
+    final sourceInvoice = widget.args?.sourceInvoice;
+    if (sourceInvoice == null) {
+      return state.draft!;
+    }
+
+    Customer? matchedCustomer;
+    for (final customer in state.customers) {
+      if (customer.id == sourceInvoice.customerId) {
+        matchedCustomer = customer;
+        break;
+      }
+    }
+    final customerSnapshot = sourceInvoice.customerSnapshot;
+    final shippedToRaw = customerSnapshot['shippedTo'];
+    final shippedTo = shippedToRaw is Map<String, dynamic>
+        ? shippedToRaw
+        : shippedToRaw is Map
+        ? Map<String, dynamic>.from(shippedToRaw)
+        : <String, dynamic>{};
+
+    final invoiceDate = DateTime.now();
+    final dueShift = sourceInvoice.dueDate.difference(
+      sourceInvoice.invoiceDate,
+    );
+    final dueDate = invoiceDate.add(
+      dueShift.isNegative ? const Duration(days: 15) : dueShift,
+    );
+    return InvoiceDraft(
+      existingCustomer: matchedCustomer,
+      customerName: customerSnapshot['name']?.toString() ?? '',
+      customerPhone: customerSnapshot['phone']?.toString() ?? '',
+      customerEmail: customerSnapshot['email']?.toString() ?? '',
+      customerGstin: customerSnapshot['gstin']?.toString() ?? '',
+      customerState: customerSnapshot['state']?.toString() ?? '',
+      customerStateCode: _stateCodeFromSnapshot(customerSnapshot),
+      billingAddress: customerSnapshot['billingAddress']?.toString() ?? '',
+      shippingEnabled: shippedTo.isNotEmpty,
+      shippingAddress:
+          customerSnapshot['shippingAddress']?.toString() ??
+          shippedTo['address']?.toString() ??
+          '',
+      shipToName: shippedTo['name']?.toString() ?? '',
+      shipToPhone: shippedTo['phone']?.toString() ?? '',
+      shipToEmail: shippedTo['email']?.toString() ?? '',
+      shipToState: shippedTo['state']?.toString() ?? '',
+      shipToPincode: shippedTo['pincode']?.toString() ?? '',
+      shippingCustomFields: _stringMap(shippedTo['customFields']),
+      customerCustomFields: _stringMap(customerSnapshot['customFields']),
+      invoiceDate: invoiceDate,
+      dueDate: dueDate,
+      taxMode: sourceInvoice.taxMode,
+      status: InvoiceStatus.unpaid,
+      roundOffEnabled: sourceInvoice.roundOffEnabled,
+      items: sourceInvoice.items,
+      notes: sourceInvoice.notes,
+      terms: sourceInvoice.terms,
+    );
+  }
+
+  Map<String, String> _stringMap(dynamic source) {
+    if (source is Map<String, String>) return source;
+    if (source is Map<String, dynamic>) {
+      return source.map(
+        (key, value) => MapEntry(key, value?.toString().trim() ?? ''),
+      );
+    }
+    if (source is Map) {
+      return source.map(
+        (key, value) =>
+            MapEntry(key.toString(), value?.toString().trim() ?? ''),
+      );
+    }
+    return const {};
+  }
+
+  bool get _showCustomerStateCode =>
+      context.read<InvoiceCubit>().state.settings?.showCustomerStateCode ??
+      true;
+
+  String _customerStateCode(Customer customer) {
+    final reserved =
+        customer.customFields[_builtInCustomerStateCodeKey]?.trim() ?? '';
+    if (reserved.isNotEmpty) return reserved;
+    for (final entry in customer.customFields.entries) {
+      if (_isStateCodeFieldName(entry.key) && entry.value.trim().isNotEmpty) {
+        return entry.value.trim();
+      }
+    }
+    return '';
+  }
+
+  String _stateCodeFromSnapshot(Map<String, dynamic> snapshot) {
+    final topLevel = snapshot['stateCode']?.toString().trim() ?? '';
+    if (topLevel.isNotEmpty) return topLevel;
+    final customFields = _stringMap(snapshot['customFields']);
+    final reserved = customFields[_builtInCustomerStateCodeKey]?.trim() ?? '';
+    if (reserved.isNotEmpty) return reserved;
+    for (final entry in customFields.entries) {
+      if (_isStateCodeFieldName(entry.key) && entry.value.trim().isNotEmpty) {
+        return entry.value.trim();
+      }
+    }
+    return '';
+  }
+
   Future<void> _loadHsnGstLookup() async {
     try {
       final raw = await rootBundle.loadString('assets/hsn_gst_dataset.json');
@@ -368,12 +519,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   void _applyCustomer(Customer customer) {
     setState(() {
+      _gstinAutofill = null;
       _selectedCustomer = customer;
       _customerName.text = customer.name;
       _phone.text = customer.phone;
       _email.text = customer.email;
       _gstin.text = customer.gstin;
       _state.text = customer.state;
+      _stateCode.text = _customerStateCode(customer);
       _billingAddress.text = customer.billingAddress;
       _shippingAddress.text = customer.shippingAddress;
       _shippingEnabled = customer.shippingAddress.trim().isNotEmpty;
@@ -382,6 +535,10 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _shipToEmail.text = customer.email;
       _shipToState.text = customer.state;
       for (final entry in customer.customFields.entries) {
+        if (entry.key == _builtInCustomerStateCodeKey) continue;
+        if (_showCustomerStateCode && _isStateCodeFieldName(entry.key)) {
+          continue;
+        }
         _customerCustomField(entry.key).text = entry.value;
       }
     });
@@ -399,11 +556,43 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   }
 
   void _handleGstinTextChanged() {
+    if (_isSeedingControllers) return;
     final current = _gstin.text.trim().toUpperCase();
     final cached = _gstinValidation;
-    if (cached != null && cached.gstin != current) {
-      setState(() => _gstinValidation = null);
+    final autofill = _gstinAutofill;
+    final needsValidationReset = cached != null && cached.gstin != current;
+    final needsAutofillClear = autofill != null && autofill.gstin != current;
+    if (!needsValidationReset && !needsAutofillClear) {
+      return;
     }
+
+    setState(() {
+      if (needsValidationReset) {
+        _gstinValidation = null;
+      }
+      if (needsAutofillClear) {
+        if (_customerName.text.trim() == autofill.customerName) {
+          _customerName.clear();
+        }
+        if (_state.text.trim() == autofill.stateName) {
+          _state.clear();
+        }
+        if (_billingAddress.text.trim() == autofill.billingAddress) {
+          _billingAddress.clear();
+        }
+        if (_stateCode.text.trim() == autofill.stateCode) {
+          _stateCode.clear();
+        }
+        for (final entry in autofill.customerCustomFields.entries) {
+          final controller = _customerCustomFields[entry.key];
+          if (controller == null) continue;
+          if (controller.text.trim() == entry.value) {
+            controller.clear();
+          }
+        }
+        _gstinAutofill = null;
+      }
+    });
   }
 
   Future<_GstinValidationState?> _validateGstin(BuildContext context) async {
@@ -505,10 +694,21 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
         if (details.stateName.isNotEmpty) {
           _state.text = details.stateName;
         }
+        if (_showCustomerStateCode && details.stateCode.isNotEmpty) {
+          _stateCode.text = details.stateCode;
+        }
         if (details.formattedAddress.isNotEmpty) {
           _billingAddress.text = details.formattedAddress;
         }
-        _applyStateCodeCustomField(details);
+        final customFieldValues = _applyStateCodeCustomField(details);
+        _gstinAutofill = _GstinAutofillSnapshot(
+          gstin: details.gstin,
+          customerName: _customerName.text.trim(),
+          stateName: _state.text.trim(),
+          stateCode: _showCustomerStateCode ? _stateCode.text.trim() : '',
+          billingAddress: _billingAddress.text.trim(),
+          customerCustomFields: customFieldValues,
+        );
       });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -549,14 +749,20 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     }
   }
 
-  void _applyStateCodeCustomField(GstinBusinessDetails details) {
-    if (details.stateCode.isEmpty) return;
+  Map<String, String> _applyStateCodeCustomField(GstinBusinessDetails details) {
+    final applied = <String, String>{};
+    if (details.stateCode.isEmpty) return applied;
+    if (_showCustomerStateCode) {
+      return applied;
+    }
     for (final entry in _customerCustomFields.entries) {
       final key = entry.key.toLowerCase();
       if (key.contains('state') && key.contains('code')) {
         entry.value.text = details.stateCode;
+        applied[entry.key] = details.stateCode;
       }
     }
+    return applied;
   }
 
   void _fillDemoData() {
@@ -567,12 +773,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
         .toList();
 
     setState(() {
+      _gstinAutofill = null;
       _selectedCustomer = null;
       _customerName.text = 'TBS Enterprises';
       _phone.text = '9655246269';
       _email.text = 'test@gmail.com';
       _gstin.text = '33AHOPY8219N1ZE';
       _state.text = 'Tamil Nadu';
+      _stateCode.text = '33';
       _billingAddress.text =
           'No: 22, MMS Complex, Pudupattinam Kalpakkam, Tamil Nadu 603102';
 
@@ -715,6 +923,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       customerEmail: _email.text.trim(),
       customerGstin: _gstin.text.trim(),
       customerState: _state.text.trim(),
+      customerStateCode: _showCustomerStateCode ? _stateCode.text.trim() : '',
       billingAddress: _billingAddress.text.trim(),
       shippingEnabled: _shippingEnabled,
       shippingAddress: _shippingEnabled ? _shippingAddress.text.trim() : '',
@@ -1126,6 +1335,24 @@ class _GstinValidationState {
   final bool isValid;
 }
 
+class _GstinAutofillSnapshot {
+  const _GstinAutofillSnapshot({
+    required this.gstin,
+    required this.customerName,
+    required this.stateName,
+    required this.stateCode,
+    required this.billingAddress,
+    required this.customerCustomFields,
+  });
+
+  final String gstin;
+  final String customerName;
+  final String stateName;
+  final String stateCode;
+  final String billingAddress;
+  final Map<String, String> customerCustomFields;
+}
+
 class _CustomerConflictTile extends StatelessWidget {
   const _CustomerConflictTile({
     required this.label,
@@ -1210,6 +1437,8 @@ class _EditorForm extends StatelessWidget {
     required this.email,
     required this.gstin,
     required this.state,
+    required this.stateCode,
+    required this.showCustomerStateCode,
     required this.billingAddress,
     required this.gstinLookupEnabled,
     required this.gstinValidation,
@@ -1258,6 +1487,8 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController email;
   final TextEditingController gstin;
   final TextEditingController state;
+  final TextEditingController stateCode;
+  final bool showCustomerStateCode;
   final TextEditingController billingAddress;
   final bool gstinLookupEnabled;
   final _GstinValidationState? gstinValidation;
@@ -1304,6 +1535,8 @@ class _EditorForm extends StatelessWidget {
           email: email,
           gstin: gstin,
           state: state,
+          stateCode: stateCode,
+          showCustomerStateCode: showCustomerStateCode,
           billingAddress: billingAddress,
           gstinLookupEnabled: gstinLookupEnabled,
           gstinValidation: gstinValidation,
@@ -1360,6 +1593,7 @@ class _EditorForm extends StatelessWidget {
 
 class _CommandBar extends StatelessWidget {
   const _CommandBar({
+    required this.title,
     required this.invoiceNumber,
     required this.isSaving,
     required this.onBack,
@@ -1367,6 +1601,7 @@ class _CommandBar extends StatelessWidget {
     required this.onSave,
   });
 
+  final String title;
   final String invoiceNumber;
   final bool isSaving;
   final VoidCallback onBack;
@@ -1397,7 +1632,7 @@ class _CommandBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'New Invoice',
+                  title,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w800,
@@ -1447,6 +1682,8 @@ class _CustomerPanel extends StatelessWidget {
     required this.email,
     required this.gstin,
     required this.state,
+    required this.stateCode,
+    required this.showCustomerStateCode,
     required this.billingAddress,
     required this.gstinLookupEnabled,
     required this.gstinValidation,
@@ -1464,6 +1701,8 @@ class _CustomerPanel extends StatelessWidget {
   final TextEditingController email;
   final TextEditingController gstin;
   final TextEditingController state;
+  final TextEditingController stateCode;
+  final bool showCustomerStateCode;
   final TextEditingController billingAddress;
   final bool gstinLookupEnabled;
   final _GstinValidationState? gstinValidation;
@@ -1574,6 +1813,10 @@ class _CustomerPanel extends StatelessWidget {
               Expanded(child: _Field(billingAddress, 'Billing Address')),
             ],
           ),
+          if (showCustomerStateCode) ...[
+            const SizedBox(height: AppSpacing.md),
+            Row(children: [_Field(stateCode, 'State Code', width: 260)]),
+          ],
           if (customFields.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
             Wrap(
@@ -2392,6 +2635,7 @@ class _SummaryPanel extends StatelessWidget {
     required this.status,
     required this.taxMode,
     required this.totals,
+    required this.paymentData,
     required this.isSaving,
     required this.onSave,
     this.expanded = false,
@@ -2402,6 +2646,7 @@ class _SummaryPanel extends StatelessWidget {
   final InvoiceStatus status;
   final TaxMode taxMode;
   final _InvoiceTotals totals;
+  final InvoicePaymentData? paymentData;
   final bool isSaving;
   final VoidCallback onSave;
   final bool expanded;
@@ -2447,6 +2692,10 @@ class _SummaryPanel extends StatelessWidget {
               _MoneyLine('Round Off', totals.roundOff, signed: true),
             const Divider(height: AppSpacing.xl),
             _MoneyLine('Grand Total', totals.grandTotal, strong: true),
+            if (paymentData != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _PaymentQrPanel(paymentData: paymentData!),
+            ],
             if (expanded)
               const SizedBox(height: AppSpacing.lg)
             else
@@ -2515,6 +2764,99 @@ class _SummaryHero extends StatelessWidget {
               color: AppColors.textPrimary,
               fontWeight: FontWeight.w900,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentQrPanel extends StatelessWidget {
+  const _PaymentQrPanel({required this.paymentData});
+
+  final InvoicePaymentData paymentData;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Payment',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 104,
+                height: 104,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: paymentData.isDynamic
+                    ? QrImageView(
+                        data: paymentData.qrPayload,
+                        size: 104,
+                        backgroundColor: Colors.white,
+                        eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square),
+                        dataModuleStyle: const QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                        ),
+                      )
+                    : Image.memory(
+                        paymentData.imageBytes!,
+                        fit: BoxFit.contain,
+                      ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      paymentData.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      paymentData.helperText,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'INR ${paymentData.amount.toStringAsFixed(2)}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.primaryPurple,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2809,6 +3151,11 @@ IconData _fieldIconFor(String label) {
   if (key.contains('terms')) return Icons.description_outlined;
   if (key.contains('code')) return Icons.tag_outlined;
   return Icons.text_fields_outlined;
+}
+
+bool _isStateCodeFieldName(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized.contains('state') && normalized.contains('code');
 }
 
 class _ItemControllers {

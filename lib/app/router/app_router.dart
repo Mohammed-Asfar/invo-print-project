@@ -70,7 +70,11 @@ GoRouter createAppRouter(AuthBloc authBloc) {
           ),
           GoRoute(
             path: CreateInvoicePage.routePath,
-            builder: (context, state) => const CreateInvoicePage(),
+            builder: (context, state) => CreateInvoicePage(
+              args: state.extra is CreateInvoicePageArgs
+                  ? state.extra! as CreateInvoicePageArgs
+                  : null,
+            ),
           ),
           GoRoute(
             path: CustomersPage.routePath,

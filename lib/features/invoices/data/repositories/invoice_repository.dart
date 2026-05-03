@@ -24,4 +24,8 @@ class InvoiceRepository {
       InvoiceModel.fromEntity(invoice).toMap(),
     );
   }
+
+  Future<void> deleteInvoice(String invoiceId) {
+    return _firestore.deleteDocument('invoices', invoiceId);
+  }
 }

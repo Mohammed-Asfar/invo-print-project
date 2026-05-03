@@ -22,6 +22,7 @@ class AppSettings extends Equatable {
     required this.themeMode,
     required this.primaryColorHex,
     required this.showLineItemHsn,
+    required this.showCustomerStateCode,
     required this.gstinLookupEnabled,
     required this.gstinLookupApiKey,
     required this.gstinLookupApiHost,
@@ -58,6 +59,7 @@ class AppSettings extends Equatable {
       themeMode: 'dark',
       primaryColorHex: '#7C4DFF',
       showLineItemHsn: true,
+      showCustomerStateCode: true,
       gstinLookupEnabled: false,
       gstinLookupApiKey: '',
       gstinLookupApiHost: 'powerful-gstin-tool.p.rapidapi.com',
@@ -93,6 +95,7 @@ class AppSettings extends Equatable {
   final String themeMode;
   final String primaryColorHex;
   final bool showLineItemHsn;
+  final bool showCustomerStateCode;
   final bool gstinLookupEnabled;
   final String gstinLookupApiKey;
   final String gstinLookupApiHost;
@@ -128,6 +131,7 @@ class AppSettings extends Equatable {
     themeMode,
     primaryColorHex,
     showLineItemHsn,
+    showCustomerStateCode,
     gstinLookupEnabled,
     gstinLookupApiKey,
     gstinLookupApiHost,

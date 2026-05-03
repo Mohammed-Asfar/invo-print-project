@@ -104,6 +104,23 @@ class CustomerFirestoreRestClient {
     }
   }
 
+  Future<void> deleteDocument(String collection, String documentId) async {
+    final response = await _client.delete(
+      _documentUri(collection, documentId),
+      headers: await _headers(),
+    );
+
+    if (response.statusCode == 404) return;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 403) {
+        throw const AppException(
+          'Customer Firestore rules are blocking access. Deploy customer_firestore.rules to the customer Firebase project.',
+        );
+      }
+      throw AppException(FirestoreRestCodec.errorMessage(response));
+    }
+  }
+
   Future<Map<String, String>> _headers() async {
     final token = await _firebaseAppManager.customerAuth.currentUser
         ?.getIdToken();
