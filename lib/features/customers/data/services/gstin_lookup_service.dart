@@ -36,7 +36,7 @@ class GstinLookupService {
     ], fallback: normalizedGstin);
 
     bool? isValid;
-    for (final key in const ['is_valid', 'isValid', 'valid']) {
+    for (final key in const ['is_valid', 'isValid', 'valid', 'is_active']) {
       final normalizedKey = GstinBusinessDetails._normalizeKey(key);
       final values = flattened[normalizedKey];
       if (values == null) continue;
@@ -56,6 +56,18 @@ class GstinLookupService {
         }
       }
       if (isValid != null) break;
+    }
+
+    if (isValid == null) {
+      final status = GstinBusinessDetails._firstText(flattened, const [
+        'status',
+        'gstStatus',
+      ]).toLowerCase();
+      if (status == 'active' || status == 'valid') {
+        isValid = true;
+      } else if (status == 'inactive' || status == 'invalid') {
+        isValid = false;
+      }
     }
 
     return GstinValidationResult(
@@ -100,6 +112,7 @@ class GstinLookupService {
     required String apiKey,
     required String host,
     required String endpointPath,
+    int retriesRemaining = 1,
   }) async {
     if (apiKey.trim().isEmpty) {
       throw const AppException('RapidAPI key is missing in Company Settings.');
@@ -135,14 +148,68 @@ class GstinLookupService {
       throw AppException('Unable to reach GSTIN lookup API: $error');
     }
 
+    if (response.statusCode == 429 && retriesRemaining > 0) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      return _requestPayload(
+        gstin: gstin,
+        apiKey: apiKey,
+        host: host,
+        endpointPath: endpointPath,
+        retriesRemaining: retriesRemaining - 1,
+      );
+    }
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AppException(
-        'GSTIN lookup failed with status ${response.statusCode}.',
+        _friendlyErrorMessage(
+          statusCode: response.statusCode,
+          body: response.body,
+          gstin: gstin,
+        ),
       );
     }
 
     final decoded = _decodeBody(response.body);
     return _unwrapPayload(decoded);
+  }
+
+  String _friendlyErrorMessage({
+    required int statusCode,
+    required String body,
+    required String gstin,
+  }) {
+    final payload = _tryDecodeErrorBody(body);
+    final apiMessage = _readString(payload, const [
+      'error',
+      'message',
+      'detail',
+    ]).trim();
+
+    if (statusCode == 422) {
+      if (apiMessage.isNotEmpty) {
+        return apiMessage;
+      }
+      return 'GSTIN format is invalid. Check the number and try again.';
+    }
+    if (statusCode == 404) {
+      return 'No GST record was found for $gstin.';
+    }
+    if (statusCode == 429) {
+      return 'GST lookup limit reached. Please wait and try again later.';
+    }
+    if (apiMessage.isNotEmpty) {
+      return apiMessage;
+    }
+    return 'GSTIN lookup failed with status $statusCode.';
+  }
+
+  Map<String, dynamic> _tryDecodeErrorBody(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      return _toStringKeyMap(decoded);
+    } catch (_) {
+      return const {};
+    }
   }
 
   Uri _buildUri({

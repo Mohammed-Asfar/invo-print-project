@@ -226,7 +226,6 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               gstinLookupEnabled:
                                   editorSettings.gstinLookupEnabled,
                               gstinValidation: _gstinValidation,
-                              isValidatingGstin: _isValidatingGstin,
                               isLookingUpGstin: _isLookingUpGstin,
                               shippingEnabled: _shippingEnabled,
                               shippingAddress: _shippingAddress,
@@ -244,7 +243,6 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               notes: _notes,
                               terms: _terms,
                               onPickCustomer: _applyCustomer,
-                              onValidateGstin: () => _validateGstin(context),
                               onLookupGstin: () => _lookupGstinDetails(context),
                               onShippingEnabledChanged: (value) => setState(() {
                                 _shippingEnabled = value;
@@ -1215,7 +1213,6 @@ class _EditorForm extends StatelessWidget {
     required this.billingAddress,
     required this.gstinLookupEnabled,
     required this.gstinValidation,
-    required this.isValidatingGstin,
     required this.isLookingUpGstin,
     required this.shippingEnabled,
     required this.shippingAddress,
@@ -1233,7 +1230,6 @@ class _EditorForm extends StatelessWidget {
     required this.notes,
     required this.terms,
     required this.onPickCustomer,
-    required this.onValidateGstin,
     required this.onLookupGstin,
     required this.onShippingEnabledChanged,
     required this.onUseBillingForShipping,
@@ -1265,7 +1261,6 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController billingAddress;
   final bool gstinLookupEnabled;
   final _GstinValidationState? gstinValidation;
-  final bool isValidatingGstin;
   final bool isLookingUpGstin;
   final bool shippingEnabled;
   final TextEditingController shippingAddress;
@@ -1283,7 +1278,6 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController notes;
   final TextEditingController terms;
   final ValueChanged<Customer> onPickCustomer;
-  final Future<_GstinValidationState?> Function() onValidateGstin;
   final VoidCallback onLookupGstin;
   final ValueChanged<bool> onShippingEnabledChanged;
   final VoidCallback onUseBillingForShipping;
@@ -1313,12 +1307,10 @@ class _EditorForm extends StatelessWidget {
           billingAddress: billingAddress,
           gstinLookupEnabled: gstinLookupEnabled,
           gstinValidation: gstinValidation,
-          isValidatingGstin: isValidatingGstin,
           isLookingUpGstin: isLookingUpGstin,
           customFields: customCustomerFields,
           customFieldControllers: customerCustomFieldControllers,
           onPickCustomer: onPickCustomer,
-          onValidateGstin: onValidateGstin,
           onLookupGstin: onLookupGstin,
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -1458,12 +1450,10 @@ class _CustomerPanel extends StatelessWidget {
     required this.billingAddress,
     required this.gstinLookupEnabled,
     required this.gstinValidation,
-    required this.isValidatingGstin,
     required this.isLookingUpGstin,
     required this.customFields,
     required this.customFieldControllers,
     required this.onPickCustomer,
-    required this.onValidateGstin,
     required this.onLookupGstin,
   });
 
@@ -1477,12 +1467,10 @@ class _CustomerPanel extends StatelessWidget {
   final TextEditingController billingAddress;
   final bool gstinLookupEnabled;
   final _GstinValidationState? gstinValidation;
-  final bool isValidatingGstin;
   final bool isLookingUpGstin;
   final List<CustomFieldDefinition> customFields;
   final Map<String, TextEditingController> customFieldControllers;
   final ValueChanged<Customer> onPickCustomer;
-  final Future<_GstinValidationState?> Function() onValidateGstin;
   final VoidCallback onLookupGstin;
 
   @override
@@ -1544,25 +1532,6 @@ class _CustomerPanel extends StatelessWidget {
               Expanded(child: _Field(gstin, 'GSTIN')),
               if (gstinLookupEnabled) ...[
                 const SizedBox(width: AppSpacing.md),
-                SizedBox(
-                  height: 56,
-                  child: OutlinedButton.icon(
-                    onPressed: isValidatingGstin ? null : onValidateGstin,
-                    icon: isValidatingGstin
-                        ? SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.primaryPurple,
-                            ),
-                          )
-                        : const Icon(Icons.verified_outlined),
-                    label: Text(
-                      isValidatingGstin ? 'Validating...' : 'Validate GST',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
                 SizedBox(
                   height: 56,
                   child: OutlinedButton.icon(
