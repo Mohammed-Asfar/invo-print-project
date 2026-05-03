@@ -1529,28 +1529,39 @@ class _CustomerPanel extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(child: _Field(gstin, 'GSTIN')),
-              if (gstinLookupEnabled) ...[
-                const SizedBox(width: AppSpacing.md),
-                SizedBox(
-                  height: 56,
-                  child: OutlinedButton.icon(
-                    onPressed: isLookingUpGstin ? null : onLookupGstin,
-                    icon: isLookingUpGstin
-                        ? SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.primaryPurple,
+              Expanded(
+                flex: 11,
+                child: _Field(
+                  gstin,
+                  'GSTIN',
+                  suffixIcon: gstinLookupEnabled
+                      ? Padding(
+                          padding: const EdgeInsets.only(right: AppSpacing.xs),
+                          child: Tooltip(
+                            message: isLookingUpGstin
+                                ? 'Fetching GST details'
+                                : 'Fetch business details from GSTIN',
+                            child: IconButton(
+                              onPressed: isLookingUpGstin
+                                  ? null
+                                  : onLookupGstin,
+                              icon: isLookingUpGstin
+                                  ? SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppColors.primaryPurple,
+                                      ),
+                                    )
+                                  : const Icon(Icons.travel_explore_outlined),
                             ),
-                          )
-                        : const Icon(Icons.travel_explore_outlined),
-                    label: Text(isLookingUpGstin ? 'Fetching...' : 'Fetch GST'),
-                  ),
+                          ),
+                        )
+                      : null,
                 ),
-              ],
+              ),
               const SizedBox(width: AppSpacing.md),
-              Expanded(child: _Field(state, 'State')),
+              Expanded(flex: 10, child: _Field(state, 'State')),
             ],
           ),
           if (gstinLookupEnabled && gstinValidation != null) ...[
@@ -2689,6 +2700,7 @@ class _Field extends StatelessWidget {
     this.width,
     this.maxLines = 1,
     this.requiredField = false,
+    this.suffixIcon,
   });
 
   final TextEditingController controller;
@@ -2696,6 +2708,7 @@ class _Field extends StatelessWidget {
   final double? width;
   final int maxLines;
   final bool requiredField;
+  final Widget? suffixIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -2705,6 +2718,7 @@ class _Field extends StatelessWidget {
       decoration: InputDecoration(
         labelText: requiredField ? '$label *' : label,
         prefixIcon: Icon(_fieldIconFor(label)),
+        suffixIcon: suffixIcon,
       ),
       validator: requiredField
           ? (value) =>
