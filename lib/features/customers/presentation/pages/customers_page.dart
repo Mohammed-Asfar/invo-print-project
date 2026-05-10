@@ -229,6 +229,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
   final _state = TextEditingController();
   final _discountValue = TextEditingController();
   final _notes = TextEditingController();
+  final _defaultInvoiceTerms = TextEditingController();
   bool _loyaltyEnabled = true;
 
   @override
@@ -245,6 +246,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       _state.text = customer.state;
       _discountValue.text = customer.defaultDiscountValue.toString();
       _notes.text = customer.notes;
+      _defaultInvoiceTerms.text = customer.defaultInvoiceTerms;
       _loyaltyEnabled = customer.loyaltyEnabled;
     }
   }
@@ -261,6 +263,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       _state,
       _discountValue,
       _notes,
+      _defaultInvoiceTerms,
     ]) {
       controller.dispose();
     }
@@ -288,6 +291,11 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                 _DialogField(_discountValue, 'Default Discount', numeric: true),
                 _DialogField(_billingAddress, 'Billing Address', maxLines: 3),
                 _DialogField(_shippingAddress, 'Shipping Address', maxLines: 3),
+                _DialogField(
+                  _defaultInvoiceTerms,
+                  'Default Invoice Terms',
+                  maxLines: 3,
+                ),
                 _DialogField(_notes, 'Notes', maxLines: 3),
                 if (widget.globalLoyaltyEnabled)
                   SizedBox(
@@ -345,6 +353,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         outstandingAmount: existing.outstandingAmount,
         lastInvoiceAt: existing.lastInvoiceAt,
         notes: _notes.text.trim(),
+        defaultInvoiceTerms: _defaultInvoiceTerms.text.trim(),
         isActive: true,
         createdAt: existing.createdAt,
         updatedAt: DateTime.now(),

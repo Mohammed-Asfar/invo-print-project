@@ -19,6 +19,7 @@ class InvoiceDraft extends Equatable {
     this.shipToPhone = '',
     this.shipToEmail = '',
     this.shipToState = '',
+    this.shipToStateCode = '',
     this.shipToPincode = '',
     this.shippingCustomFields = const {},
     this.customerCustomFields = const {},
@@ -27,6 +28,13 @@ class InvoiceDraft extends Equatable {
     required this.taxMode,
     required this.status,
     required this.roundOffEnabled,
+    required this.discountType,
+    required this.discountValue,
+    required this.extraCharges,
+    required this.advancePaid,
+    required this.advancePaidDate,
+    required this.advancePaidMethod,
+    required this.advancePaidReference,
     required this.items,
     required this.notes,
     required this.terms,
@@ -49,6 +57,7 @@ class InvoiceDraft extends Equatable {
       shipToPhone: '',
       shipToEmail: '',
       shipToState: '',
+      shipToStateCode: '',
       shipToPincode: '',
       shippingCustomFields: const {},
       customerCustomFields: const {},
@@ -57,6 +66,13 @@ class InvoiceDraft extends Equatable {
       taxMode: TaxMode.cgstSgst,
       status: InvoiceStatus.unpaid,
       roundOffEnabled: false,
+      discountType: 'none',
+      discountValue: 0,
+      extraCharges: const [],
+      advancePaid: 0,
+      advancePaidDate: null,
+      advancePaidMethod: '',
+      advancePaidReference: '',
       items: const [
         InvoiceItem(
           productId: '',
@@ -94,6 +110,7 @@ class InvoiceDraft extends Equatable {
   final String shipToPhone;
   final String shipToEmail;
   final String shipToState;
+  final String shipToStateCode;
   final String shipToPincode;
   final Map<String, String> shippingCustomFields;
   final Map<String, String> customerCustomFields;
@@ -102,6 +119,13 @@ class InvoiceDraft extends Equatable {
   final TaxMode taxMode;
   final InvoiceStatus status;
   final bool roundOffEnabled;
+  final String discountType;
+  final double discountValue;
+  final List<InvoiceCharge> extraCharges;
+  final double advancePaid;
+  final DateTime? advancePaidDate;
+  final String advancePaidMethod;
+  final String advancePaidReference;
   final List<InvoiceItem> items;
   final String notes;
   final String terms;
@@ -130,6 +154,7 @@ class InvoiceDraft extends Equatable {
       outstandingAmount: existing.outstandingAmount,
       lastInvoiceAt: existing.lastInvoiceAt,
       notes: existing.notes,
+      defaultInvoiceTerms: existing.defaultInvoiceTerms,
       isActive: true,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),
@@ -163,6 +188,8 @@ class InvoiceDraft extends Equatable {
         'email': shipToEmail,
         'address': shippingAddress,
         'state': shipToState,
+        if (shipToStateCode.trim().isNotEmpty)
+          'stateCode': shipToStateCode.trim(),
         'pincode': shipToPincode,
         'customFields': shippingCustomFields,
       };
@@ -186,6 +213,7 @@ class InvoiceDraft extends Equatable {
     shipToPhone,
     shipToEmail,
     shipToState,
+    shipToStateCode,
     shipToPincode,
     shippingCustomFields,
     customerCustomFields,
@@ -194,6 +222,13 @@ class InvoiceDraft extends Equatable {
     taxMode,
     status,
     roundOffEnabled,
+    discountType,
+    discountValue,
+    extraCharges,
+    advancePaid,
+    advancePaidDate,
+    advancePaidMethod,
+    advancePaidReference,
     items,
     notes,
     terms,

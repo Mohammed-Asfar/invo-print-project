@@ -19,6 +19,8 @@ class InvoiceModel extends Invoice {
     required super.discountType,
     required super.discountValue,
     required super.discountTotal,
+    required super.extraCharges,
+    required super.extraChargeTotal,
     required super.taxableAmount,
     required super.cgstAmount,
     required super.sgstAmount,
@@ -27,8 +29,10 @@ class InvoiceModel extends Invoice {
     required super.roundOffAmount,
     required super.grandTotal,
     required super.amountPaid,
+    required super.balanceDue,
     required super.notes,
     required super.terms,
+    required super.paymentHistory,
     required super.loyaltyPointsAwarded,
     required super.pointsEarned,
     required super.createdAt,
@@ -54,6 +58,8 @@ class InvoiceModel extends Invoice {
       discountType: invoice.discountType,
       discountValue: invoice.discountValue,
       discountTotal: invoice.discountTotal,
+      extraCharges: invoice.extraCharges,
+      extraChargeTotal: invoice.extraChargeTotal,
       taxableAmount: invoice.taxableAmount,
       cgstAmount: invoice.cgstAmount,
       sgstAmount: invoice.sgstAmount,
@@ -62,9 +68,11 @@ class InvoiceModel extends Invoice {
       roundOffAmount: invoice.roundOffAmount,
       grandTotal: invoice.grandTotal,
       amountPaid: invoice.amountPaid,
+      balanceDue: invoice.balanceDue,
       paidAt: invoice.paidAt,
       notes: invoice.notes,
       terms: invoice.terms,
+      paymentHistory: invoice.paymentHistory,
       loyaltyPointsAwarded: invoice.loyaltyPointsAwarded,
       pointsEarned: invoice.pointsEarned,
       createdAt: invoice.createdAt,
@@ -94,6 +102,8 @@ class InvoiceModel extends Invoice {
       discountType: map['discountType'] as String? ?? 'none',
       discountValue: _toDouble(map['discountValue']),
       discountTotal: _toDouble(map['discountTotal']),
+      extraCharges: _toChargeList(map['extraCharges']),
+      extraChargeTotal: _toDouble(map['extraChargeTotal']),
       taxableAmount: _toDouble(map['taxableAmount']),
       cgstAmount: _toDouble(map['cgstAmount']),
       sgstAmount: _toDouble(map['sgstAmount']),
@@ -102,9 +112,11 @@ class InvoiceModel extends Invoice {
       roundOffAmount: _toDouble(map['roundOffAmount']),
       grandTotal: _toDouble(map['grandTotal']),
       amountPaid: _toDouble(map['amountPaid']),
+      balanceDue: _toDouble(map['balanceDue']),
       paidAt: _toDateTime(map['paidAt']),
       notes: map['notes'] as String? ?? '',
       terms: map['terms'] as String? ?? '',
+      paymentHistory: _toPaymentHistory(map['paymentHistory']),
       loyaltyPointsAwarded: map['loyaltyPointsAwarded'] as bool? ?? false,
       pointsEarned: _toInt(map['pointsEarned']),
       createdAt: _toDateTime(map['createdAt']) ?? DateTime.now(),
@@ -131,6 +143,10 @@ class InvoiceModel extends Invoice {
       'discountType': discountType,
       'discountValue': discountValue,
       'discountTotal': discountTotal,
+      'extraCharges': extraCharges
+          .map((charge) => {'label': charge.label, 'amount': charge.amount})
+          .toList(),
+      'extraChargeTotal': extraChargeTotal,
       'taxableAmount': taxableAmount,
       'cgstAmount': cgstAmount,
       'sgstAmount': sgstAmount,
@@ -139,9 +155,21 @@ class InvoiceModel extends Invoice {
       'roundOffAmount': roundOffAmount,
       'grandTotal': grandTotal,
       'amountPaid': amountPaid,
+      'balanceDue': balanceDue,
       'paidAt': paidAt,
       'notes': notes,
       'terms': terms,
+      'paymentHistory': paymentHistory
+          .map(
+            (payment) => {
+              'amount': payment.amount,
+              'paidAt': payment.paidAt,
+              'method': payment.method,
+              'reference': payment.reference,
+              'notes': payment.notes,
+            },
+          )
+          .toList(),
       'loyaltyPointsAwarded': loyaltyPointsAwarded,
       'pointsEarned': pointsEarned,
       'createdAt': createdAt,
@@ -173,5 +201,30 @@ class InvoiceModel extends Invoice {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
+  }
+
+  static List<InvoiceCharge> _toChargeList(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<Map>().map((entry) {
+      final map = Map<String, dynamic>.from(entry);
+      return InvoiceCharge(
+        label: map['label']?.toString() ?? '',
+        amount: _toDouble(map['amount']),
+      );
+    }).toList();
+  }
+
+  static List<InvoicePaymentRecord> _toPaymentHistory(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<Map>().map((entry) {
+      final map = Map<String, dynamic>.from(entry);
+      return InvoicePaymentRecord(
+        amount: _toDouble(map['amount']),
+        paidAt: _toDateTime(map['paidAt']) ?? DateTime.now(),
+        method: map['method']?.toString() ?? '',
+        reference: map['reference']?.toString() ?? '',
+        notes: map['notes']?.toString() ?? '',
+      );
+    }).toList();
   }
 }

@@ -20,6 +20,8 @@ class Invoice extends Equatable {
     required this.discountType,
     required this.discountValue,
     required this.discountTotal,
+    required this.extraCharges,
+    required this.extraChargeTotal,
     required this.taxableAmount,
     required this.cgstAmount,
     required this.sgstAmount,
@@ -28,8 +30,10 @@ class Invoice extends Equatable {
     required this.roundOffAmount,
     required this.grandTotal,
     required this.amountPaid,
+    required this.balanceDue,
     required this.notes,
     required this.terms,
+    required this.paymentHistory,
     required this.loyaltyPointsAwarded,
     required this.pointsEarned,
     required this.createdAt,
@@ -53,6 +57,8 @@ class Invoice extends Equatable {
   final String discountType;
   final double discountValue;
   final double discountTotal;
+  final List<InvoiceCharge> extraCharges;
+  final double extraChargeTotal;
   final double taxableAmount;
   final double cgstAmount;
   final double sgstAmount;
@@ -61,9 +67,11 @@ class Invoice extends Equatable {
   final double roundOffAmount;
   final double grandTotal;
   final double amountPaid;
+  final double balanceDue;
   final DateTime? paidAt;
   final String notes;
   final String terms;
+  final List<InvoicePaymentRecord> paymentHistory;
   final bool loyaltyPointsAwarded;
   final int pointsEarned;
   final DateTime createdAt;
@@ -86,6 +94,8 @@ class Invoice extends Equatable {
     String? discountType,
     double? discountValue,
     double? discountTotal,
+    List<InvoiceCharge>? extraCharges,
+    double? extraChargeTotal,
     double? taxableAmount,
     double? cgstAmount,
     double? sgstAmount,
@@ -94,10 +104,12 @@ class Invoice extends Equatable {
     double? roundOffAmount,
     double? grandTotal,
     double? amountPaid,
+    double? balanceDue,
     DateTime? paidAt,
     bool clearPaidAt = false,
     String? notes,
     String? terms,
+    List<InvoicePaymentRecord>? paymentHistory,
     bool? loyaltyPointsAwarded,
     int? pointsEarned,
     DateTime? createdAt,
@@ -120,6 +132,8 @@ class Invoice extends Equatable {
       discountType: discountType ?? this.discountType,
       discountValue: discountValue ?? this.discountValue,
       discountTotal: discountTotal ?? this.discountTotal,
+      extraCharges: extraCharges ?? this.extraCharges,
+      extraChargeTotal: extraChargeTotal ?? this.extraChargeTotal,
       taxableAmount: taxableAmount ?? this.taxableAmount,
       cgstAmount: cgstAmount ?? this.cgstAmount,
       sgstAmount: sgstAmount ?? this.sgstAmount,
@@ -128,9 +142,11 @@ class Invoice extends Equatable {
       roundOffAmount: roundOffAmount ?? this.roundOffAmount,
       grandTotal: grandTotal ?? this.grandTotal,
       amountPaid: amountPaid ?? this.amountPaid,
+      balanceDue: balanceDue ?? this.balanceDue,
       paidAt: clearPaidAt ? null : paidAt ?? this.paidAt,
       notes: notes ?? this.notes,
       terms: terms ?? this.terms,
+      paymentHistory: paymentHistory ?? this.paymentHistory,
       loyaltyPointsAwarded: loyaltyPointsAwarded ?? this.loyaltyPointsAwarded,
       pointsEarned: pointsEarned ?? this.pointsEarned,
       createdAt: createdAt ?? this.createdAt,
@@ -156,6 +172,8 @@ class Invoice extends Equatable {
     discountType,
     discountValue,
     discountTotal,
+    extraCharges,
+    extraChargeTotal,
     taxableAmount,
     cgstAmount,
     sgstAmount,
@@ -164,9 +182,11 @@ class Invoice extends Equatable {
     roundOffAmount,
     grandTotal,
     amountPaid,
+    balanceDue,
     paidAt,
     notes,
     terms,
+    paymentHistory,
     loyaltyPointsAwarded,
     pointsEarned,
     createdAt,
@@ -203,12 +223,14 @@ enum TaxMode {
 enum InvoiceStatus {
   draft,
   unpaid,
+  partialPaid,
   paid,
   cancelled;
 
   String get label => switch (this) {
     InvoiceStatus.draft => 'Draft',
     InvoiceStatus.unpaid => 'Unpaid',
+    InvoiceStatus.partialPaid => 'Partial Paid',
     InvoiceStatus.paid => 'Paid',
     InvoiceStatus.cancelled => 'Cancelled',
   };
@@ -216,6 +238,7 @@ enum InvoiceStatus {
   String get firestoreValue => switch (this) {
     InvoiceStatus.draft => 'draft',
     InvoiceStatus.unpaid => 'unpaid',
+    InvoiceStatus.partialPaid => 'partial_paid',
     InvoiceStatus.paid => 'paid',
     InvoiceStatus.cancelled => 'cancelled',
   };
@@ -223,9 +246,62 @@ enum InvoiceStatus {
   static InvoiceStatus fromValue(String value) {
     return switch (value) {
       'paid' => InvoiceStatus.paid,
+      'partial_paid' => InvoiceStatus.partialPaid,
       'cancelled' => InvoiceStatus.cancelled,
       'draft' => InvoiceStatus.draft,
       _ => InvoiceStatus.unpaid,
     };
   }
+}
+
+class InvoiceCharge extends Equatable {
+  const InvoiceCharge({required this.label, required this.amount});
+
+  final String label;
+  final double amount;
+
+  InvoiceCharge copyWith({String? label, double? amount}) {
+    return InvoiceCharge(
+      label: label ?? this.label,
+      amount: amount ?? this.amount,
+    );
+  }
+
+  @override
+  List<Object?> get props => [label, amount];
+}
+
+class InvoicePaymentRecord extends Equatable {
+  const InvoicePaymentRecord({
+    required this.amount,
+    required this.paidAt,
+    this.method = '',
+    this.reference = '',
+    this.notes = '',
+  });
+
+  final double amount;
+  final DateTime paidAt;
+  final String method;
+  final String reference;
+  final String notes;
+
+  InvoicePaymentRecord copyWith({
+    double? amount,
+    DateTime? paidAt,
+    String? method,
+    String? reference,
+    String? notes,
+  }) {
+    return InvoicePaymentRecord(
+      amount: amount ?? this.amount,
+      paidAt: paidAt ?? this.paidAt,
+      method: method ?? this.method,
+      reference: reference ?? this.reference,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  @override
+  List<Object?> get props => [amount, paidAt, method, reference, notes];
 }

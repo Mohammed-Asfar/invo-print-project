@@ -31,7 +31,9 @@ class InvoicePdfService {
       companySnapshot: invoice.companySnapshot,
       fallbackProfile: currentCompanyProfile,
       invoiceNumber: invoice.invoiceNumber,
-      grandTotal: invoice.grandTotal,
+      grandTotal: invoice.balanceDue > 0
+          ? invoice.balanceDue
+          : invoice.grandTotal,
     );
     final logoBytes = _decodeBase64Image(companyData.logoBase64);
     final itemHasHsn =
@@ -46,11 +48,15 @@ class InvoicePdfService {
       pw.MultiPage(
         pageTheme: pw.PageTheme(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.fromLTRB(18, 16, 18, 20),
+          margin: const pw.EdgeInsets.fromLTRB(18, 16, 18, 24),
           theme: pw.ThemeData.withFont(
             base: pw.Font.helvetica(),
             bold: pw.Font.helveticaBold(),
           ),
+        ),
+        footer: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 12),
+          child: _buildSignatureFooter(),
         ),
         build: (context) => [
           _buildTopHeader(
@@ -63,11 +69,10 @@ class InvoicePdfService {
           pw.SizedBox(height: 8),
           _buildInvoiceMeta(invoice),
           pw.SizedBox(height: 8),
-          _buildBillToSection(customerData, invoice),
-          if (shippedToData.visibleFields.isNotEmpty) ...[
-            pw.SizedBox(height: 10),
-            _buildSimpleSection('Shipped To', shippedToData.visibleFields),
-          ],
+          _buildPartySection(
+            customerData: customerData,
+            shippedToData: shippedToData,
+          ),
           pw.SizedBox(height: 12),
           _buildItemsTable(
             invoice.items,
@@ -85,13 +90,15 @@ class InvoicePdfService {
               currencySymbol: currencySymbol,
             ),
           ],
+          if (invoice.paymentHistory.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            _buildPaymentHistory(invoice, currencySymbol: currencySymbol),
+          ],
           if (invoice.notes.trim().isNotEmpty ||
               invoice.terms.trim().isNotEmpty) ...[
             pw.SizedBox(height: 12),
             _buildNotesAndTerms(invoice),
           ],
-          pw.SizedBox(height: 64),
-          _buildSignatureFooter(),
         ],
       ),
     );
@@ -135,17 +142,17 @@ class InvoicePdfService {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.SizedBox(
-              width: 120,
+              width: 160,
               child: logoBytes == null
                   ? pw.Container()
                   : pw.Image(
                       pw.MemoryImage(logoBytes),
-                      height: 54,
+                      height: 82,
                       fit: pw.BoxFit.contain,
                       alignment: pw.Alignment.centerLeft,
                     ),
             ),
-            pw.SizedBox(width: 12),
+            pw.SizedBox(width: 16),
             pw.Expanded(
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
@@ -153,17 +160,28 @@ class InvoicePdfService {
                   pw.Text(
                     companyData.displayName,
                     style: pw.TextStyle(
-                      fontSize: 18,
+                      fontSize: 19,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
-                  for (final line in companyData.headerLines)
+                  pw.SizedBox(height: 2),
+                  for (final line in companyData.addressLines)
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(top: 1.5),
+                      child: pw.Text(
+                        line,
+                        textAlign: pw.TextAlign.right,
+                        style: const pw.TextStyle(fontSize: 8.2),
+                      ),
+                    ),
+                  pw.SizedBox(height: 2),
+                  for (final line in companyData.contactLines)
                     pw.Padding(
                       padding: const pw.EdgeInsets.only(top: 1),
                       child: pw.Text(
                         line,
                         textAlign: pw.TextAlign.right,
-                        style: const pw.TextStyle(fontSize: 8.5),
+                        style: const pw.TextStyle(fontSize: 8.8),
                       ),
                     ),
                 ],
@@ -193,16 +211,38 @@ class InvoicePdfService {
     );
   }
 
-  pw.Widget _buildBillToSection(_PdfPartyData customerData, Invoice invoice) {
+  pw.Widget _buildPartySection({
+    required _PdfPartyData customerData,
+    required _PdfPartyData shippedToData,
+  }) {
+    if (shippedToData.visibleFields.isEmpty) {
+      return _buildPartyBlock('Billed To', customerData.visibleFields);
+    }
+
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(
+          child: _buildPartyBlock('Billed To', customerData.visibleFields),
+        ),
+        pw.SizedBox(width: 18),
+        pw.Expanded(
+          child: _buildPartyBlock('Shipped To', shippedToData.visibleFields),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPartyBlock(String title, List<InvoiceOutputField> fields) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text(
-          'Billed To:',
+          '$title:',
           style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 4),
-        for (final field in customerData.visibleFields)
+        for (final field in fields)
           pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 2),
             child: pw.Row(
@@ -225,27 +265,6 @@ class InvoicePdfService {
                   ),
                 ),
               ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  pw.Widget _buildSimpleSection(String title, List<InvoiceOutputField> fields) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          '$title:',
-          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
-        ),
-        pw.SizedBox(height: 4),
-        for (final field in fields)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 2),
-            child: pw.Text(
-              '${field.label}: ${field.value}',
-              style: const pw.TextStyle(fontSize: 8.5),
             ),
           ),
       ],
@@ -317,6 +336,10 @@ class InvoicePdfService {
   }) {
     final totalRows = <_AmountRow>[
       _AmountRow('Sub-Total', invoice.subtotal),
+      if (invoice.discountTotal > 0)
+        _AmountRow('Discount', -invoice.discountTotal, signed: true),
+      if (invoice.extraChargeTotal > 0)
+        _AmountRow('Extra Charges', invoice.extraChargeTotal, signed: true),
       if (invoice.taxMode == TaxMode.cgstSgst) ...[
         _AmountRow(
           'OUTPUT CGST @ ${_formatNumber(invoice.items.isEmpty ? 0 : invoice.items.first.gstRate / 2)}%',
@@ -335,6 +358,9 @@ class InvoicePdfService {
       if (invoice.roundOffEnabled && invoice.roundOffAmount != 0)
         _AmountRow('Round Off', invoice.roundOffAmount, signed: true),
       _AmountRow('Total', invoice.grandTotal, strong: true),
+      if (invoice.amountPaid > 0) _AmountRow('Amount Paid', invoice.amountPaid),
+      if (invoice.amountPaid > 0 || invoice.balanceDue > 0)
+        _AmountRow('Balance Due', invoice.balanceDue, strong: true),
     ];
 
     return pw.Column(
@@ -481,6 +507,33 @@ class InvoicePdfService {
     );
   }
 
+  pw.Widget _buildPaymentHistory(
+    Invoice invoice, {
+    required String currencySymbol,
+  }) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Payment History:',
+          style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 4),
+        for (final payment in invoice.paymentHistory)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 2),
+            child: pw.Text(
+              '${_formatDateLong(payment.paidAt)} - ${_formatMoney(payment.amount, currencySymbol)}'
+              '${payment.method.trim().isNotEmpty ? ' via ${payment.method.trim()}' : ''}'
+              '${payment.reference.trim().isNotEmpty ? ' (${payment.reference.trim()})' : ''}'
+              '${payment.notes.trim().isNotEmpty ? ' - ${payment.notes.trim()}' : ''}',
+              style: const pw.TextStyle(fontSize: 8.2),
+            ),
+          ),
+      ],
+    );
+  }
+
   pw.Widget _buildSignatureFooter() {
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -505,14 +558,24 @@ class InvoicePdfService {
     Map<String, dynamic> snapshot, {
     CompanyProfile? fallbackProfile,
   }) {
-    final addressLine = _joinNonEmpty([
-      _fallback(snapshot['addressLine1'], fallbackProfile?.addressLine1 ?? ''),
-      _fallback(snapshot['addressLine2'], fallbackProfile?.addressLine2 ?? ''),
-      _fallback(snapshot['city'], fallbackProfile?.city ?? ''),
-      _fallback(snapshot['state'], fallbackProfile?.state ?? ''),
-      _fallback(snapshot['pincode'], fallbackProfile?.pincode ?? ''),
-      _fallback(snapshot['country'], fallbackProfile?.country ?? ''),
-    ]);
+    final addressLine1 = _fallback(
+      snapshot['addressLine1'],
+      fallbackProfile?.addressLine1 ?? '',
+    );
+    final addressLine2 = _fallback(
+      snapshot['addressLine2'],
+      fallbackProfile?.addressLine2 ?? '',
+    );
+    final city = _fallback(snapshot['city'], fallbackProfile?.city ?? '');
+    final state = _fallback(snapshot['state'], fallbackProfile?.state ?? '');
+    final pincode = _fallback(
+      snapshot['pincode'],
+      fallbackProfile?.pincode ?? '',
+    );
+    final country = _fallback(
+      snapshot['country'],
+      fallbackProfile?.country ?? '',
+    );
 
     final phone = _fallback(snapshot['phone'], fallbackProfile?.phone ?? '');
     final gstin = _fallback(snapshot['gstin'], fallbackProfile?.gstin ?? '');
@@ -521,12 +584,16 @@ class InvoicePdfService {
       snapshot['website'],
       fallbackProfile?.website ?? '',
     );
-    final state = _fallback(snapshot['state'], fallbackProfile?.state ?? '');
     final stateCode = _extractStateCode(snapshot);
     final upiId = _fallback(snapshot['upiId'], fallbackProfile?.upiId ?? '');
 
-    final headerLines = <String>[
-      if (addressLine.isNotEmpty) addressLine,
+    final addressLines = <String>[
+      if (addressLine1.isNotEmpty) addressLine1,
+      if (addressLine2.isNotEmpty) addressLine2,
+      _joinNonEmpty([city, state, pincode, country]),
+    ].where((line) => line.trim().isNotEmpty).toList();
+
+    final contactLines = <String>[
       if (phone.isNotEmpty) 'Mobile: $phone',
       if (gstin.isNotEmpty) 'GSTIN/UIN: $gstin',
       if (state.isNotEmpty || stateCode.isNotEmpty)
@@ -573,7 +640,8 @@ class InvoicePdfService {
         snapshot['logoBase64'],
         fallbackProfile?.logoBase64 ?? '',
       ),
-      headerLines: headerLines,
+      addressLines: addressLines,
+      contactLines: contactLines,
       bankFields: bankFields,
     );
   }
@@ -615,6 +683,9 @@ class InvoicePdfService {
         ? Map<String, dynamic>.from(source)
         : <String, dynamic>{};
     final customFields = _mapStringMap(shippedTo['customFields']);
+    final visibleCustomFields = Map<String, String>.fromEntries(
+      customFields.entries.where((entry) => !_isStateCodeField(entry.key)),
+    );
     final fields = _outputBuilder.visibleFields(
       {
         'name': shippedTo['name'],
@@ -622,8 +693,9 @@ class InvoicePdfService {
         'phone': shippedTo['phone'],
         'email': shippedTo['email'],
         'state': shippedTo['state'],
+        'stateCode': _extractStateCode(shippedTo),
         'pincode': shippedTo['pincode'],
-        ...customFields,
+        ...visibleCustomFields,
       },
       {
         'name': 'Name',
@@ -631,8 +703,9 @@ class InvoicePdfService {
         'phone': 'Mobile',
         'email': 'Email',
         'state': 'State',
+        'stateCode': 'State Code',
         'pincode': 'Pincode',
-        for (final key in customFields.keys) key: key,
+        for (final key in visibleCustomFields.keys) key: key,
       },
     );
     return _PdfPartyData(visibleFields: fields);
@@ -843,13 +916,15 @@ class _PdfCompanyData {
   const _PdfCompanyData({
     required this.displayName,
     required this.logoBase64,
-    required this.headerLines,
+    required this.addressLines,
+    required this.contactLines,
     required this.bankFields,
   });
 
   final String displayName;
   final String logoBase64;
-  final List<String> headerLines;
+  final List<String> addressLines;
+  final List<String> contactLines;
   final List<InvoiceOutputField> bankFields;
 }
 

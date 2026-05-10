@@ -201,6 +201,8 @@ class _InvoiceList extends StatelessWidget {
                 if (customerName.isNotEmpty) customerName,
                 invoice.status.label,
                 invoice.taxMode.label,
+                if (invoice.balanceDue > 0)
+                  'Due ${invoice.balanceDue.toStringAsFixed(2)}',
               ].join('  |  '),
             ),
             trailing: Row(
@@ -225,6 +227,9 @@ class _InvoiceList extends StatelessWidget {
                           extra: CreateInvoicePageArgs.duplicate(invoice),
                         );
                         break;
+                      case _InvoiceAction.recordPayment:
+                        await _showRecordPaymentDialog(context, invoice);
+                        break;
                       case _InvoiceAction.cancel:
                         await _confirmAndCancel(context, invoice);
                         break;
@@ -247,6 +252,18 @@ class _InvoiceList extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (invoice.status != InvoiceStatus.cancelled)
+                      if (invoice.balanceDue > 0)
+                        const PopupMenuItem(
+                          value: _InvoiceAction.recordPayment,
+                          child: Row(
+                            children: [
+                              Icon(Icons.payments_outlined),
+                              SizedBox(width: AppSpacing.sm),
+                              Text('Record Payment'),
+                            ],
+                          ),
+                        ),
                     if (invoice.status != InvoiceStatus.cancelled)
                       const PopupMenuItem(
                         value: _InvoiceAction.cancel,
@@ -343,6 +360,19 @@ class _InvoiceList extends StatelessWidget {
     await context.read<InvoiceCubit>().cancelInvoice(invoice);
   }
 
+  Future<void> _showRecordPaymentDialog(
+    BuildContext context,
+    Invoice invoice,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<InvoiceCubit>(),
+        child: _RecordPaymentDialog(invoice: invoice),
+      ),
+    );
+  }
+
   Future<void> _confirmAndDelete(BuildContext context, Invoice invoice) async {
     final confirmed = await _confirmAction(
       context,
@@ -390,4 +420,200 @@ class _InvoiceList extends StatelessWidget {
   }
 }
 
-enum _InvoiceAction { duplicate, cancel, exportPdf, delete }
+enum _InvoiceAction { duplicate, recordPayment, cancel, exportPdf, delete }
+
+class _RecordPaymentDialog extends StatefulWidget {
+  const _RecordPaymentDialog({required this.invoice});
+
+  final Invoice invoice;
+
+  @override
+  State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
+}
+
+class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _method = TextEditingController();
+  final _reference = TextEditingController();
+  final _notes = TextEditingController();
+  late DateTime _paidAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _paidAt = DateTime.now();
+    _amount.text = widget.invoice.balanceDue.toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _method.dispose();
+    _reference.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final invoice = widget.invoice;
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: Text('Record Payment - ${invoice.invoiceNumber}'),
+      content: SizedBox(
+        width: 440,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogLine(
+                label: 'Outstanding',
+                value: invoice.balanceDue.toStringAsFixed(2),
+              ),
+              if (invoice.paymentHistory.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Existing Payments',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                for (final payment in invoice.paymentHistory)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                    child: _DialogLine(
+                      label:
+                          '${payment.paidAt.day.toString().padLeft(2, '0')}/${payment.paidAt.month.toString().padLeft(2, '0')}/${payment.paidAt.year}'
+                          '${payment.method.trim().isNotEmpty ? ' • ${payment.method.trim()}' : ''}',
+                      value: payment.amount.toStringAsFixed(2),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _amount,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Amount *',
+                  prefixIcon: Icon(Icons.currency_rupee_outlined),
+                ),
+                validator: (value) {
+                  final parsed = double.tryParse(value?.trim() ?? '');
+                  if (parsed == null || parsed <= 0) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                readOnly: true,
+                key: ValueKey(_paidAt.toIso8601String()),
+                initialValue:
+                    '${_paidAt.day.toString().padLeft(2, '0')}/${_paidAt.month.toString().padLeft(2, '0')}/${_paidAt.year}',
+                decoration: const InputDecoration(
+                  labelText: 'Payment Date',
+                  prefixIcon: Icon(Icons.event_outlined),
+                  suffixIcon: Icon(Icons.calendar_today_outlined),
+                ),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _paidAt,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => _paidAt = picked);
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _method,
+                decoration: const InputDecoration(
+                  labelText: 'Method',
+                  prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _reference,
+                decoration: const InputDecoration(
+                  labelText: 'Reference',
+                  prefixIcon: Icon(Icons.tag_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _notes,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (!_formKey.currentState!.validate()) return;
+            await context.read<InvoiceCubit>().recordPayment(
+              invoice,
+              amount: double.tryParse(_amount.text.trim()) ?? 0,
+              paidAt: _paidAt,
+              method: _method.text.trim(),
+              reference: _reference.text.trim(),
+              notes: _notes.text.trim(),
+            );
+            if (context.mounted) Navigator.of(context).pop();
+          },
+          icon: const Icon(Icons.payments_outlined),
+          label: const Text('Save Payment'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialogLine extends StatelessWidget {
+  const _DialogLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}

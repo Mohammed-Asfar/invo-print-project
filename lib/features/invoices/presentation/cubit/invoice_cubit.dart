@@ -161,6 +161,9 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         items: validItems,
         taxMode: draft.taxMode,
         roundOffEnabled: draft.roundOffEnabled,
+        discountType: draft.discountType,
+        discountValue: draft.discountValue,
+        extraCharges: draft.extraCharges,
       );
       final now = DateTime.now();
       final sequence = settings.invoiceNextNumber;
@@ -172,6 +175,28 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         padding: settings.invoiceNumberPadding,
         date: draft.invoiceDate,
       );
+      final paymentHistory = <InvoicePaymentRecord>[
+        if (draft.advancePaid > 0)
+          InvoicePaymentRecord(
+            amount: draft.advancePaid.clamp(0, totals.grandTotal),
+            paidAt: draft.advancePaidDate ?? now,
+            method: draft.advancePaidMethod.trim(),
+            reference: draft.advancePaidReference.trim(),
+            notes: 'Initial advance payment',
+          ),
+      ];
+      final amountPaid = _roundMoney(
+        paymentHistory.fold<double>(0, (sum, payment) => sum + payment.amount),
+      ).clamp(0, totals.grandTotal).toDouble();
+      final balanceDue = _roundMoney(totals.grandTotal - amountPaid);
+      final status = _statusFromAmounts(
+        requestedStatus: draft.status,
+        amountPaid: amountPaid,
+        grandTotal: totals.grandTotal,
+      );
+      final paidAt = status == InvoiceStatus.paid && paymentHistory.isNotEmpty
+          ? paymentHistory.last.paidAt
+          : null;
       final invoice = Invoice(
         id: 'inv_${now.microsecondsSinceEpoch}',
         invoiceNumber: invoiceNumber,
@@ -184,11 +209,13 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         companySnapshot: _companySnapshot(companyProfile),
         items: totals.items,
         taxMode: draft.taxMode,
-        status: draft.status,
+        status: status,
         subtotal: totals.subtotal,
-        discountType: 'none',
-        discountValue: 0,
-        discountTotal: 0,
+        discountType: draft.discountType,
+        discountValue: draft.discountValue,
+        discountTotal: totals.discountTotal,
+        extraCharges: draft.extraCharges,
+        extraChargeTotal: totals.extraChargeTotal,
         taxableAmount: totals.taxableAmount,
         cgstAmount: totals.cgstAmount,
         sgstAmount: totals.sgstAmount,
@@ -196,12 +223,16 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         roundOffEnabled: draft.roundOffEnabled,
         roundOffAmount: totals.roundOffAmount,
         grandTotal: totals.grandTotal,
-        amountPaid: draft.status == InvoiceStatus.paid ? totals.grandTotal : 0,
-        paidAt: draft.status == InvoiceStatus.paid ? now : null,
+        amountPaid: amountPaid,
+        balanceDue: balanceDue,
+        paidAt: paidAt,
         notes: draft.notes,
-        terms: draft.terms.isEmpty
-            ? companyProfile.defaultInvoiceTerms
-            : draft.terms,
+        terms: _resolvedTerms(
+          enteredTerms: draft.terms,
+          customer: customer,
+          companyProfile: companyProfile,
+        ),
+        paymentHistory: paymentHistory,
         loyaltyPointsAwarded: false,
         pointsEarned: 0,
         createdAt: now,
@@ -258,6 +289,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       final updatedInvoice = invoice.copyWith(
         status: InvoiceStatus.cancelled,
         amountPaid: 0,
+        balanceDue: invoice.grandTotal,
         clearPaidAt: true,
         updatedAt: DateTime.now(),
       );
@@ -316,6 +348,95 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     }
   }
 
+  Future<void> recordPayment(
+    Invoice invoice, {
+    required double amount,
+    required DateTime paidAt,
+    String method = '',
+    String reference = '',
+    String notes = '',
+  }) async {
+    if (invoice.status == InvoiceStatus.cancelled) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Cancelled invoices cannot receive payments.',
+        ),
+      );
+      return;
+    }
+    final normalizedAmount = _roundMoney(amount);
+    if (normalizedAmount <= 0) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Enter a payment amount greater than zero.',
+        ),
+      );
+      return;
+    }
+
+    emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
+    try {
+      final cappedAmount = _roundMoney(
+        normalizedAmount > invoice.balanceDue
+            ? invoice.balanceDue
+            : normalizedAmount,
+      );
+      final payment = InvoicePaymentRecord(
+        amount: cappedAmount,
+        paidAt: paidAt,
+        method: method.trim(),
+        reference: reference.trim(),
+        notes: notes.trim(),
+      );
+      final paymentHistory = [...invoice.paymentHistory, payment]
+        ..sort((a, b) => a.paidAt.compareTo(b.paidAt));
+      final amountPaid = _roundMoney(
+        paymentHistory.fold<double>(0, (sum, entry) => sum + entry.amount),
+      ).clamp(0, invoice.grandTotal).toDouble();
+      final balanceDue = _roundMoney(invoice.grandTotal - amountPaid);
+      final status = _statusFromAmounts(
+        requestedStatus: invoice.status,
+        amountPaid: amountPaid,
+        grandTotal: invoice.grandTotal,
+      );
+      final updatedInvoice = invoice.copyWith(
+        status: status,
+        amountPaid: amountPaid,
+        balanceDue: balanceDue,
+        paidAt: status == InvoiceStatus.paid ? paidAt : null,
+        paymentHistory: paymentHistory,
+        updatedAt: DateTime.now(),
+      );
+      await _invoiceRepository.saveInvoice(updatedInvoice);
+      final invoices = await _invoiceRepository.fetchInvoices();
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.saved,
+          invoices: invoices,
+          message: status == InvoiceStatus.paid
+              ? '${invoice.invoiceNumber} marked as paid.'
+              : 'Payment recorded for ${invoice.invoiceNumber}.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: error.message,
+        ),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Unable to record payment: $error',
+        ),
+      );
+    }
+  }
+
   InvoiceDraft _defaultDraft(AppSettings settings) {
     final now = DateTime.now();
     return InvoiceDraft(
@@ -339,6 +460,13 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       taxMode: settings.gstEnabled ? TaxMode.cgstSgst : TaxMode.none,
       status: InvoiceStatus.unpaid,
       roundOffEnabled: false,
+      discountType: 'none',
+      discountValue: 0,
+      extraCharges: const [],
+      advancePaid: 0,
+      advancePaidDate: null,
+      advancePaidMethod: '',
+      advancePaidReference: '',
       items: [
         InvoiceItem.empty().copyWith(
           unit: settings.defaultLineItemUnit,
@@ -411,5 +539,36 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       'logoBase64': profile.logoBase64,
       'paymentQrBase64': profile.paymentQrBase64,
     };
+  }
+
+  String _resolvedTerms({
+    required String enteredTerms,
+    required Customer customer,
+    required CompanyProfile companyProfile,
+  }) {
+    if (enteredTerms.trim().isNotEmpty) return enteredTerms.trim();
+    if (customer.defaultInvoiceTerms.trim().isNotEmpty) {
+      return customer.defaultInvoiceTerms.trim();
+    }
+    return companyProfile.defaultInvoiceTerms;
+  }
+
+  InvoiceStatus _statusFromAmounts({
+    required InvoiceStatus requestedStatus,
+    required double amountPaid,
+    required double grandTotal,
+  }) {
+    if (requestedStatus == InvoiceStatus.draft ||
+        requestedStatus == InvoiceStatus.cancelled) {
+      return requestedStatus;
+    }
+    if (grandTotal <= 0) return requestedStatus;
+    if (amountPaid >= grandTotal) return InvoiceStatus.paid;
+    if (amountPaid > 0) return InvoiceStatus.partialPaid;
+    return InvoiceStatus.unpaid;
+  }
+
+  double _roundMoney(double value) {
+    return double.parse(value.toStringAsFixed(2));
   }
 }

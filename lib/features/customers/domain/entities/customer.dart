@@ -20,6 +20,7 @@ class Customer extends Equatable {
     required this.totalPaid,
     required this.outstandingAmount,
     required this.notes,
+    required this.defaultInvoiceTerms,
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -48,6 +49,7 @@ class Customer extends Equatable {
       totalPaid: 0,
       outstandingAmount: 0,
       notes: '',
+      defaultInvoiceTerms: '',
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -74,6 +76,7 @@ class Customer extends Equatable {
   final double outstandingAmount;
   final DateTime? lastInvoiceAt;
   final String notes;
+  final String defaultInvoiceTerms;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -100,6 +103,7 @@ class Customer extends Equatable {
     outstandingAmount,
     lastInvoiceAt,
     notes,
+    defaultInvoiceTerms,
     isActive,
     createdAt,
     updatedAt,

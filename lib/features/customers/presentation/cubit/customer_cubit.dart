@@ -100,6 +100,7 @@ class CustomerCubit extends Cubit<CustomerState> {
       outstandingAmount: customer.outstandingAmount,
       lastInvoiceAt: customer.lastInvoiceAt,
       notes: customer.notes,
+      defaultInvoiceTerms: customer.defaultInvoiceTerms,
       isActive: customer.isActive,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,

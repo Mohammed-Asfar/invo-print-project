@@ -49,6 +49,7 @@ class CustomerRepository {
       outstandingAmount: customer.outstandingAmount,
       lastInvoiceAt: customer.lastInvoiceAt,
       notes: customer.notes,
+      defaultInvoiceTerms: customer.defaultInvoiceTerms,
       isActive: customer.isActive,
       createdAt: customer.id.isEmpty ? now : customer.createdAt,
       updatedAt: now,
@@ -124,6 +125,9 @@ class CustomerRepository {
       outstandingAmount: existing.outstandingAmount,
       lastInvoiceAt: existing.lastInvoiceAt,
       notes: existing.notes,
+      defaultInvoiceTerms: incoming.defaultInvoiceTerms.isEmpty
+          ? existing.defaultInvoiceTerms
+          : incoming.defaultInvoiceTerms,
       isActive: true,
       createdAt: existing.createdAt,
       updatedAt: DateTime.now(),
@@ -152,6 +156,7 @@ class CustomerRepository {
       outstandingAmount: customer.outstandingAmount,
       lastInvoiceAt: customer.lastInvoiceAt,
       notes: customer.notes,
+      defaultInvoiceTerms: customer.defaultInvoiceTerms,
       isActive: false,
       createdAt: customer.createdAt,
       updatedAt: DateTime.now(),

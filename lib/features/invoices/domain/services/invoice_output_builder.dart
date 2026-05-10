@@ -12,6 +12,7 @@ class InvoiceOutputBuilder {
     required double grandTotal,
   }) {
     if (companyProfile == null) return null;
+    if (grandTotal <= 0) return null;
 
     final upiUri = buildUpiUri(
       upiId: companyProfile.upiId,
@@ -47,6 +48,7 @@ class InvoiceOutputBuilder {
     required double grandTotal,
     CompanyProfile? fallbackProfile,
   }) {
+    if (grandTotal <= 0) return null;
     final upiId = _readString(companySnapshot['upiId']).isNotEmpty
         ? _readString(companySnapshot['upiId'])
         : fallbackProfile?.upiId ?? '';

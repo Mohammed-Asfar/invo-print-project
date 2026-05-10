@@ -5,7 +5,9 @@ class InvoiceTotals {
   const InvoiceTotals({
     required this.items,
     required this.subtotal,
+    required this.discountTotal,
     required this.taxableAmount,
+    required this.extraChargeTotal,
     required this.cgstAmount,
     required this.sgstAmount,
     required this.igstAmount,
@@ -15,7 +17,9 @@ class InvoiceTotals {
 
   final List<InvoiceItem> items;
   final double subtotal;
+  final double discountTotal;
   final double taxableAmount;
+  final double extraChargeTotal;
   final double cgstAmount;
   final double sgstAmount;
   final double igstAmount;
@@ -48,15 +52,38 @@ class InvoiceCalculator {
     required List<InvoiceItem> items,
     required TaxMode taxMode,
     bool roundOffEnabled = false,
+    String discountType = 'none',
+    double discountValue = 0,
+    List<InvoiceCharge> extraCharges = const [],
   }) {
     final calculatedItems = items
         .map((item) => calculateItem(item: item, taxMode: taxMode))
         .toList();
     final subtotal = _sum(calculatedItems.map((item) => item.taxableAmount));
-    final cgst = _sum(calculatedItems.map((item) => item.cgstAmount));
-    final sgst = _sum(calculatedItems.map((item) => item.sgstAmount));
-    final igst = _sum(calculatedItems.map((item) => item.igstAmount));
-    final totalBeforeRoundOff = _round(subtotal + cgst + sgst + igst);
+    final discountTotal = _discountTotal(
+      subtotal: subtotal,
+      discountType: discountType,
+      discountValue: discountValue,
+    );
+    final taxableAmount = _round((subtotal - discountTotal).clamp(0, subtotal));
+    final taxRatio = subtotal <= 0 ? 1.0 : taxableAmount / subtotal;
+    final cgst = _round(
+      _sum(calculatedItems.map((item) => item.cgstAmount)) * taxRatio,
+    );
+    final sgst = _round(
+      _sum(calculatedItems.map((item) => item.sgstAmount)) * taxRatio,
+    );
+    final igst = _round(
+      _sum(calculatedItems.map((item) => item.igstAmount)) * taxRatio,
+    );
+    final extraChargeTotal = _sum(
+      extraCharges
+          .where((charge) => charge.label.trim().isNotEmpty)
+          .map((charge) => charge.amount),
+    );
+    final totalBeforeRoundOff = _round(
+      taxableAmount + cgst + sgst + igst + extraChargeTotal,
+    );
     final grandTotal = roundOffEnabled
         ? totalBeforeRoundOff.roundToDouble()
         : totalBeforeRoundOff;
@@ -65,13 +92,30 @@ class InvoiceCalculator {
     return InvoiceTotals(
       items: calculatedItems,
       subtotal: subtotal,
-      taxableAmount: subtotal,
+      discountTotal: discountTotal,
+      taxableAmount: taxableAmount,
+      extraChargeTotal: extraChargeTotal,
       cgstAmount: cgst,
       sgstAmount: sgst,
       igstAmount: igst,
       roundOffAmount: roundOffAmount,
       grandTotal: grandTotal,
     );
+  }
+
+  double _discountTotal({
+    required double subtotal,
+    required String discountType,
+    required double discountValue,
+  }) {
+    if (subtotal <= 0 || discountValue <= 0) return 0;
+    final normalizedType = discountType.trim().toLowerCase();
+    final amount = switch (normalizedType) {
+      'percentage' => subtotal * (discountValue / 100),
+      'amount' => discountValue,
+      _ => 0.0,
+    };
+    return _round(amount.clamp(0, subtotal));
   }
 
   InvoiceItem calculateItem({

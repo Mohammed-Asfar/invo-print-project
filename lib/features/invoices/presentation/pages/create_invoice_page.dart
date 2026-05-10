@@ -77,7 +77,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   final _shipToPhone = TextEditingController();
   final _shipToEmail = TextEditingController();
   final _shipToState = TextEditingController();
+  final _shipToStateCode = TextEditingController();
   final _shipToPincode = TextEditingController();
+  final _discountValue = TextEditingController();
+  final _advancePaid = TextEditingController();
+  final _advancePaidMethod = TextEditingController();
+  final _advancePaidReference = TextEditingController();
   final _notes = TextEditingController();
   final _terms = TextEditingController();
   final Map<String, TextEditingController> _customerCustomFields = {};
@@ -88,14 +93,16 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   late InvoiceStatus _status;
   late bool _roundOffEnabled;
   late bool _shippingEnabled;
+  late String _discountType;
   late DateTime _invoiceDate;
   late DateTime _dueDate;
+  DateTime? _advancePaidDate;
   late List<_ItemControllers> _items;
+  late List<_ChargeControllers> _extraCharges;
   Customer? _selectedCustomer;
   bool _seeded = false;
   bool _isSeedingControllers = false;
   bool _isLookingUpGstin = false;
-  bool _isValidatingGstin = false;
   _GstinValidationState? _gstinValidation;
   _GstinAutofillSnapshot? _gstinAutofill;
   HsnGstLookup? _hsnGstLookup;
@@ -119,7 +126,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _shipToPhone,
       _shipToEmail,
       _shipToState,
+      _shipToStateCode,
       _shipToPincode,
+      _discountValue,
+      _advancePaid,
+      _advancePaidMethod,
+      _advancePaidReference,
       _notes,
       _terms,
       ..._customerCustomFields.values,
@@ -145,7 +157,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _shipToPhone,
       _shipToEmail,
       _shipToState,
+      _shipToStateCode,
       _shipToPincode,
+      _discountValue,
+      _advancePaid,
+      _advancePaidMethod,
+      _advancePaidReference,
       _notes,
       _terms,
       ..._customerCustomFields.values,
@@ -154,6 +171,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       controller
         ..removeListener(_refresh)
         ..dispose();
+    }
+    for (final charge in _extraCharges) {
+      charge.dispose();
     }
     for (final item in _items) {
       item.dispose();
@@ -185,6 +205,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       },
       builder: (context, state) {
         if (!_seeded && state.draft != null) {
+          for (final charge in _extraCharges) {
+            charge.dispose();
+          }
           for (final item in _items) {
             item.dispose();
           }
@@ -227,6 +250,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                       )
                                       .toList(growable: false)
                                 : editorSettings.customCustomerFields;
+                            final visibleShippingCustomFields =
+                                editorSettings.showCustomerStateCode
+                                ? editorSettings.customShippingFields
+                                      .where(
+                                        (field) =>
+                                            !_isStateCodeFieldName(field.name),
+                                      )
+                                      .toList(growable: false)
+                                : editorSettings.customShippingFields;
                             for (final item in _items) {
                               item.ensureCustomFields(
                                 editorSettings.customLineItemFields,
@@ -236,7 +268,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               visibleCustomerCustomFields,
                             );
                             _ensureShippingCustomFields(
-                              editorSettings.customShippingFields,
+                              visibleShippingCustomFields,
                             );
                             final formContent = _EditorForm(
                               customers: state.customers,
@@ -244,8 +276,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               customCustomerFields: visibleCustomerCustomFields,
                               customerCustomFieldControllers:
                                   _customerCustomFields,
-                              customShippingFields:
-                                  editorSettings.customShippingFields,
+                              customShippingFields: visibleShippingCustomFields,
                               shippingCustomFieldControllers:
                                   _shippingCustomFields,
                               showLineItemHsn: editorSettings.showLineItemHsn,
@@ -271,12 +302,20 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               shipToPhone: _shipToPhone,
                               shipToEmail: _shipToEmail,
                               shipToState: _shipToState,
+                              shipToStateCode: _shipToStateCode,
                               shipToPincode: _shipToPincode,
                               invoiceDate: _invoiceDate,
                               dueDate: _dueDate,
                               taxMode: _taxMode,
                               status: _status,
                               roundOffEnabled: _roundOffEnabled,
+                              discountType: _discountType,
+                              discountValue: _discountValue,
+                              extraCharges: _extraCharges,
+                              advancePaid: _advancePaid,
+                              advancePaidDate: _advancePaidDate,
+                              advancePaidMethod: _advancePaidMethod,
+                              advancePaidReference: _advancePaidReference,
                               items: _items,
                               notes: _notes,
                               terms: _terms,
@@ -287,6 +326,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                 if (value && _shipToState.text.trim().isEmpty) {
                                   _shipToState.text =
                                       editorSettings.defaultShippingState;
+                                }
+                                if (value &&
+                                    _showCustomerStateCode &&
+                                    _shipToStateCode.text.trim().isEmpty) {
+                                  _shipToStateCode.text = _stateCode.text
+                                      .trim();
                                 }
                               }),
                               onUseBillingForShipping:
@@ -301,6 +346,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                   setState(() => _status = value),
                               onRoundOffChanged: (value) =>
                                   setState(() => _roundOffEnabled = value),
+                              onDiscountTypeChanged: (value) =>
+                                  setState(() => _discountType = value),
+                              onAdvancePaidDateChanged: (value) =>
+                                  setState(() => _advancePaidDate = value),
+                              onAddCharge: _addCharge,
+                              onRemoveCharge: _removeCharge,
                               onAddItem: _addItem,
                               onRemoveItem: _removeItem,
                               onChanged: _refresh,
@@ -312,6 +363,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               status: _status,
                               taxMode: _taxMode,
                               totals: totals,
+                              amountInWords: _amountInWords(totals.grandTotal),
+                              amountPaid: _parsedAmount(_advancePaid),
+                              balanceDue:
+                                  (totals.grandTotal -
+                                          _parsedAmount(_advancePaid))
+                                      .clamp(0, double.infinity)
+                                      .toDouble(),
+                              paymentHistoryPreview:
+                                  _buildDraftPaymentHistoryPreview(),
                               paymentData: _outputBuilder.buildPaymentData(
                                 companyProfile: state.companyProfile,
                                 invoiceNumber: invoiceNumber,
@@ -376,6 +436,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     _shipToPhone.text = draft.shipToPhone;
     _shipToEmail.text = draft.shipToEmail;
     _shipToState.text = draft.shipToState;
+    _shipToStateCode.text = draft.shipToStateCode;
     _shipToPincode.text = draft.shipToPincode;
     for (final entry in draft.customerCustomFields.entries) {
       _customerCustomField(entry.key).text = entry.value;
@@ -386,10 +447,22 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     _taxMode = draft.taxMode;
     _status = draft.status;
     _roundOffEnabled = draft.roundOffEnabled;
+    _discountType = draft.discountType;
+    _discountValue.text = _formatEditableNumber(draft.discountValue);
+    _advancePaid.text = _formatEditableNumber(draft.advancePaid);
+    _advancePaidDate = draft.advancePaidDate;
+    _advancePaidMethod.text = draft.advancePaidMethod;
+    _advancePaidReference.text = draft.advancePaidReference;
     _shippingEnabled = draft.shippingEnabled;
     _invoiceDate = draft.invoiceDate;
     _dueDate = draft.dueDate;
+    _extraCharges = draft.extraCharges
+        .map(_ChargeControllers.fromCharge)
+        .toList();
     _items = draft.items.map(_ItemControllers.fromItem).toList();
+    for (final charge in _extraCharges) {
+      charge.addListener(_refresh);
+    }
     for (final item in _items) {
       _attachItem(item);
     }
@@ -442,6 +515,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       shipToPhone: shippedTo['phone']?.toString() ?? '',
       shipToEmail: shippedTo['email']?.toString() ?? '',
       shipToState: shippedTo['state']?.toString() ?? '',
+      shipToStateCode: _stateCodeFromSnapshot(shippedTo),
       shipToPincode: shippedTo['pincode']?.toString() ?? '',
       shippingCustomFields: _stringMap(shippedTo['customFields']),
       customerCustomFields: _stringMap(customerSnapshot['customFields']),
@@ -450,6 +524,13 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       taxMode: sourceInvoice.taxMode,
       status: InvoiceStatus.unpaid,
       roundOffEnabled: sourceInvoice.roundOffEnabled,
+      discountType: sourceInvoice.discountType,
+      discountValue: sourceInvoice.discountValue,
+      extraCharges: sourceInvoice.extraCharges,
+      advancePaid: 0,
+      advancePaidDate: null,
+      advancePaidMethod: '',
+      advancePaidReference: '',
       items: sourceInvoice.items,
       notes: sourceInvoice.notes,
       terms: sourceInvoice.terms,
@@ -528,12 +609,34 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _state.text = customer.state;
       _stateCode.text = _customerStateCode(customer);
       _billingAddress.text = customer.billingAddress;
+      if ((customer.defaultDiscountValue > 0) &&
+          (_discountValue.text.trim().isEmpty ||
+              _parsedAmount(_discountValue) == 0)) {
+        _discountType = customer.defaultDiscountType;
+        _discountValue.text = _formatEditableNumber(
+          customer.defaultDiscountValue,
+        );
+      }
+      final currentTerms = _terms.text.trim();
+      final defaultCompanyTerms =
+          context
+              .read<InvoiceCubit>()
+              .state
+              .companyProfile
+              ?.defaultInvoiceTerms
+              .trim() ??
+          '';
+      if (customer.defaultInvoiceTerms.trim().isNotEmpty &&
+          (currentTerms.isEmpty || currentTerms == defaultCompanyTerms)) {
+        _terms.text = customer.defaultInvoiceTerms.trim();
+      }
       _shippingAddress.text = customer.shippingAddress;
       _shippingEnabled = customer.shippingAddress.trim().isNotEmpty;
       _shipToName.text = customer.name;
       _shipToPhone.text = customer.phone;
       _shipToEmail.text = customer.email;
       _shipToState.text = customer.state;
+      _shipToStateCode.text = _customerStateCode(customer);
       for (final entry in customer.customFields.entries) {
         if (entry.key == _builtInCustomerStateCodeKey) continue;
         if (_showCustomerStateCode && _isStateCodeFieldName(entry.key)) {
@@ -551,6 +654,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _shipToPhone.text = _phone.text.trim();
       _shipToEmail.text = _email.text.trim();
       _shipToState.text = _state.text.trim();
+      _shipToStateCode.text = _stateCode.text.trim();
       _shippingAddress.text = _billingAddress.text.trim();
     });
   }
@@ -609,7 +713,6 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       return _gstinValidation;
     }
 
-    setState(() => _isValidatingGstin = true);
     try {
       final result = await context.read<InvoiceCubit>().validateGstin(gstin);
       if (!mounted) return null;
@@ -655,10 +758,6 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
           ),
         );
       return null;
-    } finally {
-      if (mounted) {
-        setState(() => _isValidatingGstin = false);
-      }
     }
   }
 
@@ -789,6 +888,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _shipToPhone.text = '9840012345';
       _shipToEmail.text = 'site@example.com';
       _shipToState.text = 'Tamil Nadu';
+      _shipToStateCode.text = '33';
       _shippingAddress.text =
           'Warehouse Gate 2, Pudupattinam, Kalpakkam, Tamil Nadu';
       _shipToPincode.text = '603102';
@@ -805,11 +905,33 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _taxMode = TaxMode.cgstSgst;
       _status = InvoiceStatus.unpaid;
       _roundOffEnabled = true;
+      _discountType = 'percentage';
+      _discountValue.text = '10';
+      _advancePaid.text = '5000';
+      _advancePaidDate = now;
+      _advancePaidMethod.text = 'Bank Transfer';
+      _advancePaidReference.text = 'UTR-784512';
       _notes.text = 'Goods once sold will not be taken back.';
       _terms.text = 'Payment due within 15 days from invoice date.';
+      _extraCharges = [
+        _ChargeControllers(
+          label: TextEditingController(text: 'Packing'),
+          amount: TextEditingController(text: '250'),
+        ),
+        _ChargeControllers(
+          label: TextEditingController(text: 'Shipping'),
+          amount: TextEditingController(text: '450'),
+        ),
+      ];
+      for (final charge in _extraCharges) {
+        charge.addListener(_refresh);
+      }
 
       for (final item in _items) {
         item.dispose();
+      }
+      for (final charge in _extraCharges) {
+        charge.dispose();
       }
       _items = [
         _demoItem(
@@ -891,6 +1013,21 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     });
   }
 
+  void _addCharge() {
+    setState(() {
+      final charge = _ChargeControllers.empty();
+      charge.addListener(_refresh);
+      _extraCharges.add(charge);
+    });
+  }
+
+  void _removeCharge(_ChargeControllers charge) {
+    setState(() {
+      charge.dispose();
+      _extraCharges.remove(charge);
+    });
+  }
+
   void _removeItem(_ItemControllers item) {
     if (_items.length == 1) return;
     setState(() {
@@ -931,6 +1068,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       shipToPhone: _shippingEnabled ? _shipToPhone.text.trim() : '',
       shipToEmail: _shippingEnabled ? _shipToEmail.text.trim() : '',
       shipToState: _shippingEnabled ? _shipToState.text.trim() : '',
+      shipToStateCode: _shippingEnabled && _showCustomerStateCode
+          ? _shipToStateCode.text.trim()
+          : '',
       shipToPincode: _shippingEnabled ? _shipToPincode.text.trim() : '',
       shippingCustomFields: _shippingEnabled
           ? _shippingCustomFields.map((key, controller) {
@@ -945,6 +1085,13 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       taxMode: _taxMode,
       status: _status,
       roundOffEnabled: _roundOffEnabled,
+      discountType: _discountType,
+      discountValue: _parsedAmount(_discountValue),
+      extraCharges: _extraCharges.map((charge) => charge.toCharge()).toList(),
+      advancePaid: _parsedAmount(_advancePaid),
+      advancePaidDate: _advancePaidDate,
+      advancePaidMethod: _advancePaidMethod.text.trim(),
+      advancePaidReference: _advancePaidReference.text.trim(),
       items: _items.map((item) => item.toItem()).toList(),
       notes: _notes.text.trim(),
       terms: _terms.text.trim(),
@@ -1177,8 +1324,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       },
     );
     if (chosen == _CustomerDialogExit.cancel) return _CustomerResolve.cancelled;
-    if (chosen == _CustomerDialogExit.createNew)
+    if (chosen == _CustomerDialogExit.createNew) {
       return const _CustomerResolve(null);
+    }
     return _CustomerResolve(chosen is Customer ? chosen : null);
   }
 
@@ -1245,9 +1393,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       items: _items.map((item) => item.toItem()).toList(),
       taxMode: _taxMode,
       roundOffEnabled: _roundOffEnabled,
+      discountType: _discountType,
+      discountValue: _parsedAmount(_discountValue),
+      extraCharges: _extraCharges.map((charge) => charge.toCharge()).toList(),
     );
     return _InvoiceTotals(
       subtotal: totals.subtotal,
+      discountTotal: totals.discountTotal,
+      extraChargeTotal: totals.extraChargeTotal,
+      taxableAmount: totals.taxableAmount,
       cgst: totals.cgstAmount,
       sgst: totals.sgstAmount,
       igst: totals.igstAmount,
@@ -1287,6 +1441,33 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   void _attachItem(_ItemControllers item) {
     item.addListener(_refresh, onHsnChanged: (_) => _applyHsnRate(item));
+  }
+
+  double _parsedAmount(TextEditingController controller) {
+    return double.tryParse(controller.text.trim()) ?? 0;
+  }
+
+  String _formatEditableNumber(double value) {
+    if (value == 0) return '';
+    return InvoiceCalculator().formatRateInput(value);
+  }
+
+  List<InvoicePaymentRecord> _buildDraftPaymentHistoryPreview() {
+    final amount = _parsedAmount(_advancePaid);
+    if (amount <= 0) return const [];
+    return [
+      InvoicePaymentRecord(
+        amount: amount,
+        paidAt: _advancePaidDate ?? _invoiceDate,
+        method: _advancePaidMethod.text.trim(),
+        reference: _advancePaidReference.text.trim(),
+        notes: 'Advance payment',
+      ),
+    ];
+  }
+
+  String _amountInWords(double amount) {
+    return _NumberToWords.convert(amount);
   }
 
   void _applyHsnRate(_ItemControllers item) {
@@ -1449,12 +1630,20 @@ class _EditorForm extends StatelessWidget {
     required this.shipToPhone,
     required this.shipToEmail,
     required this.shipToState,
+    required this.shipToStateCode,
     required this.shipToPincode,
     required this.invoiceDate,
     required this.dueDate,
     required this.taxMode,
     required this.status,
     required this.roundOffEnabled,
+    required this.discountType,
+    required this.discountValue,
+    required this.extraCharges,
+    required this.advancePaid,
+    required this.advancePaidDate,
+    required this.advancePaidMethod,
+    required this.advancePaidReference,
     required this.items,
     required this.notes,
     required this.terms,
@@ -1467,6 +1656,10 @@ class _EditorForm extends StatelessWidget {
     required this.onTaxModeChanged,
     required this.onStatusChanged,
     required this.onRoundOffChanged,
+    required this.onDiscountTypeChanged,
+    required this.onAdvancePaidDateChanged,
+    required this.onAddCharge,
+    required this.onRemoveCharge,
     required this.onAddItem,
     required this.onRemoveItem,
     required this.onChanged,
@@ -1499,12 +1692,20 @@ class _EditorForm extends StatelessWidget {
   final TextEditingController shipToPhone;
   final TextEditingController shipToEmail;
   final TextEditingController shipToState;
+  final TextEditingController shipToStateCode;
   final TextEditingController shipToPincode;
   final DateTime invoiceDate;
   final DateTime dueDate;
   final TaxMode taxMode;
   final InvoiceStatus status;
   final bool roundOffEnabled;
+  final String discountType;
+  final TextEditingController discountValue;
+  final List<_ChargeControllers> extraCharges;
+  final TextEditingController advancePaid;
+  final DateTime? advancePaidDate;
+  final TextEditingController advancePaidMethod;
+  final TextEditingController advancePaidReference;
   final List<_ItemControllers> items;
   final TextEditingController notes;
   final TextEditingController terms;
@@ -1517,6 +1718,10 @@ class _EditorForm extends StatelessWidget {
   final ValueChanged<TaxMode> onTaxModeChanged;
   final ValueChanged<InvoiceStatus> onStatusChanged;
   final ValueChanged<bool> onRoundOffChanged;
+  final ValueChanged<String> onDiscountTypeChanged;
+  final ValueChanged<DateTime> onAdvancePaidDateChanged;
+  final VoidCallback onAddCharge;
+  final ValueChanged<_ChargeControllers> onRemoveCharge;
   final VoidCallback onAddItem;
   final ValueChanged<_ItemControllers> onRemoveItem;
   final VoidCallback onChanged;
@@ -1554,11 +1759,13 @@ class _EditorForm extends StatelessWidget {
           shipToEmail: shipToEmail,
           shippingAddress: shippingAddress,
           shipToState: shipToState,
+          shipToStateCode: shipToStateCode,
           shipToPincode: shipToPincode,
           customFields: customShippingFields,
           customFieldControllers: shippingCustomFieldControllers,
           onEnabledChanged: onShippingEnabledChanged,
           onUseBillingDetails: onUseBillingForShipping,
+          showStateCode: showCustomerStateCode,
         ),
         const SizedBox(height: AppSpacing.lg),
         _InvoiceMetaPanel(
@@ -1583,6 +1790,20 @@ class _EditorForm extends StatelessWidget {
           onRemove: onRemoveItem,
           onChanged: onChanged,
           onProductApplied: onProductApplied,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _AmountsPanel(
+          discountType: discountType,
+          discountValue: discountValue,
+          extraCharges: extraCharges,
+          advancePaid: advancePaid,
+          advancePaidDate: advancePaidDate,
+          advancePaidMethod: advancePaidMethod,
+          advancePaidReference: advancePaidReference,
+          onDiscountTypeChanged: onDiscountTypeChanged,
+          onAdvancePaidDateChanged: onAdvancePaidDateChanged,
+          onAddCharge: onAddCharge,
+          onRemoveCharge: onRemoveCharge,
         ),
         const SizedBox(height: AppSpacing.lg),
         _NotesPanel(notes: notes, terms: terms),
@@ -1847,11 +2068,13 @@ class _ShippedToPanel extends StatelessWidget {
     required this.shipToEmail,
     required this.shippingAddress,
     required this.shipToState,
+    required this.shipToStateCode,
     required this.shipToPincode,
     required this.customFields,
     required this.customFieldControllers,
     required this.onEnabledChanged,
     required this.onUseBillingDetails,
+    required this.showStateCode,
   });
 
   final bool enabled;
@@ -1860,11 +2083,13 @@ class _ShippedToPanel extends StatelessWidget {
   final TextEditingController shipToEmail;
   final TextEditingController shippingAddress;
   final TextEditingController shipToState;
+  final TextEditingController shipToStateCode;
   final TextEditingController shipToPincode;
   final List<CustomFieldDefinition> customFields;
   final Map<String, TextEditingController> customFieldControllers;
   final ValueChanged<bool> onEnabledChanged;
   final VoidCallback onUseBillingDetails;
+  final bool showStateCode;
 
   @override
   Widget build(BuildContext context) {
@@ -1921,6 +2146,14 @@ class _ShippedToPanel extends StatelessWidget {
                 Expanded(child: _Field(shipToPincode, 'Shipping Pincode')),
               ],
             ),
+            if (showStateCode) ...[
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  _Field(shipToStateCode, 'Shipping State Code', width: 260),
+                ],
+              ),
+            ],
             if (customFields.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.md),
               Wrap(
@@ -2046,7 +2279,7 @@ class _CustomerDropdownFieldState extends State<_CustomerDropdownField> {
                   shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
                   itemCount: visibleOptions.length,
-                  separatorBuilder: (_, __) => Divider(
+                  separatorBuilder: (_, _) => Divider(
                     height: 1,
                     color: AppColors.border.withValues(alpha: 0.6),
                   ),
@@ -2333,6 +2566,7 @@ class _InvoiceMetaPanel extends StatelessWidget {
                       const [
                             InvoiceStatus.draft,
                             InvoiceStatus.unpaid,
+                            InvoiceStatus.partialPaid,
                             InvoiceStatus.paid,
                           ]
                           .map(
@@ -2628,6 +2862,161 @@ class _NotesPanel extends StatelessWidget {
   }
 }
 
+class _AmountsPanel extends StatelessWidget {
+  const _AmountsPanel({
+    required this.discountType,
+    required this.discountValue,
+    required this.extraCharges,
+    required this.advancePaid,
+    required this.advancePaidDate,
+    required this.advancePaidMethod,
+    required this.advancePaidReference,
+    required this.onDiscountTypeChanged,
+    required this.onAdvancePaidDateChanged,
+    required this.onAddCharge,
+    required this.onRemoveCharge,
+  });
+
+  final String discountType;
+  final TextEditingController discountValue;
+  final List<_ChargeControllers> extraCharges;
+  final TextEditingController advancePaid;
+  final DateTime? advancePaidDate;
+  final TextEditingController advancePaidMethod;
+  final TextEditingController advancePaidReference;
+  final ValueChanged<String> onDiscountTypeChanged;
+  final ValueChanged<DateTime> onAdvancePaidDateChanged;
+  final VoidCallback onAddCharge;
+  final ValueChanged<_ChargeControllers> onRemoveCharge;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      icon: Icons.calculate_outlined,
+      title: 'Discounts, Charges & Payments',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 220,
+                child: DropdownButtonFormField<String>(
+                  initialValue: discountType,
+                  decoration: const InputDecoration(
+                    labelText: 'Discount Type',
+                    prefixIcon: Icon(Icons.percent_outlined),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'none', child: Text('No discount')),
+                    DropdownMenuItem(
+                      value: 'percentage',
+                      child: Text('Percentage'),
+                    ),
+                    DropdownMenuItem(value: 'amount', child: Text('Amount')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) onDiscountTypeChanged(value);
+                  },
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              _SmallField(
+                discountValue,
+                discountType == 'percentage' ? 'Discount %' : 'Discount Amount',
+                width: 180,
+                minValue: 0,
+                maxValue: discountType == 'percentage' ? 100 : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Text(
+                'Extra Charges',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: onAddCharge,
+                icon: const Icon(Icons.add),
+                label: const Text('Add Charge'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (extraCharges.isEmpty)
+            Text(
+              'No extra charges added.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+            )
+          else
+            Column(
+              children: [
+                for (final charge in extraCharges)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: Row(
+                      children: [
+                        Expanded(child: _Field(charge.label, 'Charge Label')),
+                        const SizedBox(width: AppSpacing.md),
+                        _SmallField(
+                          charge.amount,
+                          'Amount',
+                          width: 160,
+                          minValue: 0,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        IconButton(
+                          onPressed: () => onRemoveCharge(charge),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Advance / Paid Amount',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              _SmallField(advancePaid, 'Advance Paid', width: 160, minValue: 0),
+              SizedBox(
+                width: 220,
+                child: _DateField(
+                  label: 'Payment Date',
+                  date: advancePaidDate ?? DateTime.now(),
+                  onChanged: onAdvancePaidDateChanged,
+                ),
+              ),
+              SizedBox(width: 220, child: _Field(advancePaidMethod, 'Method')),
+              SizedBox(
+                width: 220,
+                child: _Field(advancePaidReference, 'Reference'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SummaryPanel extends StatelessWidget {
   const _SummaryPanel({
     required this.invoiceNumber,
@@ -2635,6 +3024,10 @@ class _SummaryPanel extends StatelessWidget {
     required this.status,
     required this.taxMode,
     required this.totals,
+    required this.amountInWords,
+    required this.amountPaid,
+    required this.balanceDue,
+    required this.paymentHistoryPreview,
     required this.paymentData,
     required this.isSaving,
     required this.onSave,
@@ -2646,6 +3039,10 @@ class _SummaryPanel extends StatelessWidget {
   final InvoiceStatus status;
   final TaxMode taxMode;
   final _InvoiceTotals totals;
+  final String amountInWords;
+  final double amountPaid;
+  final double balanceDue;
+  final List<InvoicePaymentRecord> paymentHistoryPreview;
   final InvoicePaymentData? paymentData;
   final bool isSaving;
   final VoidCallback onSave;
@@ -2685,6 +3082,14 @@ class _SummaryPanel extends StatelessWidget {
             _SummaryLine('Tax Mode', taxMode.label),
             const Divider(height: AppSpacing.xl),
             _MoneyLine('Subtotal', totals.subtotal),
+            if (totals.discountTotal > 0)
+              _MoneyLine('Discount', -totals.discountTotal, signed: true),
+            if (totals.extraChargeTotal > 0)
+              _MoneyLine(
+                'Extra Charges',
+                totals.extraChargeTotal,
+                signed: true,
+              ),
             _MoneyLine('CGST', totals.cgst),
             _MoneyLine('SGST', totals.sgst),
             _MoneyLine('IGST', totals.igst),
@@ -2692,6 +3097,43 @@ class _SummaryPanel extends StatelessWidget {
               _MoneyLine('Round Off', totals.roundOff, signed: true),
             const Divider(height: AppSpacing.xl),
             _MoneyLine('Grand Total', totals.grandTotal, strong: true),
+            if (amountPaid > 0) ...[
+              const SizedBox(height: AppSpacing.sm),
+              _MoneyLine('Amount Paid', amountPaid),
+              _MoneyLine('Balance Due', balanceDue, strong: true),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Amount in Words',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '$amountInWords only',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (paymentHistoryPreview.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Payment History',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              for (final payment in paymentHistoryPreview)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _PaymentPreviewRow(payment: payment),
+                ),
+            ],
             if (paymentData != null) ...[
               const SizedBox(height: AppSpacing.lg),
               _PaymentQrPanel(paymentData: paymentData!),
@@ -2860,6 +3302,55 @@ class _PaymentQrPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PaymentPreviewRow extends StatelessWidget {
+  const _PaymentPreviewRow({required this.payment});
+
+  final InvoicePaymentRecord payment;
+
+  @override
+  Widget build(BuildContext context) {
+    final date =
+        '${payment.paidAt.day.toString().padLeft(2, '0')}/${payment.paidAt.month.toString().padLeft(2, '0')}/${payment.paidAt.year}';
+    final details = [
+      date,
+      if (payment.method.trim().isNotEmpty) payment.method.trim(),
+      if (payment.reference.trim().isNotEmpty) payment.reference.trim(),
+    ].join('  •  ');
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                details,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (payment.notes.trim().isNotEmpty)
+                Text(
+                  payment.notes.trim(),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Text(
+          payment.amount.toStringAsFixed(2),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3370,9 +3861,52 @@ class _ItemControllers {
   }
 }
 
+class _ChargeControllers {
+  _ChargeControllers({required this.label, required this.amount});
+
+  factory _ChargeControllers.empty() {
+    return _ChargeControllers(
+      label: TextEditingController(),
+      amount: TextEditingController(),
+    );
+  }
+
+  factory _ChargeControllers.fromCharge(InvoiceCharge charge) {
+    return _ChargeControllers(
+      label: TextEditingController(text: charge.label),
+      amount: TextEditingController(
+        text: InvoiceCalculator().formatRateInput(charge.amount),
+      ),
+    );
+  }
+
+  final TextEditingController label;
+  final TextEditingController amount;
+
+  void addListener(VoidCallback listener) {
+    label.addListener(listener);
+    amount.addListener(listener);
+  }
+
+  InvoiceCharge toCharge() {
+    return InvoiceCharge(
+      label: label.text.trim(),
+      amount: double.tryParse(amount.text.trim()) ?? 0,
+    );
+  }
+
+  void dispose() {
+    label.dispose();
+    amount.dispose();
+  }
+}
+
 class _InvoiceTotals {
   const _InvoiceTotals({
     required this.subtotal,
+    required this.discountTotal,
+    required this.extraChargeTotal,
+    required this.taxableAmount,
     required this.cgst,
     required this.sgst,
     required this.igst,
@@ -3381,9 +3915,87 @@ class _InvoiceTotals {
   });
 
   final double subtotal;
+  final double discountTotal;
+  final double extraChargeTotal;
+  final double taxableAmount;
   final double cgst;
   final double sgst;
   final double igst;
   final double roundOff;
   final double grandTotal;
+}
+
+class _NumberToWords {
+  static const List<String> _ones = [
+    'Zero',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+
+  static const List<String> _tens = [
+    '',
+    '',
+    'Twenty',
+    'Thirty',
+    'Forty',
+    'Fifty',
+    'Sixty',
+    'Seventy',
+    'Eighty',
+    'Ninety',
+  ];
+
+  static String convert(double amount) {
+    final rupees = amount.floor();
+    final paise = ((amount - rupees) * 100).round();
+    final rupeeWords = _convertNumber(rupees);
+    if (paise == 0) return '$rupeeWords rupees';
+    return '$rupeeWords rupees and ${_convertNumber(paise)} paise';
+  }
+
+  static String _convertNumber(int number) {
+    if (number < 20) return _ones[number];
+    if (number < 100) {
+      final ten = _tens[number ~/ 10];
+      final remainder = number % 10;
+      return remainder == 0 ? ten : '$ten ${_ones[remainder]}';
+    }
+    if (number < 1000) {
+      final hundred = '${_ones[number ~/ 100]} Hundred';
+      final remainder = number % 100;
+      return remainder == 0 ? hundred : '$hundred ${_convertNumber(remainder)}';
+    }
+    if (number < 100000) {
+      final thousand = '${_convertNumber(number ~/ 1000)} Thousand';
+      final remainder = number % 1000;
+      return remainder == 0
+          ? thousand
+          : '$thousand ${_convertNumber(remainder)}';
+    }
+    if (number < 10000000) {
+      final lakh = '${_convertNumber(number ~/ 100000)} Lakh';
+      final remainder = number % 100000;
+      return remainder == 0 ? lakh : '$lakh ${_convertNumber(remainder)}';
+    }
+    final crore = '${_convertNumber(number ~/ 10000000)} Crore';
+    final remainder = number % 10000000;
+    return remainder == 0 ? crore : '$crore ${_convertNumber(remainder)}';
+  }
 }
