@@ -16,6 +16,7 @@ import '../../features/customers/presentation/cubit/customer_cubit.dart';
 import '../../features/invoices/data/repositories/invoice_repository.dart';
 import '../../features/invoices/domain/services/invoice_calculator.dart';
 import '../../features/invoices/domain/services/invoice_output_builder.dart';
+import '../../features/invoices/domain/services/invoice_creator.dart';
 import '../../features/invoices/domain/services/invoice_pdf_service.dart';
 import '../../features/invoices/presentation/cubit/invoice_cubit.dart';
 import '../../features/products/data/repositories/product_repository.dart';
@@ -57,6 +58,15 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<InvoiceOutputBuilder>(InvoiceOutputBuilder.new)
     ..registerLazySingleton<InvoiceCalculator>(InvoiceCalculator.new)
+    ..registerLazySingleton<InvoiceCreator>(
+      () => InvoiceCreator(
+        invoiceRepository: sl<InvoiceRepository>(),
+        customerRepository: sl<CustomerRepository>(),
+        settingsRepository: sl<CompanySettingsRepository>(),
+        calculator: sl<InvoiceCalculator>(),
+        numberingService: sl<NumberingService>(),
+      ),
+    )
     ..registerLazySingleton<InvoicePdfService>(
       () => InvoicePdfService(sl<InvoiceOutputBuilder>()),
     )
@@ -78,9 +88,8 @@ void setupServiceLocator() {
         sl<CustomerRepository>(),
         sl<ProductRepository>(),
         sl<CompanySettingsRepository>(),
-        sl<InvoiceCalculator>(),
-        sl<NumberingService>(),
         sl<GstinLookupService>(),
+        sl<InvoiceCreator>(),
       ),
     )
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)

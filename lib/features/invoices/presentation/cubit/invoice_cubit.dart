@@ -13,7 +13,7 @@ import '../../data/repositories/invoice_repository.dart';
 import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
-import '../../domain/services/invoice_calculator.dart';
+import '../../domain/services/invoice_creator.dart';
 import '../../../customers/data/services/gstin_lookup_service.dart';
 
 part 'invoice_state.dart';
@@ -24,18 +24,16 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     this._customerRepository,
     this._productRepository,
     this._settingsRepository,
-    this._calculator,
-    this._numberingService,
     this._gstinLookupService,
+    this._invoiceCreator,
   ) : super(const InvoiceState());
 
   final InvoiceRepository _invoiceRepository;
   final CustomerRepository _customerRepository;
   final ProductRepository _productRepository;
   final CompanySettingsRepository _settingsRepository;
-  final InvoiceCalculator _calculator;
-  final NumberingService _numberingService;
   final GstinLookupService _gstinLookupService;
+  final InvoiceCreator _invoiceCreator;
 
   Future<void> load() async {
     emit(state.copyWith(status: InvoiceStatusView.loading, clearMessage: true));
@@ -79,6 +77,29 @@ class InvoiceCubit extends Cubit<InvoiceState> {
 
   void search(String value) {
     emit(state.copyWith(searchQuery: value));
+  }
+
+  List<Customer> _upsertCustomer(List<Customer> customers, Customer customer) {
+    final index = customers.indexWhere((entry) => entry.id == customer.id);
+    if (index == -1) return [...customers, customer];
+    final updated = [...customers];
+    updated[index] = customer;
+    return updated;
+  }
+
+  List<Invoice> _replaceInvoice(
+    List<Invoice> invoices,
+    Invoice updatedInvoice,
+  ) {
+    final index = invoices.indexWhere((entry) => entry.id == updatedInvoice.id);
+    if (index == -1) return [updatedInvoice, ...invoices];
+    final updated = [...invoices];
+    updated[index] = updatedInvoice;
+    return updated;
+  }
+
+  List<Invoice> _removeInvoice(List<Invoice> invoices, String invoiceId) {
+    return invoices.where((invoice) => invoice.id != invoiceId).toList();
   }
 
   Future<GstinBusinessDetails> lookupGstin(String gstin) {
@@ -128,132 +149,28 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       return;
     }
 
-    final validItems = draft.items
-        .where((item) => item.name.trim().isNotEmpty)
-        .toList();
-    if (draft.customerName.trim().isEmpty) {
-      emit(
-        state.copyWith(
-          status: InvoiceStatusView.failure,
-          message: 'Customer name is required.',
-        ),
-      );
-      return;
-    }
-    if (validItems.isEmpty) {
-      emit(
-        state.copyWith(
-          status: InvoiceStatusView.failure,
-          message: 'Add at least one invoice item.',
-        ),
-      );
-      return;
-    }
-
     emit(state.copyWith(status: InvoiceStatusView.saving));
     try {
       final settings = state.settings!;
       final companyProfile = state.companyProfile!;
-      final customer = await _customerRepository.findOrCreateFromInvoice(
-        draft.toCustomerDraft(loyaltyEnabled: settings.loyaltyEnabled),
+      final result = await _invoiceCreator.createFromDraft(
+        draft: draft,
+        settings: settings,
+        companyProfile: companyProfile,
+        knownCustomers: state.customers,
       );
-      final totals = _calculator.calculate(
-        items: validItems,
-        taxMode: draft.taxMode,
-        roundOffEnabled: draft.roundOffEnabled,
-        discountType: draft.discountType,
-        discountValue: draft.discountValue,
-        extraCharges: draft.extraCharges,
-      );
-      final now = DateTime.now();
-      final sequence = settings.invoiceNextNumber;
-      final invoiceNumber = _numberingService.buildNumber(
-        prefix: settings.invoicePrefix,
-        separator: settings.invoiceSeparator,
-        dateFormat: settings.invoiceDateFormat,
-        sequence: sequence,
-        padding: settings.invoiceNumberPadding,
-        date: draft.invoiceDate,
-      );
-      final paymentHistory = <InvoicePaymentRecord>[
-        if (draft.advancePaid > 0)
-          InvoicePaymentRecord(
-            amount: draft.advancePaid.clamp(0, totals.grandTotal),
-            paidAt: draft.advancePaidDate ?? now,
-            method: draft.advancePaidMethod.trim(),
-            reference: draft.advancePaidReference.trim(),
-            notes: 'Initial advance payment',
-          ),
-      ];
-      final amountPaid = _roundMoney(
-        paymentHistory.fold<double>(0, (sum, payment) => sum + payment.amount),
-      ).clamp(0, totals.grandTotal).toDouble();
-      final balanceDue = _roundMoney(totals.grandTotal - amountPaid);
-      final status = _statusFromAmounts(
-        requestedStatus: draft.status,
-        amountPaid: amountPaid,
-        grandTotal: totals.grandTotal,
-      );
-      final paidAt = status == InvoiceStatus.paid && paymentHistory.isNotEmpty
-          ? paymentHistory.last.paidAt
-          : null;
-      final invoice = Invoice(
-        id: 'inv_${now.microsecondsSinceEpoch}',
-        invoiceNumber: invoiceNumber,
-        invoiceSequence: sequence,
-        financialYear: _numberingService.financialYear(draft.invoiceDate),
-        invoiceDate: draft.invoiceDate,
-        dueDate: draft.dueDate,
-        customerId: customer.id,
-        customerSnapshot: draft.customerSnapshot,
-        companySnapshot: _companySnapshot(companyProfile),
-        items: totals.items,
-        taxMode: draft.taxMode,
-        status: status,
-        subtotal: totals.subtotal,
-        discountType: draft.discountType,
-        discountValue: draft.discountValue,
-        discountTotal: totals.discountTotal,
-        extraCharges: draft.extraCharges,
-        extraChargeTotal: totals.extraChargeTotal,
-        taxableAmount: totals.taxableAmount,
-        cgstAmount: totals.cgstAmount,
-        sgstAmount: totals.sgstAmount,
-        igstAmount: totals.igstAmount,
-        roundOffEnabled: draft.roundOffEnabled,
-        roundOffAmount: totals.roundOffAmount,
-        grandTotal: totals.grandTotal,
-        amountPaid: amountPaid,
-        balanceDue: balanceDue,
-        paidAt: paidAt,
-        notes: draft.notes,
-        terms: _resolvedTerms(
-          enteredTerms: draft.terms,
-          customer: customer,
-          companyProfile: companyProfile,
-        ),
-        paymentHistory: paymentHistory,
-        loyaltyPointsAwarded: false,
-        pointsEarned: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      await _invoiceRepository.saveInvoice(invoice);
-      await _settingsRepository.saveAppSettings(
-        _incrementInvoiceNumber(settings),
-      );
-      final results = await Future.wait<Object>([
-        _invoiceRepository.fetchInvoices(),
-        _customerRepository.fetchCustomers(),
-      ]);
+      final updatedInvoices = [result.invoice, ...state.invoices]
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final updatedCustomers = _upsertCustomer(state.customers, result.customer)
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
-          invoices: results[0] as List<Invoice>,
-          customers: results[1] as List<Customer>,
-          settings: _incrementInvoiceNumber(settings),
-          draft: _defaultDraft(_incrementInvoiceNumber(settings)),
-          message: 'Invoice $invoiceNumber saved.',
+          invoices: updatedInvoices,
+          customers: updatedCustomers,
+          settings: result.updatedSettings,
+          draft: _defaultDraft(result.updatedSettings),
+          message: 'Invoice ${result.invoiceNumber} saved.',
         ),
       );
     } on AppException catch (error) {
@@ -294,11 +211,11 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         updatedAt: DateTime.now(),
       );
       await _invoiceRepository.saveInvoice(updatedInvoice);
-      final invoices = await _invoiceRepository.fetchInvoices();
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
-          invoices: invoices,
+          invoices: _replaceInvoice(state.invoices, updatedInvoice)
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
           message: '${invoice.invoiceNumber} cancelled.',
         ),
       );
@@ -323,11 +240,10 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
     try {
       await _invoiceRepository.deleteInvoice(invoice.id);
-      final invoices = await _invoiceRepository.fetchInvoices();
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
-          invoices: invoices,
+          invoices: _removeInvoice(state.invoices, invoice.id),
           message: '${invoice.invoiceNumber} deleted.',
         ),
       );
@@ -410,11 +326,11 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         updatedAt: DateTime.now(),
       );
       await _invoiceRepository.saveInvoice(updatedInvoice);
-      final invoices = await _invoiceRepository.fetchInvoices();
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
-          invoices: invoices,
+          invoices: _replaceInvoice(state.invoices, updatedInvoice)
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
           message: status == InvoiceStatus.paid
               ? '${invoice.invoiceNumber} marked as paid.'
               : 'Payment recorded for ${invoice.invoiceNumber}.',
@@ -476,81 +392,6 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       notes: '',
       terms: '',
     );
-  }
-
-  AppSettings _incrementInvoiceNumber(AppSettings settings) {
-    return AppSettings(
-      gstEnabled: settings.gstEnabled,
-      defaultGstRate: settings.defaultGstRate,
-      invoicePrefix: settings.invoicePrefix,
-      invoiceSeparator: settings.invoiceSeparator,
-      invoiceDateFormat: settings.invoiceDateFormat,
-      invoiceNextNumber: settings.invoiceNextNumber + 1,
-      invoiceNumberPadding: settings.invoiceNumberPadding,
-      quotationPrefix: settings.quotationPrefix,
-      quotationSeparator: settings.quotationSeparator,
-      quotationDateFormat: settings.quotationDateFormat,
-      quotationNextNumber: settings.quotationNextNumber,
-      quotationNumberPadding: settings.quotationNumberPadding,
-      loyaltyEnabled: settings.loyaltyEnabled,
-      pointsPerRupee: settings.pointsPerRupee,
-      pointsRedemptionValue: settings.pointsRedemptionValue,
-      currencyCode: settings.currencyCode,
-      currencySymbol: settings.currencySymbol,
-      themeMode: settings.themeMode,
-      primaryColorHex: settings.primaryColorHex,
-      showLineItemHsn: settings.showLineItemHsn,
-      showCustomerStateCode: settings.showCustomerStateCode,
-      gstinLookupEnabled: settings.gstinLookupEnabled,
-      gstinLookupApiKey: settings.gstinLookupApiKey,
-      gstinLookupApiHost: settings.gstinLookupApiHost,
-      gstinValidationApiPath: settings.gstinValidationApiPath,
-      gstinLookupApiPath: settings.gstinLookupApiPath,
-      defaultCustomerState: settings.defaultCustomerState,
-      defaultShippingState: settings.defaultShippingState,
-      defaultLineItemUnit: settings.defaultLineItemUnit,
-      customCustomerFields: settings.customCustomerFields,
-      customShippingFields: settings.customShippingFields,
-      customLineItemFields: settings.customLineItemFields,
-      updatedAt: DateTime.now(),
-    );
-  }
-
-  Map<String, dynamic> _companySnapshot(CompanyProfile profile) {
-    return {
-      'businessName': profile.businessName,
-      'legalName': profile.legalName,
-      'gstin': profile.gstin,
-      'pan': profile.pan,
-      'email': profile.email,
-      'phone': profile.phone,
-      'website': profile.website,
-      'addressLine1': profile.addressLine1,
-      'addressLine2': profile.addressLine2,
-      'city': profile.city,
-      'state': profile.state,
-      'pincode': profile.pincode,
-      'country': profile.country,
-      'bankName': profile.bankName,
-      'bankAccountName': profile.bankAccountName,
-      'bankAccountNumber': profile.bankAccountNumber,
-      'ifscCode': profile.ifscCode,
-      'upiId': profile.upiId,
-      'logoBase64': profile.logoBase64,
-      'paymentQrBase64': profile.paymentQrBase64,
-    };
-  }
-
-  String _resolvedTerms({
-    required String enteredTerms,
-    required Customer customer,
-    required CompanyProfile companyProfile,
-  }) {
-    if (enteredTerms.trim().isNotEmpty) return enteredTerms.trim();
-    if (customer.defaultInvoiceTerms.trim().isNotEmpty) {
-      return customer.defaultInvoiceTerms.trim();
-    }
-    return companyProfile.defaultInvoiceTerms;
   }
 
   InvoiceStatus _statusFromAmounts({

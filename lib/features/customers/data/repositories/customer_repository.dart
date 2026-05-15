@@ -63,8 +63,11 @@ class CustomerRepository {
     return saved;
   }
 
-  Future<Customer> findOrCreateFromInvoice(Customer customer) async {
-    final customers = await fetchCustomers();
+  Future<Customer> findOrCreateFromInvoice(
+    Customer customer, {
+    List<Customer>? existingCustomers,
+  }) async {
+    final customers = existingCustomers ?? await fetchCustomers();
     final selectedMatches = customer.id.isEmpty
         ? <Customer>[]
         : customers.where((existing) => existing.id == customer.id).toList();
