@@ -9,11 +9,10 @@ class InvoiceRepository {
 
   Future<List<Invoice>> fetchInvoices() async {
     final documents = await _firestore.listDocuments('invoices');
-    final invoices =
-        documents
-            .map((document) => InvoiceModel.fromMap(document.id, document.data))
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final invoices = <Invoice>[
+      for (final document in documents)
+        InvoiceModel.fromMap(document.id, document.data),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return invoices;
   }
 
