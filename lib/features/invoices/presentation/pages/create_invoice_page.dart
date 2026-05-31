@@ -1459,10 +1459,19 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
 
   String _invoiceNumberPreview(InvoiceState state) {
     if (widget.args?.mode == CreateInvoiceMode.edit) {
-      final invoiceNumber = widget.args?.sourceInvoice?.invoiceNumber;
-      if (invoiceNumber != null && invoiceNumber.trim().isNotEmpty) {
+      final sourceInvoice = widget.args?.sourceInvoice;
+      final invoiceNumber = sourceInvoice?.invoiceNumber;
+      final isAlreadyNumbered =
+          sourceInvoice != null &&
+          sourceInvoice.invoiceSequence > 0 &&
+          invoiceNumber != null &&
+          invoiceNumber.trim().isNotEmpty;
+      if (isAlreadyNumbered) {
         return invoiceNumber;
       }
+    }
+    if (_status == InvoiceStatus.draft || _status == InvoiceStatus.cancelled) {
+      return 'Draft invoice';
     }
     final settings = state.settings;
     if (settings == null) return 'Draft invoice';

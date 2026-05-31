@@ -24,10 +24,15 @@ class InvoiceCreationResult {
 }
 
 class InvoiceUpdateResult {
-  const InvoiceUpdateResult({required this.invoice, required this.customer});
+  const InvoiceUpdateResult({
+    required this.invoice,
+    required this.customer,
+    required this.updatedSettings,
+  });
 
   final Invoice invoice;
   final Customer customer;
+  final AppSettings updatedSettings;
 }
 
 class InvoiceCreator {
@@ -79,16 +84,6 @@ class InvoiceCreator {
     );
 
     final now = DateTime.now();
-    final sequence = settings.invoiceNextNumber;
-    final invoiceNumber = _numberingService.buildNumber(
-      prefix: settings.invoicePrefix,
-      separator: settings.invoiceSeparator,
-      dateFormat: settings.invoiceDateFormat,
-      sequence: sequence,
-      padding: settings.invoiceNumberPadding,
-      date: draft.invoiceDate,
-    );
-
     final paymentHistory = <InvoicePaymentRecord>[
       if (draft.advancePaid > 0)
         InvoicePaymentRecord(
@@ -111,12 +106,20 @@ class InvoiceCreator {
     final paidAt = status == InvoiceStatus.paid && paymentHistory.isNotEmpty
         ? paymentHistory.last.paidAt
         : null;
+    final shouldAssignFinalNumber = _consumesInvoiceNumber(status);
+    final sequence = shouldAssignFinalNumber ? settings.invoiceNextNumber : 0;
+    final invoiceNumber = shouldAssignFinalNumber
+        ? _buildInvoiceNumber(settings: settings, date: draft.invoiceDate)
+        : '';
+    final financialYear = shouldAssignFinalNumber
+        ? _numberingService.financialYear(draft.invoiceDate)
+        : '';
 
     final invoice = Invoice(
       id: 'inv_${now.microsecondsSinceEpoch}',
       invoiceNumber: invoiceNumber,
       invoiceSequence: sequence,
-      financialYear: _numberingService.financialYear(draft.invoiceDate),
+      financialYear: financialYear,
       invoiceDate: draft.invoiceDate,
       dueDate: draft.dueDate,
       customerId: customer.id,
@@ -156,8 +159,12 @@ class InvoiceCreator {
 
     await _invoiceRepository.saveInvoice(invoice);
 
-    final updatedSettings = _incrementInvoiceNumber(settings);
-    await _settingsRepository.saveAppSettings(updatedSettings);
+    final updatedSettings = shouldAssignFinalNumber
+        ? _incrementInvoiceNumber(settings)
+        : settings;
+    if (shouldAssignFinalNumber) {
+      await _settingsRepository.saveAppSettings(updatedSettings);
+    }
 
     return InvoiceCreationResult(
       invoice: invoice,
@@ -226,8 +233,24 @@ class InvoiceCreator {
     final paidAt = status == InvoiceStatus.paid && paymentHistory.isNotEmpty
         ? paymentHistory.last.paidAt
         : null;
+    final shouldAssignFinalNumber =
+        existingInvoice.status == InvoiceStatus.draft &&
+        _consumesInvoiceNumber(status) &&
+        existingInvoice.invoiceSequence <= 0;
+    final invoiceNumber = shouldAssignFinalNumber
+        ? _buildInvoiceNumber(settings: settings, date: draft.invoiceDate)
+        : existingInvoice.invoiceNumber;
+    final invoiceSequence = shouldAssignFinalNumber
+        ? settings.invoiceNextNumber
+        : existingInvoice.invoiceSequence;
+    final financialYear = shouldAssignFinalNumber
+        ? _numberingService.financialYear(draft.invoiceDate)
+        : existingInvoice.financialYear;
 
     final updatedInvoice = existingInvoice.copyWith(
+      invoiceNumber: invoiceNumber,
+      invoiceSequence: invoiceSequence,
+      financialYear: financialYear,
       invoiceDate: draft.invoiceDate,
       dueDate: draft.dueDate,
       customerId: customer.id,
@@ -264,7 +287,35 @@ class InvoiceCreator {
     );
 
     await _invoiceRepository.saveInvoice(updatedInvoice);
-    return InvoiceUpdateResult(invoice: updatedInvoice, customer: customer);
+    final updatedSettings = shouldAssignFinalNumber
+        ? _incrementInvoiceNumber(settings)
+        : settings;
+    if (shouldAssignFinalNumber) {
+      await _settingsRepository.saveAppSettings(updatedSettings);
+    }
+    return InvoiceUpdateResult(
+      invoice: updatedInvoice,
+      customer: customer,
+      updatedSettings: updatedSettings,
+    );
+  }
+
+  String _buildInvoiceNumber({
+    required AppSettings settings,
+    required DateTime date,
+  }) {
+    return _numberingService.buildNumber(
+      prefix: settings.invoicePrefix,
+      separator: settings.invoiceSeparator,
+      dateFormat: settings.invoiceDateFormat,
+      sequence: settings.invoiceNextNumber,
+      padding: settings.invoiceNumberPadding,
+      date: date,
+    );
+  }
+
+  bool _consumesInvoiceNumber(InvoiceStatus status) {
+    return status != InvoiceStatus.draft && status != InvoiceStatus.cancelled;
   }
 
   AppSettings _incrementInvoiceNumber(AppSettings settings) {

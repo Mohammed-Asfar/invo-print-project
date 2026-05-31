@@ -170,7 +170,9 @@ class InvoiceCubit extends Cubit<InvoiceState> {
           customers: updatedCustomers,
           settings: result.updatedSettings,
           draft: _defaultDraft(result.updatedSettings),
-          message: 'Invoice ${result.invoiceNumber} saved.',
+          message: result.invoiceNumber.trim().isEmpty
+              ? 'Draft invoice saved.'
+              : 'Invoice ${result.invoiceNumber} saved.',
         ),
       );
     } on AppException catch (error) {
@@ -222,7 +224,10 @@ class InvoiceCubit extends Cubit<InvoiceState> {
           status: InvoiceStatusView.saved,
           invoices: updatedInvoices,
           customers: updatedCustomers,
-          message: 'Invoice ${result.invoice.invoiceNumber} updated.',
+          settings: result.updatedSettings,
+          message: result.invoice.invoiceNumber.trim().isEmpty
+              ? 'Draft invoice updated.'
+              : 'Invoice ${result.invoice.invoiceNumber} updated.',
         ),
       );
     } on AppException catch (error) {

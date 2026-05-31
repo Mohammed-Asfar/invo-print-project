@@ -118,6 +118,150 @@ void main() {
       },
     );
 
+    test('saves draft without consuming invoice number', () async {
+      final settings = _settings(invoiceNextNumber: 7);
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+      });
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+
+      final result = await creator.createFromDraft(
+        draft: _draft(status: InvoiceStatus.draft, advancePaid: 0),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      expect(result.invoice.status, InvoiceStatus.draft);
+      expect(result.invoice.invoiceNumber, isEmpty);
+      expect(result.invoice.invoiceSequence, 0);
+      expect(result.invoice.financialYear, isEmpty);
+      expect(result.updatedSettings.invoiceNextNumber, 7);
+
+      final savedSettings = await CompanySettingsRepository(
+        firestore,
+      ).fetchAppSettings();
+      expect(savedSettings.invoiceNextNumber, 7);
+      expect(
+        firestore.documents.keys.where((key) => key.startsWith('invoices/')),
+        hasLength(1),
+      );
+    });
+
+    test('edits draft without assigning or consuming invoice number', () async {
+      final settings = _settings(invoiceNextNumber: 7);
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+      });
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+      final original = await creator.createFromDraft(
+        draft: _draft(
+          status: InvoiceStatus.draft,
+          discountType: 'none',
+          discountValue: 0,
+          advancePaid: 0,
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      final updated = await creator.updateFromDraft(
+        existingInvoice: original.invoice,
+        draft: _draft(
+          existingCustomer: original.customer,
+          status: InvoiceStatus.draft,
+          discountType: 'amount',
+          discountValue: 100,
+          advancePaid: 0,
+        ),
+        settings: original.updatedSettings,
+        companyProfile: profile,
+        knownCustomers: [original.customer],
+      );
+
+      expect(updated.invoice.id, original.invoice.id);
+      expect(updated.invoice.status, InvoiceStatus.draft);
+      expect(updated.invoice.invoiceNumber, isEmpty);
+      expect(updated.invoice.invoiceSequence, 0);
+      expect(updated.invoice.discountType, 'amount');
+      expect(updated.invoice.discountTotal, 100);
+      expect(updated.updatedSettings.invoiceNextNumber, 7);
+
+      final savedSettings = await CompanySettingsRepository(
+        firestore,
+      ).fetchAppSettings();
+      expect(savedSettings.invoiceNextNumber, 7);
+      expect(
+        firestore.documents.keys.where((key) => key.startsWith('invoices/')),
+        hasLength(1),
+      );
+    });
+
+    test('converts draft to final using next invoice number once', () async {
+      final settings = _settings(invoiceNextNumber: 7);
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+      });
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+      final draftResult = await creator.createFromDraft(
+        draft: _draft(status: InvoiceStatus.draft, advancePaid: 0),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      final converted = await creator.updateFromDraft(
+        existingInvoice: draftResult.invoice,
+        draft: _draft(
+          existingCustomer: draftResult.customer,
+          status: InvoiceStatus.unpaid,
+          advancePaid: 0,
+        ),
+        settings: draftResult.updatedSettings,
+        companyProfile: profile,
+        knownCustomers: [draftResult.customer],
+      );
+
+      expect(converted.invoice.id, draftResult.invoice.id);
+      expect(converted.invoice.createdAt, draftResult.invoice.createdAt);
+      expect(converted.invoice.status, InvoiceStatus.unpaid);
+      expect(converted.invoice.invoiceNumber, 'INV-2026/05-007');
+      expect(converted.invoice.invoiceSequence, 7);
+      expect(converted.invoice.financialYear, '2026-27');
+      expect(converted.updatedSettings.invoiceNextNumber, 8);
+
+      final savedSettings = await CompanySettingsRepository(
+        firestore,
+      ).fetchAppSettings();
+      expect(savedSettings.invoiceNextNumber, 8);
+      expect(
+        firestore.documents.keys.where((key) => key.startsWith('invoices/')),
+        hasLength(1),
+      );
+    });
+
     test('edits existing invoice without creating a new number', () async {
       final settings = _settings(invoiceNextNumber: 12);
       final profile = _profile();
@@ -175,6 +319,7 @@ void main() {
 
 InvoiceDraft _draft({
   Customer? existingCustomer,
+  InvoiceStatus status = InvoiceStatus.unpaid,
   String discountType = 'percentage',
   double discountValue = 10,
   double advancePaid = 500,
@@ -199,7 +344,7 @@ InvoiceDraft _draft({
     invoiceDate: DateTime(2026, 5, 2),
     dueDate: DateTime(2026, 5, 17),
     taxMode: TaxMode.cgstSgst,
-    status: InvoiceStatus.unpaid,
+    status: status,
     roundOffEnabled: true,
     discountType: discountType,
     discountValue: discountValue,
