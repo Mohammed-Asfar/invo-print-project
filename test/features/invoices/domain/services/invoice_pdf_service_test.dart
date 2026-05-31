@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invo_print/features/invoices/domain/entities/invoice.dart';
 import 'package:invo_print/features/invoices/domain/entities/invoice_item.dart';
@@ -43,6 +47,24 @@ void main() {
       expect(bytes, isNotEmpty);
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     });
+
+    test('marks draft invoice PDFs with a visible draft label', () async {
+      final bytes = await const InvoicePdfService(InvoiceOutputBuilder())
+          .buildInvoicePdf(
+            invoice: _invoice(status: InvoiceStatus.draft),
+            currencySymbol: 'Rs',
+          );
+
+      expect(_decodedPdfText(bytes), contains('DRAFT'));
+    });
+
+    test('does not mark non-draft invoice PDFs as drafts', () async {
+      final bytes = await const InvoicePdfService(
+        InvoiceOutputBuilder(),
+      ).buildInvoicePdf(invoice: _invoice(), currencySymbol: 'Rs');
+
+      expect(_decodedPdfText(bytes), isNot(contains('DRAFT')));
+    });
   });
 }
 
@@ -50,6 +72,7 @@ Invoice _invoice({
   Map<String, dynamic> companySnapshot = const {'businessName': 'CompanyTest'},
   double amountPaid = 0,
   double balanceDue = 1180,
+  InvoiceStatus? status,
   List<InvoicePaymentRecord> paymentHistory = const [],
 }) {
   final now = DateTime(2026, 5, 2);
@@ -80,7 +103,9 @@ Invoice _invoice({
       ),
     ],
     taxMode: TaxMode.cgstSgst,
-    status: amountPaid > 0 ? InvoiceStatus.partialPaid : InvoiceStatus.unpaid,
+    status:
+        status ??
+        (amountPaid > 0 ? InvoiceStatus.partialPaid : InvoiceStatus.unpaid),
     subtotal: 1000,
     discountType: 'none',
     discountValue: 0,
@@ -104,4 +129,20 @@ Invoice _invoice({
     createdAt: now,
     updatedAt: now,
   );
+}
+
+String _decodedPdfText(Uint8List bytes) {
+  final rawPdf = latin1.decode(bytes, allowInvalid: true);
+  final decodedStreams = RegExp(r'stream\r?\n([\s\S]*?)\r?\nendstream')
+      .allMatches(rawPdf)
+      .map((match) {
+        final stream = latin1.encode(match.group(1)!);
+        try {
+          return latin1.decode(zlib.decode(stream), allowInvalid: true);
+        } on FormatException {
+          return latin1.decode(stream, allowInvalid: true);
+        }
+      });
+
+  return [rawPdf, ...decodedStreams].join('\n');
 }

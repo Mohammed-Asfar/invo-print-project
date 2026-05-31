@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -42,6 +43,7 @@ class InvoicePdfService {
     final itemCustomFieldNames = <String>{
       for (final item in invoice.items) ...item.customFields.keys,
     }.toList();
+    final isDraft = invoice.status == InvoiceStatus.draft;
     final document = pw.Document();
 
     document.addPage(
@@ -49,6 +51,7 @@ class InvoicePdfService {
         pageTheme: pw.PageTheme(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.fromLTRB(18, 16, 18, 24),
+          buildForeground: isDraft ? (_) => _buildDraftWatermark() : null,
           theme: pw.ThemeData.withFont(
             base: pw.Font.helvetica(),
             bold: pw.Font.helveticaBold(),
@@ -63,6 +66,7 @@ class InvoicePdfService {
             invoice: invoice,
             companyData: companyData,
             logoBytes: logoBytes,
+            isDraft: isDraft,
           ),
           pw.SizedBox(height: 10),
           _divider(),
@@ -110,6 +114,7 @@ class InvoicePdfService {
     required Invoice invoice,
     required _PdfCompanyData companyData,
     required Uint8List? logoBytes,
+    required bool isDraft,
   }) {
     return pw.Column(
       children: [
@@ -132,6 +137,7 @@ class InvoicePdfService {
                   '(ORIGINAL FOR RECIPIENT)',
                   style: const pw.TextStyle(fontSize: 6.5),
                 ),
+                if (isDraft) ...[pw.SizedBox(height: 5), _buildDraftBadge()],
               ],
             ),
             pw.SizedBox(width: 120),
@@ -190,6 +196,45 @@ class InvoicePdfService {
           ],
         ),
       ],
+    );
+  }
+
+  pw.Widget _buildDraftBadge() {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.red700, width: 0.8),
+      ),
+      child: pw.Text(
+        'DRAFT',
+        style: pw.TextStyle(
+          color: PdfColors.red700,
+          fontSize: 8,
+          fontWeight: pw.FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildDraftWatermark() {
+    return pw.FullPage(
+      ignoreMargins: true,
+      child: pw.Center(
+        child: pw.Opacity(
+          opacity: 0.08,
+          child: pw.Transform.rotate(
+            angle: -math.pi / 6,
+            child: pw.Text(
+              'DRAFT',
+              style: pw.TextStyle(
+                color: PdfColors.grey700,
+                fontSize: 86,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

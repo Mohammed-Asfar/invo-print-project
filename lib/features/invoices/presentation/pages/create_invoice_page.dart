@@ -242,8 +242,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                   title: widget.args?.title ?? 'New Invoice',
                   invoiceNumber: invoiceNumber,
                   isSaving: state.status == InvoiceStatusView.saving,
+                  isEdit: widget.args?.mode == CreateInvoiceMode.edit,
+                  currentStatus: _status,
                   onBack: () => context.go(InvoicesPage.routePath),
                   onFillDemo: _fillDemoData,
+                  onSaveDraft: () =>
+                      _save(context, statusOverride: InvoiceStatus.draft),
+                  onFinalize: () =>
+                      _save(context, statusOverride: InvoiceStatus.unpaid),
                   onSave: () => _save(context),
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -356,8 +362,6 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                   setState(() => _dueDate = date),
                               onTaxModeChanged: (value) =>
                                   setState(() => _taxMode = value),
-                              onStatusChanged: (value) =>
-                                  setState(() => _status = value),
                               onRoundOffChanged: (value) =>
                                   setState(() => _roundOffEnabled = value),
                               onAmountsEnabledChanged: _setAmountsEnabled,
@@ -398,6 +402,16 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               ),
                               isSaving:
                                   state.status == InvoiceStatusView.saving,
+                              isEdit:
+                                  widget.args?.mode == CreateInvoiceMode.edit,
+                              onSaveDraft: () => _save(
+                                context,
+                                statusOverride: InvoiceStatus.draft,
+                              ),
+                              onFinalize: () => _save(
+                                context,
+                                statusOverride: InvoiceStatus.unpaid,
+                              ),
                               onSave: () => _save(context),
                               expanded: stackSummary,
                             );
@@ -1072,7 +1086,10 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     });
   }
 
-  Future<void> _save(BuildContext context) async {
+  Future<void> _save(
+    BuildContext context, {
+    InvoiceStatus? statusOverride,
+  }) async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -1088,6 +1105,10 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       return;
     }
     final existingCustomer = resolvedCustomer.customer ?? _selectedCustomer;
+    final effectiveStatus = statusOverride ?? _status;
+    if (statusOverride != null && _status != effectiveStatus) {
+      setState(() => _status = effectiveStatus);
+    }
     final draft = InvoiceDraft(
       existingCustomer: existingCustomer,
       customerName: _customerName.text.trim(),
@@ -1118,7 +1139,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       invoiceDate: _invoiceDate,
       dueDate: _dueDate,
       taxMode: _taxMode,
-      status: _status,
+      status: effectiveStatus,
       roundOffEnabled: _roundOffEnabled,
       discountType: _amountsEnabled ? _discountType : 'none',
       discountValue: _amountsEnabled ? _parsedAmount(_discountValue) : 0,
@@ -1638,7 +1659,6 @@ class _EditorForm extends StatelessWidget {
     required this.onInvoiceDateChanged,
     required this.onDueDateChanged,
     required this.onTaxModeChanged,
-    required this.onStatusChanged,
     required this.onRoundOffChanged,
     required this.onAmountsEnabledChanged,
     required this.onDiscountTypeChanged,
@@ -1702,7 +1722,6 @@ class _EditorForm extends StatelessWidget {
   final ValueChanged<DateTime> onInvoiceDateChanged;
   final ValueChanged<DateTime> onDueDateChanged;
   final ValueChanged<TaxMode> onTaxModeChanged;
-  final ValueChanged<InvoiceStatus> onStatusChanged;
   final ValueChanged<bool> onRoundOffChanged;
   final ValueChanged<bool> onAmountsEnabledChanged;
   final ValueChanged<String> onDiscountTypeChanged;
@@ -1764,7 +1783,6 @@ class _EditorForm extends StatelessWidget {
           onInvoiceDateChanged: onInvoiceDateChanged,
           onDueDateChanged: onDueDateChanged,
           onTaxModeChanged: onTaxModeChanged,
-          onStatusChanged: onStatusChanged,
           onRoundOffChanged: onRoundOffChanged,
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -1806,22 +1824,30 @@ class _CommandBar extends StatelessWidget {
     required this.title,
     required this.invoiceNumber,
     required this.isSaving,
+    required this.isEdit,
+    required this.currentStatus,
     required this.onBack,
     required this.onFillDemo,
+    required this.onSaveDraft,
+    required this.onFinalize,
     required this.onSave,
   });
 
   final String title;
   final String invoiceNumber;
   final bool isSaving;
+  final bool isEdit;
+  final InvoiceStatus currentStatus;
   final VoidCallback onBack;
   final VoidCallback onFillDemo;
+  final VoidCallback onSaveDraft;
+  final VoidCallback onFinalize;
   final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 72,
+      constraints: const BoxConstraints(minHeight: 72),
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -1858,24 +1884,50 @@ class _CommandBar extends StatelessWidget {
               ],
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: isSaving ? null : onFillDemo,
-            icon: const Icon(Icons.auto_awesome_outlined),
-            label: const Text('Demo Data'),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          ElevatedButton.icon(
-            onPressed: isSaving ? null : onSave,
-            icon: isSaving
-                ? SizedBox.square(
-                    dimension: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.onAccent,
-                    ),
-                  )
-                : const Icon(Icons.save_outlined),
-            label: Text(isSaving ? 'Saving...' : 'Save Invoice'),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: isSaving ? null : onFillDemo,
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('Demo Data'),
+              ),
+              if (!isEdit || currentStatus == InvoiceStatus.draft)
+                OutlinedButton.icon(
+                  onPressed: isSaving ? null : onSaveDraft,
+                  icon: const Icon(Icons.drafts_outlined),
+                  label: const Text('Save Draft'),
+                ),
+              ElevatedButton.icon(
+                onPressed: isSaving
+                    ? null
+                    : isEdit && currentStatus != InvoiceStatus.draft
+                    ? onSave
+                    : onFinalize,
+                icon: isSaving
+                    ? SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.onAccent,
+                        ),
+                      )
+                    : Icon(
+                        isEdit && currentStatus != InvoiceStatus.draft
+                            ? Icons.save_outlined
+                            : Icons.verified_outlined,
+                      ),
+                label: Text(
+                  isSaving
+                      ? 'Saving...'
+                      : isEdit && currentStatus != InvoiceStatus.draft
+                      ? 'Save Changes'
+                      : 'Finalize Invoice',
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2468,6 +2520,29 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
+class _StatusIntentField extends StatelessWidget {
+  const _StatusIntentField({required this.status});
+
+  final InvoiceStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Status',
+        prefixIcon: Icon(Icons.payments_outlined),
+      ),
+      child: Text(
+        status.label,
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _InvoiceMetaPanel extends StatelessWidget {
   const _InvoiceMetaPanel({
     required this.invoiceDate,
@@ -2478,7 +2553,6 @@ class _InvoiceMetaPanel extends StatelessWidget {
     required this.onInvoiceDateChanged,
     required this.onDueDateChanged,
     required this.onTaxModeChanged,
-    required this.onStatusChanged,
     required this.onRoundOffChanged,
   });
 
@@ -2490,7 +2564,6 @@ class _InvoiceMetaPanel extends StatelessWidget {
   final ValueChanged<DateTime> onInvoiceDateChanged;
   final ValueChanged<DateTime> onDueDateChanged;
   final ValueChanged<TaxMode> onTaxModeChanged;
-  final ValueChanged<InvoiceStatus> onStatusChanged;
   final ValueChanged<bool> onRoundOffChanged;
 
   @override
@@ -2544,32 +2617,7 @@ class _InvoiceMetaPanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: DropdownButtonFormField<InvoiceStatus>(
-                  initialValue: status,
-                  decoration: const InputDecoration(
-                    labelText: 'Status',
-                    prefixIcon: Icon(Icons.payments_outlined),
-                  ),
-                  items:
-                      const [
-                            InvoiceStatus.draft,
-                            InvoiceStatus.unpaid,
-                            InvoiceStatus.partialPaid,
-                            InvoiceStatus.paid,
-                          ]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(value.label),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (value) {
-                    if (value != null) onStatusChanged(value);
-                  },
-                ),
-              ),
+              Expanded(child: _StatusIntentField(status: status)),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -3045,6 +3093,9 @@ class _SummaryPanel extends StatelessWidget {
     required this.paymentHistoryPreview,
     required this.paymentData,
     required this.isSaving,
+    required this.isEdit,
+    required this.onSaveDraft,
+    required this.onFinalize,
     required this.onSave,
     this.expanded = false,
   });
@@ -3060,6 +3111,9 @@ class _SummaryPanel extends StatelessWidget {
   final List<InvoicePaymentRecord> paymentHistoryPreview;
   final InvoicePaymentData? paymentData;
   final bool isSaving;
+  final bool isEdit;
+  final VoidCallback onSaveDraft;
+  final VoidCallback onFinalize;
   final VoidCallback onSave;
   final bool expanded;
 
@@ -3157,17 +3211,81 @@ class _SummaryPanel extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg)
             else
               const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: isSaving ? null : onSave,
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('Save Invoice'),
-              ),
+            _SummaryActions(
+              isSaving: isSaving,
+              isEdit: isEdit,
+              status: status,
+              onSaveDraft: onSaveDraft,
+              onFinalize: onFinalize,
+              onSave: onSave,
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SummaryActions extends StatelessWidget {
+  const _SummaryActions({
+    required this.isSaving,
+    required this.isEdit,
+    required this.status,
+    required this.onSaveDraft,
+    required this.onFinalize,
+    required this.onSave,
+  });
+
+  final bool isSaving;
+  final bool isEdit;
+  final InvoiceStatus status;
+  final VoidCallback onSaveDraft;
+  final VoidCallback onFinalize;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final canSaveDraft = !isEdit || status == InvoiceStatus.draft;
+    final primarySavesChanges = isEdit && status != InvoiceStatus.draft;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (canSaveDraft) ...[
+          OutlinedButton.icon(
+            onPressed: isSaving ? null : onSaveDraft,
+            icon: const Icon(Icons.drafts_outlined),
+            label: const Text('Save Draft'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        ElevatedButton.icon(
+          onPressed: isSaving
+              ? null
+              : primarySavesChanges
+              ? onSave
+              : onFinalize,
+          icon: isSaving
+              ? SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.onAccent,
+                  ),
+                )
+              : Icon(
+                  primarySavesChanges
+                      ? Icons.save_outlined
+                      : Icons.verified_outlined,
+                ),
+          label: Text(
+            isSaving
+                ? 'Saving...'
+                : primarySavesChanges
+                ? 'Save Changes'
+                : 'Finalize Invoice',
+          ),
+        ),
+      ],
     );
   }
 }

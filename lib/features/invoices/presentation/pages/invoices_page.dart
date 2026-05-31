@@ -173,6 +173,8 @@ class _InvoicesViewState extends State<_InvoicesView> {
                                     width: 360,
                                     child: _InvoicePreviewPanel(
                                       invoice: selectedInvoice,
+                                      settings: state.settings,
+                                      companyProfile: state.companyProfile,
                                     ),
                                   ),
                                 ],
@@ -311,11 +313,6 @@ class _InvoicesViewState extends State<_InvoicesView> {
         ],
       ),
     );
-  }
-
-  String _sanitizeFileName(String value) {
-    final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
-    return sanitized.isEmpty ? 'invoice' : sanitized;
   }
 }
 
@@ -644,103 +641,41 @@ class _InvoiceList extends StatelessWidget {
                   tooltip: 'Invoice actions',
                   color: AppColors.surface,
                   onSelected: (action) async {
-                    switch (action) {
-                      case _InvoiceAction.edit:
-                        context.go(
-                          CreateInvoicePage.routePath,
-                          extra: CreateInvoicePageArgs.edit(invoice),
-                        );
-                        break;
-                      case _InvoiceAction.duplicate:
-                        context.go(
-                          CreateInvoicePage.routePath,
-                          extra: CreateInvoicePageArgs.duplicate(invoice),
-                        );
-                        break;
-                      case _InvoiceAction.recordPayment:
-                        await _showRecordPaymentDialog(context, invoice);
-                        break;
-                      case _InvoiceAction.cancel:
-                        await _confirmAndCancel(context, invoice);
-                        break;
-                      case _InvoiceAction.delete:
-                        await _confirmAndDelete(context, invoice);
-                        break;
-                      case _InvoiceAction.exportPdf:
-                        await _exportPdf(context, invoice);
-                        break;
-                    }
+                    await _runInvoiceAction(
+                      context,
+                      invoice,
+                      action,
+                      settings: settings,
+                      companyProfile: companyProfile,
+                    );
                   },
                   itemBuilder: (context) => [
-                    if (invoice.status != InvoiceStatus.cancelled)
-                      const PopupMenuItem(
-                        value: _InvoiceAction.edit,
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined),
-                            SizedBox(width: AppSpacing.sm),
-                            Text('Edit'),
-                          ],
+                    for (final action in _invoicePrimaryActions)
+                      if (action.isAvailableFor(invoice))
+                        _InvoiceActionMenuItem(
+                          action: action,
+                          invoice: invoice,
                         ),
-                      ),
-                    const PopupMenuItem(
-                      value: _InvoiceAction.duplicate,
-                      child: Row(
-                        children: [
-                          Icon(Icons.copy_all_outlined),
-                          SizedBox(width: AppSpacing.sm),
-                          Text('Duplicate'),
-                        ],
-                      ),
+                    const PopupMenuDivider(),
+                    _InvoiceActionMenuItem(
+                      action: _InvoiceAction.exportPdf,
+                      invoice: invoice,
                     ),
-                    if (invoice.status != InvoiceStatus.cancelled)
-                      if (invoice.balanceDue > 0)
-                        const PopupMenuItem(
-                          value: _InvoiceAction.recordPayment,
-                          child: Row(
-                            children: [
-                              Icon(Icons.payments_outlined),
-                              SizedBox(width: AppSpacing.sm),
-                              Text('Record Payment'),
-                            ],
-                          ),
-                        ),
-                    if (invoice.status != InvoiceStatus.cancelled)
-                      const PopupMenuItem(
-                        value: _InvoiceAction.cancel,
-                        child: Row(
-                          children: [
-                            Icon(Icons.block_outlined),
-                            SizedBox(width: AppSpacing.sm),
-                            Text('Cancel invoice'),
-                          ],
-                        ),
+                    if (_InvoiceAction.cancel.isAvailableFor(invoice))
+                      _InvoiceActionMenuItem(
+                        action: _InvoiceAction.cancel,
+                        invoice: invoice,
                       ),
-                    const PopupMenuItem(
-                      value: _InvoiceAction.exportPdf,
-                      child: Row(
-                        children: [
-                          Icon(Icons.picture_as_pdf_outlined),
-                          SizedBox(width: AppSpacing.sm),
-                          Text('Export PDF'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: _InvoiceAction.delete,
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete_outline, color: AppColors.error),
-                          const SizedBox(width: AppSpacing.sm),
-                          Text(
-                            'Delete',
-                            style: TextStyle(color: AppColors.error),
-                          ),
-                        ],
-                      ),
+                    _InvoiceActionMenuItem(
+                      action: _InvoiceAction.delete,
+                      invoice: invoice,
                     ),
                   ],
-                  child: Icon(Icons.more_horiz, color: AppColors.textSecondary),
+                  child: Icon(
+                    Icons.more_horiz,
+                    color: AppColors.textSecondary,
+                    semanticLabel: 'Invoice actions',
+                  ),
                 ),
               ],
             ),
@@ -749,122 +684,37 @@ class _InvoiceList extends StatelessWidget {
       ),
     );
   }
+}
 
-  Future<void> _exportPdf(BuildContext context, Invoice invoice) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    try {
-      final defaultName = '${_sanitizeFileName(invoice.invoiceNumber)}.pdf';
-      final path = await FilePicker.saveFile(
-        dialogTitle: 'Save invoice PDF',
-        fileName: defaultName,
-        type: FileType.custom,
-        allowedExtensions: const ['pdf'],
-      );
-      if (path == null || path.trim().isEmpty) {
-        return;
-      }
-
-      final pdfBytes = await sl<InvoicePdfService>().buildInvoicePdf(
-        invoice: invoice,
-        currencySymbol: settings?.currencySymbol ?? 'Rs',
-        currentCompanyProfile: companyProfile,
-        settings: settings,
-      );
-      await File(path).writeAsBytes(pdfBytes, flush: true);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Invoice PDF saved to $path'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Unable to export PDF: $error'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
-  }
-
-  Future<void> _confirmAndCancel(BuildContext context, Invoice invoice) async {
-    final confirmed = await _confirmAction(
-      context,
-      title: 'Cancel invoice?',
-      message:
-          'This will keep ${invoice.invoiceNumber} in your records and mark it as cancelled.',
-      confirmLabel: 'Cancel Invoice',
-      confirmColor: AppColors.warning,
-    );
-    if (confirmed != true || !context.mounted) return;
-    await context.read<InvoiceCubit>().cancelInvoice(invoice);
-  }
-
-  Future<void> _showRecordPaymentDialog(
-    BuildContext context,
-    Invoice invoice,
-  ) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => BlocProvider.value(
-        value: context.read<InvoiceCubit>(),
-        child: _RecordPaymentDialog(invoice: invoice),
-      ),
-    );
-  }
-
-  Future<void> _confirmAndDelete(BuildContext context, Invoice invoice) async {
-    final confirmed = await _confirmAction(
-      context,
-      title: 'Delete invoice?',
-      message:
-          'This will permanently remove ${invoice.invoiceNumber} from the invoice list.',
-      confirmLabel: 'Delete',
-      confirmColor: AppColors.error,
-    );
-    if (confirmed != true || !context.mounted) return;
-    await context.read<InvoiceCubit>().deleteInvoice(invoice);
-  }
-
-  Future<bool?> _confirmAction(
-    BuildContext context, {
-    required String title,
-    required String message,
-    required String confirmLabel,
-    required Color confirmColor,
-  }) {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep it'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: confirmColor),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(confirmLabel),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _sanitizeFileName(String value) {
-    final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
-    return sanitized.isEmpty ? 'invoice' : sanitized;
-  }
+class _InvoiceActionMenuItem extends PopupMenuItem<_InvoiceAction> {
+  _InvoiceActionMenuItem({
+    required _InvoiceAction action,
+    required Invoice invoice,
+  }) : super(
+         value: action,
+         child: Row(
+           children: [
+             Icon(action.icon, color: action.color),
+             const SizedBox(width: AppSpacing.sm),
+             Text(
+               action.labelFor(invoice),
+               style: TextStyle(color: action.color),
+             ),
+           ],
+         ),
+       );
 }
 
 class _InvoicePreviewPanel extends StatelessWidget {
-  const _InvoicePreviewPanel({required this.invoice});
+  const _InvoicePreviewPanel({
+    required this.invoice,
+    required this.settings,
+    required this.companyProfile,
+  });
 
   final Invoice? invoice;
+  final AppSettings? settings;
+  final CompanyProfile? companyProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -939,33 +789,20 @@ class _InvoicePreviewPanel extends StatelessWidget {
                     value: invoice.taxMode.label,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: invoice.status == InvoiceStatus.cancelled
-                              ? null
-                              : () => context.go(
-                                  CreateInvoicePage.routePath,
-                                  extra: CreateInvoicePageArgs.edit(invoice),
-                                ),
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('Edit'),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => context.go(
-                            CreateInvoicePage.routePath,
-                            extra: CreateInvoicePageArgs.duplicate(invoice),
-                          ),
-                          icon: const Icon(Icons.copy_all_outlined),
-                          label: const Text('Duplicate'),
-                        ),
-                      ),
-                    ],
+                  _PreviewActionGrid(
+                    invoice: invoice,
+                    settings: settings,
+                    companyProfile: companyProfile,
                   ),
+                  if (invoice.status == InvoiceStatus.cancelled) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Cancelled invoices can still be duplicated, exported, or deleted.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
                   if (invoice.paymentHistory.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.lg),
                     Text(
@@ -989,6 +826,90 @@ class _InvoicePreviewPanel extends StatelessWidget {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _PreviewActionGrid extends StatelessWidget {
+  const _PreviewActionGrid({
+    required this.invoice,
+    required this.settings,
+    required this.companyProfile,
+  });
+
+  final Invoice invoice;
+  final AppSettings? settings;
+  final CompanyProfile? companyProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = _invoicePreviewActions
+        .where((action) => action.isAvailableFor(invoice))
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < actions.length; index += 2) ...[
+          Row(
+            children: [
+              Expanded(
+                child: _PreviewActionButton(
+                  action: actions[index],
+                  invoice: invoice,
+                  settings: settings,
+                  companyProfile: companyProfile,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: index + 1 < actions.length
+                    ? _PreviewActionButton(
+                        action: actions[index + 1],
+                        invoice: invoice,
+                        settings: settings,
+                        companyProfile: companyProfile,
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+          if (index + 2 < actions.length) const SizedBox(height: AppSpacing.sm),
+        ],
+      ],
+    );
+  }
+}
+
+class _PreviewActionButton extends StatelessWidget {
+  const _PreviewActionButton({
+    required this.action,
+    required this.invoice,
+    required this.settings,
+    required this.companyProfile,
+  });
+
+  final _InvoiceAction action;
+  final Invoice invoice;
+  final AppSettings? settings;
+  final CompanyProfile? companyProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = action.color;
+    return OutlinedButton.icon(
+      onPressed: () => _runInvoiceAction(
+        context,
+        invoice,
+        action,
+        settings: settings,
+        companyProfile: companyProfile,
+      ),
+      icon: Icon(action.icon, color: color),
+      label: Text(action.labelFor(invoice), overflow: TextOverflow.ellipsis),
+      style: color == null
+          ? null
+          : OutlinedButton.styleFrom(foregroundColor: color),
     );
   }
 }
@@ -1039,6 +960,221 @@ enum _InvoiceAction {
   cancel,
   exportPdf,
   delete,
+}
+
+const _invoicePrimaryActions = [
+  _InvoiceAction.edit,
+  _InvoiceAction.duplicate,
+  _InvoiceAction.recordPayment,
+];
+
+const _invoicePreviewActions = [
+  _InvoiceAction.edit,
+  _InvoiceAction.duplicate,
+  _InvoiceAction.recordPayment,
+  _InvoiceAction.exportPdf,
+  _InvoiceAction.cancel,
+  _InvoiceAction.delete,
+];
+
+extension _InvoiceActionDetails on _InvoiceAction {
+  IconData get icon {
+    return switch (this) {
+      _InvoiceAction.edit => Icons.edit_outlined,
+      _InvoiceAction.duplicate => Icons.copy_all_outlined,
+      _InvoiceAction.recordPayment => Icons.payments_outlined,
+      _InvoiceAction.cancel => Icons.block_outlined,
+      _InvoiceAction.exportPdf => Icons.picture_as_pdf_outlined,
+      _InvoiceAction.delete => Icons.delete_outline,
+    };
+  }
+
+  Color? get color {
+    return switch (this) {
+      _InvoiceAction.cancel => AppColors.warning,
+      _InvoiceAction.delete => AppColors.error,
+      _ => null,
+    };
+  }
+
+  bool isAvailableFor(Invoice invoice) {
+    return switch (this) {
+      _InvoiceAction.edit => invoice.status != InvoiceStatus.cancelled,
+      _InvoiceAction.duplicate => true,
+      _InvoiceAction.recordPayment =>
+        invoice.status != InvoiceStatus.cancelled && invoice.balanceDue > 0,
+      _InvoiceAction.cancel => invoice.status != InvoiceStatus.cancelled,
+      _InvoiceAction.exportPdf => true,
+      _InvoiceAction.delete => true,
+    };
+  }
+
+  String labelFor(Invoice invoice) {
+    return switch (this) {
+      _InvoiceAction.edit => 'Edit',
+      _InvoiceAction.duplicate => 'Duplicate',
+      _InvoiceAction.recordPayment =>
+        invoice.amountPaid <= 0 ? 'Mark paid' : 'Record payment',
+      _InvoiceAction.cancel => 'Cancel',
+      _InvoiceAction.exportPdf => 'Export PDF',
+      _InvoiceAction.delete => 'Delete',
+    };
+  }
+}
+
+Future<void> _runInvoiceAction(
+  BuildContext context,
+  Invoice invoice,
+  _InvoiceAction action, {
+  required AppSettings? settings,
+  required CompanyProfile? companyProfile,
+}) async {
+  switch (action) {
+    case _InvoiceAction.edit:
+      context.go(
+        CreateInvoicePage.routePath,
+        extra: CreateInvoicePageArgs.edit(invoice),
+      );
+      break;
+    case _InvoiceAction.duplicate:
+      context.go(
+        CreateInvoicePage.routePath,
+        extra: CreateInvoicePageArgs.duplicate(invoice),
+      );
+      break;
+    case _InvoiceAction.recordPayment:
+      await _showRecordPaymentDialog(context, invoice);
+      break;
+    case _InvoiceAction.cancel:
+      await _confirmAndCancel(context, invoice);
+      break;
+    case _InvoiceAction.delete:
+      await _confirmAndDelete(context, invoice);
+      break;
+    case _InvoiceAction.exportPdf:
+      await _exportPdf(
+        context,
+        invoice,
+        settings: settings,
+        companyProfile: companyProfile,
+      );
+      break;
+  }
+}
+
+Future<void> _exportPdf(
+  BuildContext context,
+  Invoice invoice, {
+  required AppSettings? settings,
+  required CompanyProfile? companyProfile,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  try {
+    final defaultName = '${_sanitizeFileName(invoice.invoiceNumber)}.pdf';
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'Save invoice PDF',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+    );
+    if (path == null || path.trim().isEmpty) {
+      return;
+    }
+
+    final pdfBytes = await sl<InvoicePdfService>().buildInvoicePdf(
+      invoice: invoice,
+      currencySymbol: settings?.currencySymbol ?? 'Rs',
+      currentCompanyProfile: companyProfile,
+      settings: settings,
+    );
+    await File(path).writeAsBytes(pdfBytes, flush: true);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Invoice PDF saved to $path'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  } catch (error) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Unable to export PDF: $error'),
+        backgroundColor: AppColors.error,
+      ),
+    );
+  }
+}
+
+Future<void> _confirmAndCancel(BuildContext context, Invoice invoice) async {
+  final confirmed = await _confirmAction(
+    context,
+    title: 'Cancel invoice?',
+    message:
+        'This will keep ${invoice.invoiceNumber} in your records and mark it as cancelled.',
+    confirmLabel: 'Cancel invoice',
+    confirmColor: AppColors.warning,
+  );
+  if (confirmed != true || !context.mounted) return;
+  await context.read<InvoiceCubit>().cancelInvoice(invoice);
+}
+
+Future<void> _showRecordPaymentDialog(
+  BuildContext context,
+  Invoice invoice,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (_) => BlocProvider.value(
+      value: context.read<InvoiceCubit>(),
+      child: _RecordPaymentDialog(invoice: invoice),
+    ),
+  );
+}
+
+Future<void> _confirmAndDelete(BuildContext context, Invoice invoice) async {
+  final confirmed = await _confirmAction(
+    context,
+    title: 'Delete invoice?',
+    message:
+        'This will permanently remove ${invoice.invoiceNumber} from the invoice list.',
+    confirmLabel: 'Delete',
+    confirmColor: AppColors.error,
+  );
+  if (confirmed != true || !context.mounted) return;
+  await context.read<InvoiceCubit>().deleteInvoice(invoice);
+}
+
+Future<bool?> _confirmAction(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+  required Color confirmColor,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Keep it'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: confirmColor),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
+}
+
+String _sanitizeFileName(String value) {
+  final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
+  return sanitized.isEmpty ? 'invoice' : sanitized;
 }
 
 enum _InvoiceStatusFilter {
