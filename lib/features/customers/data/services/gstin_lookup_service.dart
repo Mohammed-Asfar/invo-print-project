@@ -371,15 +371,20 @@ class GstinBusinessDetails {
         : _gstStateNames[derivedStateCode] ?? '';
 
     final addressPieces = <String>[
-      _readAddressValue(addressMap, const ['bno', 'buildingNumber']),
-      _readAddressValue(addressMap, const ['flno', 'floorNumber']),
+      _readAddressValue(addressMap, const ['bno', 'buildingNumber', 'doorNum']),
+      _readAddressValue(addressMap, const ['flno', 'floorNumber', 'floorNum']),
       _readAddressValue(addressMap, const ['bnm', 'buildingName']),
       _readAddressValue(addressMap, const ['st', 'street']),
       _readAddressValue(addressMap, const ['loc', 'location']),
       _readAddressValue(addressMap, const ['dst', 'district']),
       _readAddressValue(addressMap, const ['city']),
       stateName,
-      _readAddressValue(addressMap, const ['pncd', 'pincode', 'zip']),
+      _readAddressValue(addressMap, const [
+        'pncd',
+        'pincode',
+        'pinCode',
+        'zip',
+      ]),
     ];
     final filteredAddress = _dedupe(addressPieces);
 
@@ -392,7 +397,12 @@ class GstinBusinessDetails {
       addressLine1: filteredAddress.take(4).join(', '),
       addressLine2: filteredAddress.skip(4).join(', '),
       city: _readAddressValue(addressMap, const ['city', 'loc']),
-      pincode: _readAddressValue(addressMap, const ['pncd', 'pincode', 'zip']),
+      pincode: _readAddressValue(addressMap, const [
+        'pncd',
+        'pincode',
+        'pinCode',
+        'zip',
+      ]),
       rawPayload: payload,
     );
   }

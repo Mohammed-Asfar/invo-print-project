@@ -29,8 +29,18 @@ class InvoicesPage extends StatelessWidget {
   }
 }
 
-class _InvoicesView extends StatelessWidget {
+class _InvoicesView extends StatefulWidget {
   const _InvoicesView();
+
+  @override
+  State<_InvoicesView> createState() => _InvoicesViewState();
+}
+
+class _InvoicesViewState extends State<_InvoicesView> {
+  _InvoiceStatusFilter _statusFilter = _InvoiceStatusFilter.all;
+  _InvoiceDateFilter _dateFilter = _InvoiceDateFilter.all;
+  String? _selectedInvoiceId;
+  final Set<String> _bulkSelectedIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +61,11 @@ class _InvoicesView extends StatelessWidget {
         }
       },
       builder: (context, state) {
+        final filteredInvoices = _applyFilters(state.filteredInvoices);
+        final selectedInvoice = _selectedInvoice(filteredInvoices);
+        final selectedBulkInvoices = filteredInvoices
+            .where((invoice) => _bulkSelectedIds.contains(invoice.id))
+            .toList();
         return ColoredBox(
           color: AppColors.background,
           child: Padding(
@@ -60,21 +75,110 @@ class _InvoicesView extends StatelessWidget {
               children: [
                 _Header(state: state),
                 const SizedBox(height: AppSpacing.xl),
-                TextField(
-                  onChanged: context.read<InvoiceCubit>().search,
-                  decoration: const InputDecoration(
-                    labelText: 'Search invoices',
-                    prefixIcon: Icon(Icons.search),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        onChanged: context.read<InvoiceCubit>().search,
+                        decoration: const InputDecoration(
+                          labelText: 'Search invoices',
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    _FilterDropdown<_InvoiceStatusFilter>(
+                      width: 190,
+                      label: 'Status',
+                      value: _statusFilter,
+                      values: _InvoiceStatusFilter.values,
+                      labelBuilder: (value) => value.label,
+                      onChanged: (value) =>
+                          setState(() => _statusFilter = value),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    _FilterDropdown<_InvoiceDateFilter>(
+                      width: 190,
+                      label: 'Date',
+                      value: _dateFilter,
+                      values: _InvoiceDateFilter.values,
+                      labelBuilder: (value) => value.label,
+                      onChanged: (value) => setState(() => _dateFilter = value),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
+                _FilterSummary(
+                  totalCount: state.invoices.length,
+                  visibleCount: filteredInvoices.length,
+                  overdueCount: state.invoices.where(_isOverdue).length,
+                ),
+                if (selectedBulkInvoices.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _BulkActionBar(
+                    selectedCount: selectedBulkInvoices.length,
+                    allVisibleSelected:
+                        filteredInvoices.isNotEmpty &&
+                        selectedBulkInvoices.length == filteredInvoices.length,
+                    onSelectAll: () => setState(() {
+                      _bulkSelectedIds
+                        ..clear()
+                        ..addAll(filteredInvoices.map((invoice) => invoice.id));
+                    }),
+                    onClear: () => setState(_bulkSelectedIds.clear),
+                    onExport: () => _exportSelectedPdfs(
+                      context,
+                      selectedBulkInvoices,
+                      state.settings,
+                      state.companyProfile,
+                    ),
+                    onCancel: () => _bulkCancel(context, selectedBulkInvoices),
+                    onDelete: () => _bulkDelete(context, selectedBulkInvoices),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.lg),
                 Expanded(
                   child: state.status == InvoiceStatusView.loading
                       ? const Center(child: CircularProgressIndicator())
-                      : _InvoiceList(
-                          invoices: state.filteredInvoices,
-                          settings: state.settings,
-                          companyProfile: state.companyProfile,
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final showPreview = constraints.maxWidth >= 980;
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _InvoiceList(
+                                    invoices: filteredInvoices,
+                                    settings: state.settings,
+                                    companyProfile: state.companyProfile,
+                                    selectedInvoiceId: selectedInvoice?.id,
+                                    bulkSelectedIds: _bulkSelectedIds,
+                                    onSelect: (invoice) => setState(
+                                      () => _selectedInvoiceId = invoice.id,
+                                    ),
+                                    onToggleBulkSelection: (invoice, selected) {
+                                      setState(() {
+                                        if (selected) {
+                                          _bulkSelectedIds.add(invoice.id);
+                                        } else {
+                                          _bulkSelectedIds.remove(invoice.id);
+                                        }
+                                      });
+                                    },
+                                  ),
+                                ),
+                                if (showPreview) ...[
+                                  const SizedBox(width: AppSpacing.lg),
+                                  SizedBox(
+                                    width: 360,
+                                    child: _InvoicePreviewPanel(
+                                      invoice: selectedInvoice,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          },
                         ),
                 ),
               ],
@@ -83,6 +187,135 @@ class _InvoicesView extends StatelessWidget {
         );
       },
     );
+  }
+
+  List<Invoice> _applyFilters(List<Invoice> invoices) {
+    return invoices.where((invoice) {
+      if (!_statusFilter.matches(invoice)) return false;
+      if (!_dateFilter.matches(invoice)) return false;
+      return true;
+    }).toList();
+  }
+
+  Invoice? _selectedInvoice(List<Invoice> invoices) {
+    if (invoices.isEmpty) return null;
+    final selectedId = _selectedInvoiceId;
+    if (selectedId == null) return invoices.first;
+    return invoices.firstWhere(
+      (invoice) => invoice.id == selectedId,
+      orElse: () => invoices.first,
+    );
+  }
+
+  Future<void> _exportSelectedPdfs(
+    BuildContext context,
+    List<Invoice> invoices,
+    AppSettings? settings,
+    CompanyProfile? companyProfile,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final directory = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose folder for invoice PDFs',
+    );
+    if (directory == null || directory.trim().isEmpty) return;
+    try {
+      for (final invoice in invoices) {
+        final bytes = await sl<InvoicePdfService>().buildInvoicePdf(
+          invoice: invoice,
+          currencySymbol: settings?.currencySymbol ?? 'Rs',
+          currentCompanyProfile: companyProfile,
+          settings: settings,
+        );
+        final file = File(
+          '$directory${Platform.pathSeparator}${_sanitizeFileName(invoice.invoiceNumber)}.pdf',
+        );
+        await file.writeAsBytes(bytes, flush: true);
+      }
+      if (!context.mounted) return;
+      setState(_bulkSelectedIds.clear);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('${invoices.length} invoice PDFs exported.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Unable to export selected invoices: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _bulkCancel(BuildContext context, List<Invoice> invoices) async {
+    final cancellable = invoices
+        .where((invoice) => invoice.status != InvoiceStatus.cancelled)
+        .toList();
+    if (cancellable.isEmpty) return;
+    final confirmed = await _confirmBulkAction(
+      context,
+      title: 'Cancel selected invoices?',
+      message: 'This will mark ${cancellable.length} invoices as cancelled.',
+      confirmLabel: 'Cancel Invoices',
+      confirmColor: AppColors.warning,
+    );
+    if (confirmed != true || !context.mounted) return;
+    final cubit = context.read<InvoiceCubit>();
+    for (final invoice in cancellable) {
+      await cubit.cancelInvoice(invoice);
+    }
+    if (mounted) setState(_bulkSelectedIds.clear);
+  }
+
+  Future<void> _bulkDelete(BuildContext context, List<Invoice> invoices) async {
+    final confirmed = await _confirmBulkAction(
+      context,
+      title: 'Delete selected invoices?',
+      message: 'This will permanently remove ${invoices.length} invoices.',
+      confirmLabel: 'Delete',
+      confirmColor: AppColors.error,
+    );
+    if (confirmed != true || !context.mounted) return;
+    final cubit = context.read<InvoiceCubit>();
+    for (final invoice in invoices) {
+      await cubit.deleteInvoice(invoice);
+    }
+    if (mounted) setState(_bulkSelectedIds.clear);
+  }
+
+  Future<bool?> _confirmBulkAction(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: confirmColor),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _sanitizeFileName(String value) {
+    final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
+    return sanitized.isEmpty ? 'invoice' : sanitized;
   }
 }
 
@@ -149,16 +382,180 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _FilterDropdown<T> extends StatelessWidget {
+  const _FilterDropdown({
+    required this.width,
+    required this.label,
+    required this.value,
+    required this.values,
+    required this.labelBuilder,
+    required this.onChanged,
+  });
+
+  final double width;
+  final String label;
+  final T value;
+  final List<T> values;
+  final String Function(T value) labelBuilder;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: DropdownButtonFormField<T>(
+        initialValue: value,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.filter_list_outlined),
+        ),
+        items: [
+          for (final item in values)
+            DropdownMenuItem(value: item, child: Text(labelBuilder(item))),
+        ],
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
+      ),
+    );
+  }
+}
+
+class _FilterSummary extends StatelessWidget {
+  const _FilterSummary({
+    required this.totalCount,
+    required this.visibleCount,
+    required this.overdueCount,
+  });
+
+  final int totalCount;
+  final int visibleCount;
+  final int overdueCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        _StatusPill(label: '$visibleCount shown'),
+        _StatusPill(label: '$totalCount total'),
+        if (overdueCount > 0)
+          _StatusPill(label: '$overdueCount overdue', color: AppColors.warning),
+      ],
+    );
+  }
+}
+
+class _BulkActionBar extends StatelessWidget {
+  const _BulkActionBar({
+    required this.selectedCount,
+    required this.allVisibleSelected,
+    required this.onSelectAll,
+    required this.onClear,
+    required this.onExport,
+    required this.onCancel,
+    required this.onDelete,
+  });
+
+  final int selectedCount;
+  final bool allVisibleSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onClear;
+  final VoidCallback onExport;
+  final VoidCallback onCancel;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primaryPurple),
+      ),
+      child: Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _StatusPill(label: '$selectedCount selected'),
+          OutlinedButton.icon(
+            onPressed: allVisibleSelected ? null : onSelectAll,
+            icon: const Icon(Icons.select_all_outlined),
+            label: const Text('Select visible'),
+          ),
+          OutlinedButton.icon(
+            onPressed: onExport,
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('Export PDFs'),
+          ),
+          OutlinedButton.icon(
+            onPressed: onCancel,
+            icon: const Icon(Icons.block_outlined),
+            label: const Text('Cancel'),
+          ),
+          OutlinedButton.icon(
+            onPressed: onDelete,
+            icon: Icon(Icons.delete_outline, color: AppColors.error),
+            label: Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+          TextButton(onPressed: onClear, child: const Text('Clear')),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, this.color});
+
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = color ?? AppColors.primaryPurple;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: accent,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class _InvoiceList extends StatelessWidget {
   const _InvoiceList({
     required this.invoices,
     required this.settings,
     required this.companyProfile,
+    required this.selectedInvoiceId,
+    required this.bulkSelectedIds,
+    required this.onSelect,
+    required this.onToggleBulkSelection,
   });
 
   final List<Invoice> invoices;
   final AppSettings? settings;
   final CompanyProfile? companyProfile;
+  final String? selectedInvoiceId;
+  final Set<String> bulkSelectedIds;
+  final ValueChanged<Invoice> onSelect;
+  final void Function(Invoice invoice, bool selected) onToggleBulkSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -185,24 +582,51 @@ class _InvoiceList extends StatelessWidget {
             Divider(height: 1, thickness: 1, color: AppColors.border),
         itemBuilder: (context, index) {
           final invoice = invoices[index];
+          final isSelected = invoice.id == selectedInvoiceId;
+          final isBulkSelected = bulkSelectedIds.contains(invoice.id);
+          final isOverdue = _isOverdue(invoice);
           final customerName =
               invoice.customerSnapshot['name']?.toString() ?? '';
           return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppColors.primaryLight,
-              child: Icon(
-                Icons.receipt_outlined,
-                color: AppColors.primaryPurple,
-              ),
+            selected: isSelected,
+            selectedTileColor: AppColors.primaryLight.withValues(alpha: 0.28),
+            onTap: () => onSelect(invoice),
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Checkbox(
+                  value: isBulkSelected,
+                  onChanged: (value) =>
+                      onToggleBulkSelection(invoice, value ?? false),
+                ),
+                CircleAvatar(
+                  backgroundColor: isOverdue
+                      ? AppColors.warning.withValues(alpha: 0.18)
+                      : AppColors.primaryLight,
+                  child: Icon(
+                    isOverdue
+                        ? Icons.schedule_outlined
+                        : Icons.receipt_outlined,
+                    color: isOverdue
+                        ? AppColors.warning
+                        : AppColors.primaryPurple,
+                  ),
+                ),
+              ],
             ),
-            title: Text(invoice.invoiceNumber),
+            title: Row(
+              children: [
+                Expanded(child: Text(invoice.invoiceNumber)),
+                if (isOverdue) const _StatusPill(label: 'Overdue'),
+              ],
+            ),
             subtitle: Text(
               [
                 if (customerName.isNotEmpty) customerName,
                 invoice.status.label,
-                invoice.taxMode.label,
+                'Due ${_formatDateShort(invoice.dueDate)}',
                 if (invoice.balanceDue > 0)
-                  'Due ${invoice.balanceDue.toStringAsFixed(2)}',
+                  'Balance ${invoice.balanceDue.toStringAsFixed(2)}',
               ].join('  |  '),
             ),
             trailing: Row(
@@ -221,6 +645,12 @@ class _InvoiceList extends StatelessWidget {
                   color: AppColors.surface,
                   onSelected: (action) async {
                     switch (action) {
+                      case _InvoiceAction.edit:
+                        context.go(
+                          CreateInvoicePage.routePath,
+                          extra: CreateInvoicePageArgs.edit(invoice),
+                        );
+                        break;
                       case _InvoiceAction.duplicate:
                         context.go(
                           CreateInvoicePage.routePath,
@@ -242,6 +672,17 @@ class _InvoiceList extends StatelessWidget {
                     }
                   },
                   itemBuilder: (context) => [
+                    if (invoice.status != InvoiceStatus.cancelled)
+                      const PopupMenuItem(
+                        value: _InvoiceAction.edit,
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined),
+                            SizedBox(width: AppSpacing.sm),
+                            Text('Edit'),
+                          ],
+                        ),
+                      ),
                     const PopupMenuItem(
                       value: _InvoiceAction.duplicate,
                       child: Row(
@@ -420,7 +861,263 @@ class _InvoiceList extends StatelessWidget {
   }
 }
 
-enum _InvoiceAction { duplicate, recordPayment, cancel, exportPdf, delete }
+class _InvoicePreviewPanel extends StatelessWidget {
+  const _InvoicePreviewPanel({required this.invoice});
+
+  final Invoice? invoice;
+
+  @override
+  Widget build(BuildContext context) {
+    final invoice = this.invoice;
+    return Container(
+      height: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: invoice == null
+          ? Center(
+              child: Text(
+                'Select an invoice',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            )
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          invoice.invoiceNumber,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                      if (_isOverdue(invoice))
+                        _StatusPill(label: 'Overdue', color: AppColors.warning),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    invoice.customerSnapshot['name']?.toString() ??
+                        'No customer',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _PreviewMetric(
+                    label: 'Grand Total',
+                    value: invoice.grandTotal.toStringAsFixed(2),
+                    strong: true,
+                  ),
+                  _PreviewMetric(
+                    label: 'Balance Due',
+                    value: invoice.balanceDue.toStringAsFixed(2),
+                    strong: invoice.balanceDue > 0,
+                  ),
+                  _PreviewMetric(label: 'Status', value: invoice.status.label),
+                  _PreviewMetric(
+                    label: 'Invoice Date',
+                    value: _formatDateShort(invoice.invoiceDate),
+                  ),
+                  _PreviewMetric(
+                    label: 'Due Date',
+                    value: _formatDateShort(invoice.dueDate),
+                  ),
+                  _PreviewMetric(
+                    label: 'Tax Mode',
+                    value: invoice.taxMode.label,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: invoice.status == InvoiceStatus.cancelled
+                              ? null
+                              : () => context.go(
+                                  CreateInvoicePage.routePath,
+                                  extra: CreateInvoicePageArgs.edit(invoice),
+                                ),
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('Edit'),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => context.go(
+                            CreateInvoicePage.routePath,
+                            extra: CreateInvoicePageArgs.duplicate(invoice),
+                          ),
+                          icon: const Icon(Icons.copy_all_outlined),
+                          label: const Text('Duplicate'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (invoice.paymentHistory.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Payment History',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    for (final payment in invoice.paymentHistory)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: _PreviewMetric(
+                          label:
+                              '${_formatDateShort(payment.paidAt)}${payment.method.trim().isNotEmpty ? ' • ${payment.method.trim()}' : ''}',
+                          value: payment.amount.toStringAsFixed(2),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _PreviewMetric extends StatelessWidget {
+  const _PreviewMetric({
+    required this.label,
+    required this.value,
+    this.strong = false,
+  });
+
+  final String label;
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+          Text(
+            value,
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _InvoiceAction {
+  edit,
+  duplicate,
+  recordPayment,
+  cancel,
+  exportPdf,
+  delete,
+}
+
+enum _InvoiceStatusFilter {
+  all('All'),
+  draft('Draft'),
+  unpaid('Unpaid'),
+  partialPaid('Partial'),
+  paid('Paid'),
+  cancelled('Cancelled'),
+  overdue('Overdue');
+
+  const _InvoiceStatusFilter(this.label);
+
+  final String label;
+
+  bool matches(Invoice invoice) {
+    return switch (this) {
+      _InvoiceStatusFilter.all => true,
+      _InvoiceStatusFilter.draft => invoice.status == InvoiceStatus.draft,
+      _InvoiceStatusFilter.unpaid => invoice.status == InvoiceStatus.unpaid,
+      _InvoiceStatusFilter.partialPaid =>
+        invoice.status == InvoiceStatus.partialPaid,
+      _InvoiceStatusFilter.paid => invoice.status == InvoiceStatus.paid,
+      _InvoiceStatusFilter.cancelled =>
+        invoice.status == InvoiceStatus.cancelled,
+      _InvoiceStatusFilter.overdue => _isOverdue(invoice),
+    };
+  }
+}
+
+enum _InvoiceDateFilter {
+  all('All dates'),
+  thisMonth('This month'),
+  lastMonth('Last month'),
+  dueThisWeek('Due this week');
+
+  const _InvoiceDateFilter(this.label);
+
+  final String label;
+
+  bool matches(Invoice invoice) {
+    final today = _dateOnly(DateTime.now());
+    return switch (this) {
+      _InvoiceDateFilter.all => true,
+      _InvoiceDateFilter.thisMonth =>
+        invoice.invoiceDate.year == today.year &&
+            invoice.invoiceDate.month == today.month,
+      _InvoiceDateFilter.lastMonth => _isLastMonth(invoice.invoiceDate, today),
+      _InvoiceDateFilter.dueThisWeek =>
+        !_dateOnly(invoice.dueDate).isBefore(today) &&
+            !_dateOnly(
+              invoice.dueDate,
+            ).isAfter(today.add(const Duration(days: 7))),
+    };
+  }
+}
+
+bool _isLastMonth(DateTime value, DateTime today) {
+  final month = today.month == 1 ? 12 : today.month - 1;
+  final year = today.month == 1 ? today.year - 1 : today.year;
+  return value.year == year && value.month == month;
+}
+
+bool _isOverdue(Invoice invoice) {
+  if (invoice.status == InvoiceStatus.paid ||
+      invoice.status == InvoiceStatus.cancelled) {
+    return false;
+  }
+  if (invoice.balanceDue <= 0) return false;
+  return _dateOnly(invoice.dueDate).isBefore(_dateOnly(DateTime.now()));
+}
+
+DateTime _dateOnly(DateTime value) {
+  return DateTime(value.year, value.month, value.day);
+}
+
+String _formatDateShort(DateTime date) {
+  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+}
 
 class _RecordPaymentDialog extends StatefulWidget {
   const _RecordPaymentDialog({required this.invoice});

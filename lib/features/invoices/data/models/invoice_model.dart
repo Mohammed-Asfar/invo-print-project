@@ -125,7 +125,7 @@ class InvoiceModel extends Invoice {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'invoiceNumber': invoiceNumber,
       'invoiceSequence': invoiceSequence,
       'financialYear': financialYear,
@@ -140,13 +140,6 @@ class InvoiceModel extends Invoice {
       'taxMode': taxMode.firestoreValue,
       'status': status.firestoreValue,
       'subtotal': subtotal,
-      'discountType': discountType,
-      'discountValue': discountValue,
-      'discountTotal': discountTotal,
-      'extraCharges': extraCharges
-          .map((charge) => {'label': charge.label, 'amount': charge.amount})
-          .toList(),
-      'extraChargeTotal': extraChargeTotal,
       'taxableAmount': taxableAmount,
       'cgstAmount': cgstAmount,
       'sgstAmount': sgstAmount,
@@ -154,12 +147,39 @@ class InvoiceModel extends Invoice {
       'roundOffEnabled': roundOffEnabled,
       'roundOffAmount': roundOffAmount,
       'grandTotal': grandTotal,
-      'amountPaid': amountPaid,
       'balanceDue': balanceDue,
-      'paidAt': paidAt,
       'notes': notes,
       'terms': terms,
-      'paymentHistory': paymentHistory
+      'loyaltyPointsAwarded': loyaltyPointsAwarded,
+      'pointsEarned': pointsEarned,
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+    };
+    if (discountType != 'none') {
+      map['discountType'] = discountType;
+    }
+    if (discountValue != 0) {
+      map['discountValue'] = discountValue;
+    }
+    if (discountTotal != 0) {
+      map['discountTotal'] = discountTotal;
+    }
+    if (extraCharges.isNotEmpty) {
+      map['extraCharges'] = extraCharges
+          .map((charge) => {'label': charge.label, 'amount': charge.amount})
+          .toList();
+    }
+    if (extraChargeTotal != 0) {
+      map['extraChargeTotal'] = extraChargeTotal;
+    }
+    if (amountPaid != 0) {
+      map['amountPaid'] = amountPaid;
+    }
+    if (paidAt != null) {
+      map['paidAt'] = paidAt;
+    }
+    if (paymentHistory.isNotEmpty) {
+      map['paymentHistory'] = paymentHistory
           .map(
             (payment) => {
               'amount': payment.amount,
@@ -169,12 +189,9 @@ class InvoiceModel extends Invoice {
               'notes': payment.notes,
             },
           )
-          .toList(),
-      'loyaltyPointsAwarded': loyaltyPointsAwarded,
-      'pointsEarned': pointsEarned,
-      'createdAt': createdAt,
-      'updatedAt': updatedAt,
-    };
+          .toList();
+    }
+    return map;
   }
 
   static Map<String, dynamic> _toMap(dynamic value) {

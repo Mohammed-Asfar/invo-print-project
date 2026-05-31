@@ -45,15 +45,25 @@ class CreateInvoicePageArgs {
   const CreateInvoicePageArgs({
     required this.sourceInvoice,
     this.title = 'New Invoice',
+    this.mode = CreateInvoiceMode.create,
   });
 
   const CreateInvoicePageArgs.duplicate(Invoice invoice)
     : sourceInvoice = invoice,
-      title = 'Duplicate Invoice';
+      title = 'Duplicate Invoice',
+      mode = CreateInvoiceMode.duplicate;
+
+  const CreateInvoicePageArgs.edit(Invoice invoice)
+    : sourceInvoice = invoice,
+      title = 'Edit Invoice',
+      mode = CreateInvoiceMode.edit;
 
   final Invoice? sourceInvoice;
   final String title;
+  final CreateInvoiceMode mode;
 }
+
+enum CreateInvoiceMode { create, duplicate, edit }
 
 class _CreateInvoiceView extends StatefulWidget {
   const _CreateInvoiceView({this.args});
@@ -95,6 +105,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   late InvoiceStatus _status;
   late bool _roundOffEnabled;
   late bool _shippingEnabled;
+  late bool _amountsEnabled;
   late String _discountType;
   late DateTime _invoiceDate;
   late DateTime _dueDate;
@@ -311,6 +322,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               taxMode: _taxMode,
                               status: _status,
                               roundOffEnabled: _roundOffEnabled,
+                              amountsEnabled: _amountsEnabled,
                               discountType: _discountType,
                               discountValue: _discountValue,
                               extraCharges: _extraCharges,
@@ -348,6 +360,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                                   setState(() => _status = value),
                               onRoundOffChanged: (value) =>
                                   setState(() => _roundOffEnabled = value),
+                              onAmountsEnabledChanged: _setAmountsEnabled,
                               onDiscountTypeChanged: (value) =>
                                   setState(() => _discountType = value),
                               onAdvancePaidDateChanged: (value) =>
@@ -366,10 +379,14 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
                               taxMode: _taxMode,
                               totals: totals,
                               amountInWords: _amountInWords(totals.grandTotal),
-                              amountPaid: _parsedAmount(_advancePaid),
+                              amountPaid: _amountsEnabled
+                                  ? _parsedAmount(_advancePaid)
+                                  : 0,
                               balanceDue:
                                   (totals.grandTotal -
-                                          _parsedAmount(_advancePaid))
+                                          (_amountsEnabled
+                                              ? _parsedAmount(_advancePaid)
+                                              : 0))
                                       .clamp(0, double.infinity)
                                       .toDouble(),
                               paymentHistoryPreview:
@@ -449,6 +466,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     _taxMode = draft.taxMode;
     _status = draft.status;
     _roundOffEnabled = draft.roundOffEnabled;
+    _amountsEnabled = _hasAmountsData(draft);
     _discountType = draft.discountType;
     _discountValue.text = _formatEditableNumber(draft.discountValue);
     _advancePaid.text = _formatEditableNumber(draft.advancePaid);
@@ -492,13 +510,25 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
         ? Map<String, dynamic>.from(shippedToRaw)
         : <String, dynamic>{};
 
-    final invoiceDate = DateTime.now();
+    final isEdit = widget.args?.mode == CreateInvoiceMode.edit;
+    final invoiceDate = isEdit ? sourceInvoice.invoiceDate : DateTime.now();
     final dueShift = sourceInvoice.dueDate.difference(
       sourceInvoice.invoiceDate,
     );
-    final dueDate = invoiceDate.add(
-      dueShift.isNegative ? const Duration(days: 15) : dueShift,
-    );
+    final dueDate = isEdit
+        ? sourceInvoice.dueDate
+        : invoiceDate.add(
+            dueShift.isNegative ? const Duration(days: 15) : dueShift,
+          );
+    InvoicePaymentRecord? initialPayment;
+    if (isEdit) {
+      for (final payment in sourceInvoice.paymentHistory) {
+        if (payment.notes == 'Initial advance payment') {
+          initialPayment = payment;
+          break;
+        }
+      }
+    }
     return InvoiceDraft(
       existingCustomer: matchedCustomer,
       customerName: customerSnapshot['name']?.toString() ?? '',
@@ -524,15 +554,15 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       invoiceDate: invoiceDate,
       dueDate: dueDate,
       taxMode: sourceInvoice.taxMode,
-      status: InvoiceStatus.unpaid,
+      status: isEdit ? sourceInvoice.status : InvoiceStatus.unpaid,
       roundOffEnabled: sourceInvoice.roundOffEnabled,
       discountType: sourceInvoice.discountType,
       discountValue: sourceInvoice.discountValue,
       extraCharges: sourceInvoice.extraCharges,
-      advancePaid: 0,
-      advancePaidDate: null,
-      advancePaidMethod: '',
-      advancePaidReference: '',
+      advancePaid: initialPayment?.amount ?? 0,
+      advancePaidDate: initialPayment?.paidAt,
+      advancePaidMethod: initialPayment?.method ?? '',
+      advancePaidReference: initialPayment?.reference ?? '',
       items: sourceInvoice.items,
       notes: sourceInvoice.notes,
       terms: sourceInvoice.terms,
@@ -614,6 +644,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       if ((customer.defaultDiscountValue > 0) &&
           (_discountValue.text.trim().isEmpty ||
               _parsedAmount(_discountValue) == 0)) {
+        _amountsEnabled = true;
         _discountType = customer.defaultDiscountType;
         _discountValue.text = _formatEditableNumber(
           customer.defaultDiscountValue,
@@ -910,6 +941,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       _status = InvoiceStatus.unpaid;
       _roundOffEnabled = true;
       _discountType = 'percentage';
+      _amountsEnabled = true;
       _discountValue.text = '10';
       _advancePaid.text = '5000';
       _advancePaidDate = now;
@@ -1088,17 +1120,28 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       taxMode: _taxMode,
       status: _status,
       roundOffEnabled: _roundOffEnabled,
-      discountType: _discountType,
-      discountValue: _parsedAmount(_discountValue),
-      extraCharges: _extraCharges.map((charge) => charge.toCharge()).toList(),
-      advancePaid: _parsedAmount(_advancePaid),
-      advancePaidDate: _advancePaidDate,
-      advancePaidMethod: _advancePaidMethod.text.trim(),
-      advancePaidReference: _advancePaidReference.text.trim(),
+      discountType: _amountsEnabled ? _discountType : 'none',
+      discountValue: _amountsEnabled ? _parsedAmount(_discountValue) : 0,
+      extraCharges: _amountsEnabled
+          ? _extraCharges.map((charge) => charge.toCharge()).toList()
+          : const [],
+      advancePaid: _amountsEnabled ? _parsedAmount(_advancePaid) : 0,
+      advancePaidDate: _amountsEnabled ? _advancePaidDate : null,
+      advancePaidMethod: _amountsEnabled ? _advancePaidMethod.text.trim() : '',
+      advancePaidReference: _amountsEnabled
+          ? _advancePaidReference.text.trim()
+          : '',
       items: _items.map((item) => item.toItem()).toList(),
       notes: _notes.text.trim(),
       terms: _terms.text.trim(),
     );
+    final editInvoice = widget.args?.mode == CreateInvoiceMode.edit
+        ? widget.args?.sourceInvoice
+        : null;
+    if (editInvoice != null) {
+      context.read<InvoiceCubit>().updateInvoiceFromDraft(editInvoice, draft);
+      return;
+    }
     context.read<InvoiceCubit>().saveDraft(draft);
   }
 
@@ -1395,9 +1438,11 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       items: _items.map((item) => item.toItem()).toList(),
       taxMode: _taxMode,
       roundOffEnabled: _roundOffEnabled,
-      discountType: _discountType,
-      discountValue: _parsedAmount(_discountValue),
-      extraCharges: _extraCharges.map((charge) => charge.toCharge()).toList(),
+      discountType: _amountsEnabled ? _discountType : 'none',
+      discountValue: _amountsEnabled ? _parsedAmount(_discountValue) : 0,
+      extraCharges: _amountsEnabled
+          ? _extraCharges.map((charge) => charge.toCharge()).toList()
+          : const [],
     );
     return _InvoiceTotals(
       subtotal: totals.subtotal,
@@ -1413,6 +1458,12 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   }
 
   String _invoiceNumberPreview(InvoiceState state) {
+    if (widget.args?.mode == CreateInvoiceMode.edit) {
+      final invoiceNumber = widget.args?.sourceInvoice?.invoiceNumber;
+      if (invoiceNumber != null && invoiceNumber.trim().isNotEmpty) {
+        return invoiceNumber;
+      }
+    }
     final settings = state.settings;
     if (settings == null) return 'Draft invoice';
     final sequence = settings.invoiceNextNumber.toString().padLeft(
@@ -1441,6 +1492,35 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     if (mounted) setState(() {});
   }
 
+  bool _hasAmountsData(InvoiceDraft draft) {
+    return draft.discountType != 'none' ||
+        draft.discountValue > 0 ||
+        draft.extraCharges.any(
+          (charge) => charge.label.trim().isNotEmpty || charge.amount.abs() > 0,
+        ) ||
+        draft.advancePaid > 0 ||
+        draft.advancePaidDate != null ||
+        draft.advancePaidMethod.trim().isNotEmpty ||
+        draft.advancePaidReference.trim().isNotEmpty;
+  }
+
+  void _setAmountsEnabled(bool value) {
+    setState(() {
+      _amountsEnabled = value;
+      if (value) return;
+      _discountType = 'none';
+      _discountValue.clear();
+      _advancePaid.clear();
+      _advancePaidDate = null;
+      _advancePaidMethod.clear();
+      _advancePaidReference.clear();
+      for (final charge in _extraCharges) {
+        charge.dispose();
+      }
+      _extraCharges = [];
+    });
+  }
+
   void _attachItem(_ItemControllers item) {
     item.addListener(_refresh, onHsnChanged: (_) => _applyHsnRate(item));
   }
@@ -1455,6 +1535,7 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
   }
 
   List<InvoicePaymentRecord> _buildDraftPaymentHistoryPreview() {
+    if (!_amountsEnabled) return const [];
     final amount = _parsedAmount(_advancePaid);
     if (amount <= 0) return const [];
     return [
@@ -1530,6 +1611,7 @@ class _EditorForm extends StatelessWidget {
     required this.taxMode,
     required this.status,
     required this.roundOffEnabled,
+    required this.amountsEnabled,
     required this.discountType,
     required this.discountValue,
     required this.extraCharges,
@@ -1549,6 +1631,7 @@ class _EditorForm extends StatelessWidget {
     required this.onTaxModeChanged,
     required this.onStatusChanged,
     required this.onRoundOffChanged,
+    required this.onAmountsEnabledChanged,
     required this.onDiscountTypeChanged,
     required this.onAdvancePaidDateChanged,
     required this.onAddCharge,
@@ -1592,6 +1675,7 @@ class _EditorForm extends StatelessWidget {
   final TaxMode taxMode;
   final InvoiceStatus status;
   final bool roundOffEnabled;
+  final bool amountsEnabled;
   final String discountType;
   final TextEditingController discountValue;
   final List<_ChargeControllers> extraCharges;
@@ -1611,6 +1695,7 @@ class _EditorForm extends StatelessWidget {
   final ValueChanged<TaxMode> onTaxModeChanged;
   final ValueChanged<InvoiceStatus> onStatusChanged;
   final ValueChanged<bool> onRoundOffChanged;
+  final ValueChanged<bool> onAmountsEnabledChanged;
   final ValueChanged<String> onDiscountTypeChanged;
   final ValueChanged<DateTime> onAdvancePaidDateChanged;
   final VoidCallback onAddCharge;
@@ -1686,6 +1771,7 @@ class _EditorForm extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         _AmountsPanel(
+          enabled: amountsEnabled,
           discountType: discountType,
           discountValue: discountValue,
           extraCharges: extraCharges,
@@ -1693,6 +1779,7 @@ class _EditorForm extends StatelessWidget {
           advancePaidDate: advancePaidDate,
           advancePaidMethod: advancePaidMethod,
           advancePaidReference: advancePaidReference,
+          onEnabledChanged: onAmountsEnabledChanged,
           onDiscountTypeChanged: onDiscountTypeChanged,
           onAdvancePaidDateChanged: onAdvancePaidDateChanged,
           onAddCharge: onAddCharge,
@@ -2757,6 +2844,7 @@ class _NotesPanel extends StatelessWidget {
 
 class _AmountsPanel extends StatelessWidget {
   const _AmountsPanel({
+    required this.enabled,
     required this.discountType,
     required this.discountValue,
     required this.extraCharges,
@@ -2764,12 +2852,14 @@ class _AmountsPanel extends StatelessWidget {
     required this.advancePaidDate,
     required this.advancePaidMethod,
     required this.advancePaidReference,
+    required this.onEnabledChanged,
     required this.onDiscountTypeChanged,
     required this.onAdvancePaidDateChanged,
     required this.onAddCharge,
     required this.onRemoveCharge,
   });
 
+  final bool enabled;
   final String discountType;
   final TextEditingController discountValue;
   final List<_ChargeControllers> extraCharges;
@@ -2777,6 +2867,7 @@ class _AmountsPanel extends StatelessWidget {
   final DateTime? advancePaidDate;
   final TextEditingController advancePaidMethod;
   final TextEditingController advancePaidReference;
+  final ValueChanged<bool> onEnabledChanged;
   final ValueChanged<String> onDiscountTypeChanged;
   final ValueChanged<DateTime> onAdvancePaidDateChanged;
   final VoidCallback onAddCharge;
@@ -2784,12 +2875,34 @@ class _AmountsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final helperStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary);
+
+    if (!enabled) {
+      return _Panel(
+        icon: Icons.calculate_outlined,
+        title: 'Discounts, Charges & Payments',
+        trailing: Switch.adaptive(value: enabled, onChanged: onEnabledChanged),
+        child: Text(
+          'Enable this only when you need discounts, extra charges, or payment details.',
+          style: helperStyle,
+        ),
+      );
+    }
+
     return _Panel(
       icon: Icons.calculate_outlined,
       title: 'Discounts, Charges & Payments',
+      trailing: Switch.adaptive(value: enabled, onChanged: onEnabledChanged),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            'These optional values will be saved with this invoice.',
+            style: helperStyle,
+          ),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             children: [
               SizedBox(
@@ -3519,6 +3632,14 @@ class _SmallField extends StatelessWidget {
 
 IconData _fieldIconFor(String label) {
   final key = label.toLowerCase();
+  if (key.contains('discount')) return Icons.percent_outlined;
+  if (key.contains('advance') || key.contains('paid')) {
+    return Icons.account_balance_wallet_outlined;
+  }
+  if (key.contains('charge')) return Icons.add_card_outlined;
+  if (key.contains('amount')) return Icons.currency_rupee_outlined;
+  if (key.contains('method')) return Icons.payments_outlined;
+  if (key.contains('reference')) return Icons.receipt_long_outlined;
   if (key.contains('phone')) return Icons.phone_outlined;
   if (key.contains('email')) return Icons.email_outlined;
   if (key.contains('gst')) return Icons.badge_outlined;

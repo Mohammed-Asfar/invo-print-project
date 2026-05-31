@@ -1,0 +1,334 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:invo_print/features/company/data/models/app_settings_model.dart';
+import 'package:invo_print/features/company/data/models/company_profile_model.dart';
+import 'package:invo_print/features/company/data/repositories/company_settings_repository.dart';
+import 'package:invo_print/features/company/domain/entities/app_settings.dart';
+import 'package:invo_print/features/company/domain/entities/company_profile.dart';
+import 'package:invo_print/features/customers/data/models/customer_model.dart';
+import 'package:invo_print/features/customers/data/repositories/customer_repository.dart';
+import 'package:invo_print/features/customers/domain/entities/customer.dart';
+import 'package:invo_print/features/invoices/data/models/invoice_model.dart';
+import 'package:invo_print/features/invoices/data/repositories/invoice_repository.dart';
+import 'package:invo_print/features/invoices/domain/entities/invoice.dart';
+import 'package:invo_print/features/invoices/domain/entities/invoice_draft.dart';
+import 'package:invo_print/features/invoices/domain/entities/invoice_item.dart';
+import 'package:invo_print/features/invoices/domain/services/invoice_calculator.dart';
+import 'package:invo_print/features/invoices/domain/services/invoice_creator.dart';
+
+import '../../../helpers/fake_customer_firestore_rest_client.dart';
+
+void main() {
+  group('invoice creation workflow', () {
+    test(
+      'creates invoice, preserves loyalty, records advance, increments number',
+      () async {
+        final existingCustomer = _customer(
+          id: 'cust_1',
+          phone: '9655246269',
+          loyaltyPointsBalance: 120,
+          lifetimePointsEarned: 400,
+          defaultInvoiceTerms: 'Customer terms',
+        );
+        final settings = _settings(invoiceNextNumber: 7);
+        final profile = _profile(defaultInvoiceTerms: 'Company terms');
+        final firestore = FakeCustomerFirestoreRestClient({
+          'customers/cust_1': CustomerModel.fromEntity(
+            existingCustomer,
+          ).toMap(),
+          'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+          'company/profile': CompanyProfileModel.fromEntity(profile).toMap(),
+        });
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        final result = await creator.createFromDraft(
+          draft: _draft(existingCustomer: existingCustomer),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: [existingCustomer],
+        );
+
+        expect(result.invoice.invoiceNumber, 'INV-2026/05-007');
+        expect(result.invoice.customerId, 'cust_1');
+        expect(result.invoice.subtotal, 3500);
+        expect(result.invoice.discountTotal, 350);
+        expect(result.invoice.extraChargeTotal, 100);
+        expect(result.invoice.grandTotal, 3817);
+        expect(result.invoice.amountPaid, 500);
+        expect(result.invoice.balanceDue, 3317);
+        expect(result.invoice.status, InvoiceStatus.partialPaid);
+        expect(result.invoice.paymentHistory.single.method, 'UPI');
+        expect(result.invoice.terms, 'Customer terms');
+        expect(result.customer.loyaltyPointsBalance, 120);
+        expect(result.customer.lifetimePointsEarned, 400);
+        expect(result.updatedSettings.invoiceNextNumber, 8);
+
+        final savedInvoiceMap = firestore.documents.entries
+            .singleWhere((entry) => entry.key.startsWith('invoices/'))
+            .value;
+        final savedInvoice = InvoiceModel.fromMap(
+          savedInvoiceMap['id']?.toString() ?? result.invoice.id,
+          savedInvoiceMap,
+        );
+        expect(savedInvoice.invoiceNumber, result.invoice.invoiceNumber);
+        expect(savedInvoice.paymentHistory, hasLength(1));
+
+        final savedSettings = await CompanySettingsRepository(
+          firestore,
+        ).fetchAppSettings();
+        expect(savedSettings.invoiceNextNumber, 8);
+      },
+    );
+
+    test(
+      'saves plain invoice without optional adjustment/payment fields',
+      () async {
+        final settings = _settings();
+        final profile = _profile();
+        final firestore = FakeCustomerFirestoreRestClient();
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        final result = await creator.createFromDraft(
+          draft: _draft(discountType: 'none', discountValue: 0, advancePaid: 0),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        );
+
+        final savedInvoiceMap =
+            firestore.documents['invoices/${result.invoice.id}']!;
+        expect(savedInvoiceMap.containsKey('discountType'), isFalse);
+        expect(savedInvoiceMap.containsKey('discountValue'), isFalse);
+        expect(savedInvoiceMap.containsKey('extraCharges'), isFalse);
+        expect(savedInvoiceMap.containsKey('amountPaid'), isFalse);
+        expect(savedInvoiceMap.containsKey('paymentHistory'), isFalse);
+        expect(result.invoice.status, InvoiceStatus.unpaid);
+        expect(result.invoice.balanceDue, result.invoice.grandTotal);
+      },
+    );
+
+    test('edits existing invoice without creating a new number', () async {
+      final settings = _settings(invoiceNextNumber: 12);
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient();
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+      final original = await creator.createFromDraft(
+        draft: _draft(discountType: 'none', discountValue: 0, advancePaid: 0),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+      final settingsAfterCreate = await CompanySettingsRepository(
+        firestore,
+      ).fetchAppSettings();
+
+      final updated = await creator.updateFromDraft(
+        existingInvoice: original.invoice,
+        draft: _draft(
+          existingCustomer: original.customer,
+          discountType: 'amount',
+          discountValue: 100,
+          advancePaid: 50,
+        ),
+        settings: settingsAfterCreate,
+        companyProfile: profile,
+        knownCustomers: [original.customer],
+      );
+
+      expect(updated.invoice.id, original.invoice.id);
+      expect(updated.invoice.invoiceNumber, original.invoice.invoiceNumber);
+      expect(updated.invoice.invoiceSequence, original.invoice.invoiceSequence);
+      expect(updated.invoice.createdAt, original.invoice.createdAt);
+      expect(updated.invoice.discountType, 'amount');
+      expect(updated.invoice.discountTotal, 100);
+      expect(updated.invoice.amountPaid, 50);
+      expect(updated.invoice.paymentHistory, hasLength(1));
+      expect(
+        firestore.documents.keys.where((key) => key.startsWith('invoices/')),
+        hasLength(1),
+      );
+
+      final settingsAfterEdit = await CompanySettingsRepository(
+        firestore,
+      ).fetchAppSettings();
+      expect(settingsAfterEdit.invoiceNextNumber, 13);
+    });
+  });
+}
+
+InvoiceDraft _draft({
+  Customer? existingCustomer,
+  String discountType = 'percentage',
+  double discountValue = 10,
+  double advancePaid = 500,
+}) {
+  return InvoiceDraft(
+    existingCustomer: existingCustomer,
+    customerName: 'TBS Enterprises',
+    customerPhone: '9655246269',
+    customerEmail: 'test@example.com',
+    customerGstin: '33AHOPY8219N1ZE',
+    customerState: 'Tamil Nadu',
+    customerStateCode: '33',
+    billingAddress: 'Billing address',
+    shippingEnabled: true,
+    shippingAddress: 'Shipping address',
+    shipToName: 'Site Office',
+    shipToPhone: '9840012345',
+    shipToEmail: '',
+    shipToState: 'Tamil Nadu',
+    shipToStateCode: '33',
+    shipToPincode: '603102',
+    invoiceDate: DateTime(2026, 5, 2),
+    dueDate: DateTime(2026, 5, 17),
+    taxMode: TaxMode.cgstSgst,
+    status: InvoiceStatus.unpaid,
+    roundOffEnabled: true,
+    discountType: discountType,
+    discountValue: discountValue,
+    extraCharges: discountType == 'none'
+        ? const []
+        : const [InvoiceCharge(label: 'Packing', amount: 100)],
+    advancePaid: advancePaid,
+    advancePaidDate: DateTime(2026, 5, 2),
+    advancePaidMethod: advancePaid > 0 ? 'UPI' : '',
+    advancePaidReference: advancePaid > 0 ? 'UTR-1' : '',
+    items: [
+      InvoiceItem.empty().copyWith(
+        name: 'Thermal Printer',
+        quantity: 1,
+        unit: 'pcs',
+        rate: 1000,
+        gstRate: 18,
+      ),
+      InvoiceItem.empty().copyWith(
+        name: 'Installation',
+        quantity: 1,
+        unit: 'service',
+        rate: 2500,
+        gstRate: 18,
+      ),
+    ],
+    notes: '',
+    terms: '',
+  );
+}
+
+Customer _customer({
+  required String id,
+  required String phone,
+  int loyaltyPointsBalance = 0,
+  int lifetimePointsEarned = 0,
+  String defaultInvoiceTerms = '',
+}) {
+  final now = DateTime(2026, 5, 1);
+  return Customer(
+    id: id,
+    name: 'TBS Enterprises',
+    phone: phone,
+    email: 'old@example.com',
+    billingAddress: 'Old address',
+    shippingAddress: '',
+    gstin: '',
+    state: 'Tamil Nadu',
+    defaultDiscountType: 'none',
+    defaultDiscountValue: 0,
+    loyaltyEnabled: true,
+    loyaltyPointsBalance: loyaltyPointsBalance,
+    lifetimePointsEarned: lifetimePointsEarned,
+    lifetimePointsRedeemed: 0,
+    totalBilled: 0,
+    totalPaid: 0,
+    outstandingAmount: 0,
+    notes: '',
+    defaultInvoiceTerms: defaultInvoiceTerms,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+AppSettings _settings({int invoiceNextNumber = 1}) {
+  final initial = AppSettings.initial();
+  return AppSettings(
+    gstEnabled: initial.gstEnabled,
+    defaultGstRate: initial.defaultGstRate,
+    invoicePrefix: 'INV',
+    invoiceSeparator: '-',
+    invoiceDateFormat: 'yyyy/MM',
+    invoiceNextNumber: invoiceNextNumber,
+    invoiceNumberPadding: 3,
+    quotationPrefix: initial.quotationPrefix,
+    quotationSeparator: initial.quotationSeparator,
+    quotationDateFormat: initial.quotationDateFormat,
+    quotationNextNumber: initial.quotationNextNumber,
+    quotationNumberPadding: initial.quotationNumberPadding,
+    loyaltyEnabled: initial.loyaltyEnabled,
+    pointsPerRupee: initial.pointsPerRupee,
+    pointsRedemptionValue: initial.pointsRedemptionValue,
+    currencyCode: initial.currencyCode,
+    currencySymbol: initial.currencySymbol,
+    themeMode: initial.themeMode,
+    primaryColorHex: initial.primaryColorHex,
+    showLineItemHsn: initial.showLineItemHsn,
+    showCustomerStateCode: initial.showCustomerStateCode,
+    gstinLookupEnabled: initial.gstinLookupEnabled,
+    gstinLookupApiKey: initial.gstinLookupApiKey,
+    gstinLookupApiHost: initial.gstinLookupApiHost,
+    gstinValidationApiPath: initial.gstinValidationApiPath,
+    gstinLookupApiPath: initial.gstinLookupApiPath,
+    defaultCustomerState: initial.defaultCustomerState,
+    defaultShippingState: initial.defaultShippingState,
+    defaultLineItemUnit: initial.defaultLineItemUnit,
+    customCustomerFields: initial.customCustomerFields,
+    customShippingFields: initial.customShippingFields,
+    customLineItemFields: initial.customLineItemFields,
+    updatedAt: DateTime(2026, 5, 1),
+  );
+}
+
+CompanyProfile _profile({String defaultInvoiceTerms = 'Company terms'}) {
+  final empty = CompanyProfile.empty();
+  return CompanyProfile(
+    businessName: 'CompanyTest',
+    legalName: empty.legalName,
+    gstin: empty.gstin,
+    pan: empty.pan,
+    email: empty.email,
+    phone: empty.phone,
+    website: empty.website,
+    addressLine1: empty.addressLine1,
+    addressLine2: empty.addressLine2,
+    city: empty.city,
+    state: empty.state,
+    pincode: empty.pincode,
+    country: empty.country,
+    bankName: empty.bankName,
+    bankAccountName: empty.bankAccountName,
+    bankAccountNumber: empty.bankAccountNumber,
+    ifscCode: empty.ifscCode,
+    upiId: empty.upiId,
+    defaultInvoiceTerms: defaultInvoiceTerms,
+    defaultQuotationTerms: empty.defaultQuotationTerms,
+    logoBase64: empty.logoBase64,
+    paymentQrBase64: empty.paymentQrBase64,
+    updatedAt: DateTime(2026, 5, 1),
+  );
+}

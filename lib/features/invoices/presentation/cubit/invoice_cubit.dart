@@ -190,6 +190,58 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     }
   }
 
+  Future<void> updateInvoiceFromDraft(
+    Invoice invoice,
+    InvoiceDraft draft,
+  ) async {
+    if (state.settings == null || state.companyProfile == null) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Company settings are not loaded.',
+        ),
+      );
+      return;
+    }
+
+    emit(state.copyWith(status: InvoiceStatusView.saving));
+    try {
+      final result = await _invoiceCreator.updateFromDraft(
+        existingInvoice: invoice,
+        draft: draft,
+        settings: state.settings!,
+        companyProfile: state.companyProfile!,
+        knownCustomers: state.customers,
+      );
+      final updatedInvoices = _replaceInvoice(state.invoices, result.invoice)
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final updatedCustomers = _upsertCustomer(state.customers, result.customer)
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.saved,
+          invoices: updatedInvoices,
+          customers: updatedCustomers,
+          message: 'Invoice ${result.invoice.invoiceNumber} updated.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: error.message,
+        ),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Unable to update invoice: $error',
+        ),
+      );
+    }
+  }
+
   Future<void> cancelInvoice(Invoice invoice) async {
     if (invoice.status == InvoiceStatus.cancelled) {
       emit(

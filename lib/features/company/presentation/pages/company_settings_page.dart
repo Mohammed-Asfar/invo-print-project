@@ -958,7 +958,7 @@ class _SettingsPanelRail extends StatelessWidget {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: _SettingsPanel.values.length,
-          separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+          separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
           itemBuilder: (context, index) =>
               SizedBox(width: 190, child: children[index]),
         ),
