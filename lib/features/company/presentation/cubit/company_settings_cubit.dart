@@ -55,6 +55,9 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
   }) async {
     emit(state.copyWith(status: CompanySettingsStatus.saving));
     try {
+      final latestSettings = await _repository.fetchAppSettings();
+      final userChangedInvoiceCounter =
+          settings.invoiceNextNumber != state.settings.invoiceNextNumber;
       final now = DateTime.now();
       final savedProfile = CompanyProfile(
         businessName: profile.businessName,
@@ -87,7 +90,9 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
         invoicePrefix: settings.invoicePrefix,
         invoiceSeparator: settings.invoiceSeparator,
         invoiceDateFormat: settings.invoiceDateFormat,
-        invoiceNextNumber: settings.invoiceNextNumber,
+        invoiceNextNumber: userChangedInvoiceCounter
+            ? settings.invoiceNextNumber
+            : latestSettings.invoiceNextNumber,
         invoiceNumberPadding: settings.invoiceNumberPadding,
         quotationPrefix: settings.quotationPrefix,
         quotationSeparator: settings.quotationSeparator,

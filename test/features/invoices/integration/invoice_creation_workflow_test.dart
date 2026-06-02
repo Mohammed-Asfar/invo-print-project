@@ -314,6 +314,52 @@ void main() {
       ).fetchAppSettings();
       expect(settingsAfterEdit.invoiceNextNumber, 13);
     });
+
+    test(
+      'uses the latest reserved invoice number even when caller settings are stale',
+      () async {
+        final settings = _settings(invoiceNextNumber: 7);
+        final profile = _profile();
+        final firestore = FakeCustomerFirestoreRestClient({
+          'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+        });
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        final first = await creator.createFromDraft(
+          draft: _draft(discountType: 'none', discountValue: 0, advancePaid: 0),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        );
+
+        final second = await creator.createFromDraft(
+          draft: _draft(
+            discountType: 'none',
+            discountValue: 0,
+            advancePaid: 0,
+            existingCustomer: first.customer,
+          ),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: [first.customer],
+        );
+
+        expect(first.invoice.invoiceNumber, 'INV-2026/05-007');
+        expect(second.invoice.invoiceNumber, 'INV-2026/05-008');
+        expect(second.invoice.invoiceSequence, 8);
+
+        final savedSettings = await CompanySettingsRepository(
+          firestore,
+        ).fetchAppSettings();
+        expect(savedSettings.invoiceNextNumber, 9);
+      },
+    );
   });
 }
 

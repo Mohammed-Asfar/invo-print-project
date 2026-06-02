@@ -62,6 +62,14 @@ class CustomerFirestoreRestClient {
     String collection,
     String documentId,
   ) async {
+    final snapshot = await getDocumentSnapshot(collection, documentId);
+    return snapshot?.data;
+  }
+
+  Future<FirestoreRestDocumentSnapshot?> getDocumentSnapshot(
+    String collection,
+    String documentId,
+  ) async {
     final response = await _client.get(
       _documentUri(collection, documentId),
       headers: await _headers(),
@@ -78,18 +86,25 @@ class CustomerFirestoreRestClient {
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return FirestoreRestCodec.decodeFields(
-      json['fields'] as Map<String, dynamic>? ?? {},
+    return FirestoreRestDocumentSnapshot(
+      data: FirestoreRestCodec.decodeFields(
+        json['fields'] as Map<String, dynamic>? ?? {},
+      ),
+      updateTime: json['updateTime'] as String?,
     );
   }
 
   Future<void> setDocument(
     String collection,
     String documentId,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    FirestoreWritePrecondition? precondition,
+  }) async {
     final response = await _client.patch(
-      _documentUri(collection, documentId),
+      _documentUri(
+        collection,
+        documentId,
+      ).replace(queryParameters: precondition?.toQueryParameters()),
       headers: await _headers(),
       body: jsonEncode({'fields': FirestoreRestCodec.encodeFields(data)}),
     );
@@ -140,4 +155,36 @@ class FirestoreRestDocument {
 
   final String id;
   final Map<String, dynamic> data;
+}
+
+class FirestoreRestDocumentSnapshot {
+  const FirestoreRestDocumentSnapshot({
+    required this.data,
+    required this.updateTime,
+  });
+
+  final Map<String, dynamic> data;
+  final String? updateTime;
+}
+
+class FirestoreWritePrecondition {
+  const FirestoreWritePrecondition({this.exists, this.updateTime});
+
+  const FirestoreWritePrecondition.mustExist() : this(exists: true);
+
+  const FirestoreWritePrecondition.mustNotExist() : this(exists: false);
+
+  final bool? exists;
+  final String? updateTime;
+
+  Map<String, String>? toQueryParameters() {
+    final values = <String, String>{};
+    if (exists != null) {
+      values['currentDocument.exists'] = exists.toString();
+    }
+    if (updateTime != null && updateTime!.trim().isNotEmpty) {
+      values['currentDocument.updateTime'] = updateTime!.trim();
+    }
+    return values.isEmpty ? null : values;
+  }
 }

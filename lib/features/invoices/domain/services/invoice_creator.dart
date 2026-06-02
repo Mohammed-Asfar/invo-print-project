@@ -107,9 +107,20 @@ class InvoiceCreator {
         ? paymentHistory.last.paidAt
         : null;
     final shouldAssignFinalNumber = _consumesInvoiceNumber(status);
-    final sequence = shouldAssignFinalNumber ? settings.invoiceNextNumber : 0;
+    final reservation = shouldAssignFinalNumber
+        ? await _settingsRepository.reserveNextInvoiceNumber(
+            fallbackSettings: settings,
+          )
+        : null;
+    final numberingSettings =
+        reservation?.settingsBeforeReservation ?? settings;
+    final sequence = reservation?.reservedSequence ?? 0;
     final invoiceNumber = shouldAssignFinalNumber
-        ? _buildInvoiceNumber(settings: settings, date: draft.invoiceDate)
+        ? _buildInvoiceNumber(
+            settings: numberingSettings,
+            date: draft.invoiceDate,
+            sequence: sequence,
+          )
         : '';
     final financialYear = shouldAssignFinalNumber
         ? _numberingService.financialYear(draft.invoiceDate)
@@ -159,12 +170,7 @@ class InvoiceCreator {
 
     await _invoiceRepository.saveInvoice(invoice);
 
-    final updatedSettings = shouldAssignFinalNumber
-        ? _incrementInvoiceNumber(settings)
-        : settings;
-    if (shouldAssignFinalNumber) {
-      await _settingsRepository.saveAppSettings(updatedSettings);
-    }
+    final updatedSettings = reservation?.updatedSettings ?? settings;
 
     return InvoiceCreationResult(
       invoice: invoice,
@@ -237,11 +243,22 @@ class InvoiceCreator {
         existingInvoice.status == InvoiceStatus.draft &&
         _consumesInvoiceNumber(status) &&
         existingInvoice.invoiceSequence <= 0;
+    final reservation = shouldAssignFinalNumber
+        ? await _settingsRepository.reserveNextInvoiceNumber(
+            fallbackSettings: settings,
+          )
+        : null;
+    final numberingSettings =
+        reservation?.settingsBeforeReservation ?? settings;
     final invoiceNumber = shouldAssignFinalNumber
-        ? _buildInvoiceNumber(settings: settings, date: draft.invoiceDate)
+        ? _buildInvoiceNumber(
+            settings: numberingSettings,
+            date: draft.invoiceDate,
+            sequence: reservation!.reservedSequence,
+          )
         : existingInvoice.invoiceNumber;
     final invoiceSequence = shouldAssignFinalNumber
-        ? settings.invoiceNextNumber
+        ? reservation!.reservedSequence
         : existingInvoice.invoiceSequence;
     final financialYear = shouldAssignFinalNumber
         ? _numberingService.financialYear(draft.invoiceDate)
@@ -287,12 +304,7 @@ class InvoiceCreator {
     );
 
     await _invoiceRepository.saveInvoice(updatedInvoice);
-    final updatedSettings = shouldAssignFinalNumber
-        ? _incrementInvoiceNumber(settings)
-        : settings;
-    if (shouldAssignFinalNumber) {
-      await _settingsRepository.saveAppSettings(updatedSettings);
-    }
+    final updatedSettings = reservation?.updatedSettings ?? settings;
     return InvoiceUpdateResult(
       invoice: updatedInvoice,
       customer: customer,
@@ -303,12 +315,13 @@ class InvoiceCreator {
   String _buildInvoiceNumber({
     required AppSettings settings,
     required DateTime date,
+    required int sequence,
   }) {
     return _numberingService.buildNumber(
       prefix: settings.invoicePrefix,
       separator: settings.invoiceSeparator,
       dateFormat: settings.invoiceDateFormat,
-      sequence: settings.invoiceNextNumber,
+      sequence: sequence,
       padding: settings.invoiceNumberPadding,
       date: date,
     );
@@ -316,44 +329,6 @@ class InvoiceCreator {
 
   bool _consumesInvoiceNumber(InvoiceStatus status) {
     return status != InvoiceStatus.draft && status != InvoiceStatus.cancelled;
-  }
-
-  AppSettings _incrementInvoiceNumber(AppSettings settings) {
-    return AppSettings(
-      gstEnabled: settings.gstEnabled,
-      defaultGstRate: settings.defaultGstRate,
-      invoicePrefix: settings.invoicePrefix,
-      invoiceSeparator: settings.invoiceSeparator,
-      invoiceDateFormat: settings.invoiceDateFormat,
-      invoiceNextNumber: settings.invoiceNextNumber + 1,
-      invoiceNumberPadding: settings.invoiceNumberPadding,
-      quotationPrefix: settings.quotationPrefix,
-      quotationSeparator: settings.quotationSeparator,
-      quotationDateFormat: settings.quotationDateFormat,
-      quotationNextNumber: settings.quotationNextNumber,
-      quotationNumberPadding: settings.quotationNumberPadding,
-      loyaltyEnabled: settings.loyaltyEnabled,
-      pointsPerRupee: settings.pointsPerRupee,
-      pointsRedemptionValue: settings.pointsRedemptionValue,
-      currencyCode: settings.currencyCode,
-      currencySymbol: settings.currencySymbol,
-      themeMode: settings.themeMode,
-      primaryColorHex: settings.primaryColorHex,
-      showLineItemHsn: settings.showLineItemHsn,
-      showCustomerStateCode: settings.showCustomerStateCode,
-      gstinLookupEnabled: settings.gstinLookupEnabled,
-      gstinLookupApiKey: settings.gstinLookupApiKey,
-      gstinLookupApiHost: settings.gstinLookupApiHost,
-      gstinValidationApiPath: settings.gstinValidationApiPath,
-      gstinLookupApiPath: settings.gstinLookupApiPath,
-      defaultCustomerState: settings.defaultCustomerState,
-      defaultShippingState: settings.defaultShippingState,
-      defaultLineItemUnit: settings.defaultLineItemUnit,
-      customCustomerFields: settings.customCustomerFields,
-      customShippingFields: settings.customShippingFields,
-      customLineItemFields: settings.customLineItemFields,
-      updatedAt: DateTime.now(),
-    );
   }
 
   Map<String, dynamic> _companySnapshot(CompanyProfile profile) {
