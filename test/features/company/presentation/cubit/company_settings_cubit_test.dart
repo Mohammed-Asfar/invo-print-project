@@ -72,6 +72,67 @@ void main() {
         expect(savedSettings.invoiceNextNumber, 13);
       },
     );
+
+    test(
+      'keeps the user-entered invoice counter when they intentionally change it',
+      () async {
+        final initialSettings = _settings(invoiceNextNumber: 12);
+        final updatedServerSettings = _settings(invoiceNextNumber: 13);
+        final profile = CompanyProfile.empty();
+        final firestore = FakeCustomerFirestoreRestClient({
+          'settings/app': AppSettingsModel.fromEntity(initialSettings).toMap(),
+          'company/profile': CompanyProfileModel.fromEntity(profile).toMap(),
+        });
+        final repository = CompanySettingsRepository(firestore);
+        final cubit = CompanySettingsCubit(repository);
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await repository.saveAppSettings(updatedServerSettings);
+
+        await cubit.save(
+          profile: profile,
+          settings: AppSettings(
+            gstEnabled: cubit.state.settings.gstEnabled,
+            defaultGstRate: cubit.state.settings.defaultGstRate,
+            invoicePrefix: cubit.state.settings.invoicePrefix,
+            invoiceSeparator: cubit.state.settings.invoiceSeparator,
+            invoiceDateFormat: cubit.state.settings.invoiceDateFormat,
+            invoiceNextNumber: 20,
+            invoiceNumberPadding: cubit.state.settings.invoiceNumberPadding,
+            quotationPrefix: cubit.state.settings.quotationPrefix,
+            quotationSeparator: cubit.state.settings.quotationSeparator,
+            quotationDateFormat: cubit.state.settings.quotationDateFormat,
+            quotationNextNumber: cubit.state.settings.quotationNextNumber,
+            quotationNumberPadding: cubit.state.settings.quotationNumberPadding,
+            loyaltyEnabled: cubit.state.settings.loyaltyEnabled,
+            pointsPerRupee: cubit.state.settings.pointsPerRupee,
+            pointsRedemptionValue: cubit.state.settings.pointsRedemptionValue,
+            currencyCode: cubit.state.settings.currencyCode,
+            currencySymbol: cubit.state.settings.currencySymbol,
+            themeMode: cubit.state.settings.themeMode,
+            primaryColorHex: cubit.state.settings.primaryColorHex,
+            showLineItemHsn: cubit.state.settings.showLineItemHsn,
+            showCustomerStateCode: cubit.state.settings.showCustomerStateCode,
+            gstinLookupEnabled: cubit.state.settings.gstinLookupEnabled,
+            gstinLookupApiKey: cubit.state.settings.gstinLookupApiKey,
+            gstinLookupApiHost: cubit.state.settings.gstinLookupApiHost,
+            gstinValidationApiPath: cubit.state.settings.gstinValidationApiPath,
+            gstinLookupApiPath: cubit.state.settings.gstinLookupApiPath,
+            defaultCustomerState: cubit.state.settings.defaultCustomerState,
+            defaultShippingState: cubit.state.settings.defaultShippingState,
+            defaultLineItemUnit: cubit.state.settings.defaultLineItemUnit,
+            customCustomerFields: cubit.state.settings.customCustomerFields,
+            customShippingFields: cubit.state.settings.customShippingFields,
+            customLineItemFields: cubit.state.settings.customLineItemFields,
+            updatedAt: DateTime(2026, 6, 2),
+          ),
+        );
+
+        final savedSettings = await repository.fetchAppSettings();
+        expect(savedSettings.invoiceNextNumber, 20);
+      },
+    );
   });
 }
 

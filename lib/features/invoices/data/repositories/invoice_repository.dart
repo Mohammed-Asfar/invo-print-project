@@ -11,7 +11,8 @@ class InvoiceRepository {
     final documents = await _firestore.listDocuments('invoices');
     final invoices = <Invoice>[
       for (final document in documents)
-        InvoiceModel.fromMap(document.id, document.data),
+        if (InvoiceModel.isDocumentActive(document.data))
+          InvoiceModel.fromMap(document.id, document.data),
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return invoices;
   }
@@ -24,7 +25,11 @@ class InvoiceRepository {
     );
   }
 
-  Future<void> deleteInvoice(String invoiceId) {
-    return _firestore.deleteDocument('invoices', invoiceId);
+  Future<void> archiveInvoice(Invoice invoice) {
+    final archivedAt = DateTime.now();
+    final map = InvoiceModel.fromEntity(
+      invoice,
+    ).toArchiveMap(archivedAt: archivedAt);
+    return _firestore.setDocument('invoices', invoice.id, map);
   }
 }

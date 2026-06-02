@@ -1090,7 +1090,9 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
     BuildContext context, {
     InvoiceStatus? statusOverride,
   }) async {
-    if (!_formKey.currentState!.validate()) {
+    final effectiveStatus = statusOverride ?? _status;
+    final requiresStrictValidation = _requiresStrictValidation(effectiveStatus);
+    if (requiresStrictValidation && !_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
@@ -1098,14 +1100,17 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
         );
       return;
     }
-    final resolvedCustomer = await _resolveCustomerBeforeSave(
-      context.read<InvoiceCubit>().state.customers,
-    );
-    if (!context.mounted || resolvedCustomer.isCancelled) {
-      return;
+    Customer? existingCustomer = _selectedCustomer;
+    if (requiresStrictValidation) {
+      final resolvedCustomer = await _resolveCustomerBeforeSave(
+        context.read<InvoiceCubit>().state.customers,
+      );
+      if (!context.mounted || resolvedCustomer.isCancelled) {
+        return;
+      }
+      existingCustomer = resolvedCustomer.customer ?? _selectedCustomer;
     }
-    final existingCustomer = resolvedCustomer.customer ?? _selectedCustomer;
-    final effectiveStatus = statusOverride ?? _status;
+    if (!context.mounted) return;
     if (statusOverride != null && _status != effectiveStatus) {
       setState(() => _status = effectiveStatus);
     }
@@ -1164,6 +1169,10 @@ class _CreateInvoiceViewState extends State<_CreateInvoiceView> {
       return;
     }
     context.read<InvoiceCubit>().saveDraft(draft);
+  }
+
+  bool _requiresStrictValidation(InvoiceStatus status) {
+    return status != InvoiceStatus.draft && status != InvoiceStatus.cancelled;
   }
 
   Future<_CustomerResolve> _resolveCustomerBeforeSave(

@@ -80,6 +80,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   }
 
   List<Customer> _upsertCustomer(List<Customer> customers, Customer customer) {
+    if (customer.id.isEmpty) return customers;
     final index = customers.indexWhere((entry) => entry.id == customer.id);
     if (index == -1) return [...customers, customer];
     final updated = [...customers];
@@ -296,12 +297,12 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   Future<void> deleteInvoice(Invoice invoice) async {
     emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
     try {
-      await _invoiceRepository.deleteInvoice(invoice.id);
+      await _invoiceRepository.archiveInvoice(invoice);
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
           invoices: _removeInvoice(state.invoices, invoice.id),
-          message: '${invoice.invoiceNumber} deleted.',
+          message: '${invoice.invoiceNumber} archived.',
         ),
       );
     } on AppException catch (error) {

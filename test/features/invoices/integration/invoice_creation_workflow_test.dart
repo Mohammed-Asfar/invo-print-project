@@ -155,6 +155,66 @@ void main() {
       );
     });
 
+    test(
+      'saves an incomplete draft without creating a customer record or consuming a number',
+      () async {
+        final settings = _settings(invoiceNextNumber: 7);
+        final profile = _profile();
+        final firestore = FakeCustomerFirestoreRestClient({
+          'settings/app': AppSettingsModel.fromEntity(settings).toMap(),
+        });
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        final result = await creator.createFromDraft(
+          draft: InvoiceDraft(
+            customerName: '',
+            customerPhone: '',
+            customerEmail: '',
+            customerGstin: '',
+            customerState: '',
+            customerStateCode: '',
+            billingAddress: '',
+            shippingEnabled: false,
+            shippingAddress: '',
+            invoiceDate: DateTime(2026, 5, 2),
+            dueDate: DateTime(2026, 5, 17),
+            taxMode: TaxMode.cgstSgst,
+            status: InvoiceStatus.draft,
+            roundOffEnabled: false,
+            discountType: 'none',
+            discountValue: 0,
+            extraCharges: const [],
+            advancePaid: 0,
+            advancePaidDate: null,
+            advancePaidMethod: '',
+            advancePaidReference: '',
+            items: [InvoiceItem.empty()],
+            notes: '',
+            terms: '',
+          ),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        );
+
+        expect(result.invoice.status, InvoiceStatus.draft);
+        expect(result.invoice.customerId, isEmpty);
+        expect(result.invoice.invoiceNumber, isEmpty);
+        expect(result.invoice.subtotal, 0);
+        expect(result.updatedSettings.invoiceNextNumber, 7);
+        expect(
+          firestore.documents.keys.where((key) => key.startsWith('customers/')),
+          isEmpty,
+        );
+      },
+    );
+
     test('edits draft without assigning or consuming invoice number', () async {
       final settings = _settings(invoiceNextNumber: 7);
       final profile = _profile();
@@ -315,6 +375,165 @@ void main() {
       expect(settingsAfterEdit.invoiceNextNumber, 13);
     });
 
+    test('rejects final save when phone is missing', () async {
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient();
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+
+      expect(
+        () => creator.createFromDraft(
+          draft: _draft(customerPhone: ''),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('Phone is required.'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'rejects final save when due date is earlier than invoice date',
+      () async {
+        final settings = _settings();
+        final profile = _profile();
+        final firestore = FakeCustomerFirestoreRestClient();
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        expect(
+          () => creator.createFromDraft(
+            draft: _draft(
+              invoiceDate: DateTime(2026, 5, 17),
+              dueDate: DateTime(2026, 5, 2),
+            ),
+            settings: settings,
+            companyProfile: profile,
+            knownCustomers: const [],
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (error) => error.toString(),
+              'message',
+              contains('Due date cannot be earlier than invoice date.'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('rejects final save when an item rate is zero', () async {
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient();
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+
+      expect(
+        () => creator.createFromDraft(
+          draft: _draft(itemRate: 0),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('Rate must be greater than zero for all invoice items.'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'caps advance payment at grand total and marks invoice paid',
+      () async {
+        final settings = _settings();
+        final profile = _profile();
+        final firestore = FakeCustomerFirestoreRestClient();
+        final creator = InvoiceCreator(
+          invoiceRepository: InvoiceRepository(firestore),
+          customerRepository: CustomerRepository(firestore),
+          settingsRepository: CompanySettingsRepository(firestore),
+          calculator: InvoiceCalculator(),
+          numberingService: NumberingService(),
+        );
+
+        final result = await creator.createFromDraft(
+          draft: _draft(
+            discountType: 'none',
+            discountValue: 0,
+            advancePaid: 5000,
+          ),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        );
+
+        expect(result.invoice.grandTotal, 4130);
+        expect(result.invoice.amountPaid, 4130);
+        expect(result.invoice.balanceDue, 0);
+        expect(result.invoice.status, InvoiceStatus.paid);
+        expect(result.invoice.paidAt, isNotNull);
+        expect(result.invoice.paymentHistory.single.amount, 4130);
+      },
+    );
+
+    test('entered terms override customer and company defaults', () async {
+      final existingCustomer = _customer(
+        id: 'cust_1',
+        phone: '9655246269',
+        defaultInvoiceTerms: 'Customer terms',
+      );
+      final settings = _settings();
+      final profile = _profile(defaultInvoiceTerms: 'Company terms');
+      final firestore = FakeCustomerFirestoreRestClient({
+        'customers/cust_1': CustomerModel.fromEntity(existingCustomer).toMap(),
+      });
+      final creator = InvoiceCreator(
+        invoiceRepository: InvoiceRepository(firestore),
+        customerRepository: CustomerRepository(firestore),
+        settingsRepository: CompanySettingsRepository(firestore),
+        calculator: InvoiceCalculator(),
+        numberingService: NumberingService(),
+      );
+
+      final result = await creator.createFromDraft(
+        draft: _draft(
+          existingCustomer: existingCustomer,
+          terms: 'Typed on invoice',
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: [existingCustomer],
+      );
+
+      expect(result.invoice.terms, 'Typed on invoice');
+    });
+
     test(
       'uses the latest reserved invoice number even when caller settings are stale',
       () async {
@@ -369,11 +588,17 @@ InvoiceDraft _draft({
   String discountType = 'percentage',
   double discountValue = 10,
   double advancePaid = 500,
+  String customerPhone = '9655246269',
+  String terms = '',
+  DateTime? invoiceDate,
+  DateTime? dueDate,
+  double itemRate = 1000,
 }) {
+  final resolvedInvoiceDate = invoiceDate ?? DateTime(2026, 5, 2);
   return InvoiceDraft(
     existingCustomer: existingCustomer,
     customerName: 'TBS Enterprises',
-    customerPhone: '9655246269',
+    customerPhone: customerPhone,
     customerEmail: 'test@example.com',
     customerGstin: '33AHOPY8219N1ZE',
     customerState: 'Tamil Nadu',
@@ -387,8 +612,8 @@ InvoiceDraft _draft({
     shipToState: 'Tamil Nadu',
     shipToStateCode: '33',
     shipToPincode: '603102',
-    invoiceDate: DateTime(2026, 5, 2),
-    dueDate: DateTime(2026, 5, 17),
+    invoiceDate: resolvedInvoiceDate,
+    dueDate: dueDate ?? DateTime(2026, 5, 17),
     taxMode: TaxMode.cgstSgst,
     status: status,
     roundOffEnabled: true,
@@ -406,7 +631,7 @@ InvoiceDraft _draft({
         name: 'Thermal Printer',
         quantity: 1,
         unit: 'pcs',
-        rate: 1000,
+        rate: itemRate,
         gstRate: 18,
       ),
       InvoiceItem.empty().copyWith(
@@ -418,7 +643,7 @@ InvoiceDraft _draft({
       ),
     ],
     notes: '',
-    terms: '',
+    terms: terms,
   );
 }
 

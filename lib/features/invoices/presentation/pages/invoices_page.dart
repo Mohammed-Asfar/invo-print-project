@@ -274,9 +274,10 @@ class _InvoicesViewState extends State<_InvoicesView> {
   Future<void> _bulkDelete(BuildContext context, List<Invoice> invoices) async {
     final confirmed = await _confirmBulkAction(
       context,
-      title: 'Delete selected invoices?',
-      message: 'This will permanently remove ${invoices.length} invoices.',
-      confirmLabel: 'Delete',
+      title: 'Archive selected invoices?',
+      message:
+          'This will remove ${invoices.length} invoices from the active list while keeping them in your records.',
+      confirmLabel: 'Archive',
       confirmColor: AppColors.error,
     );
     if (confirmed != true || !context.mounted) return;
@@ -495,8 +496,8 @@ class _BulkActionBar extends StatelessWidget {
           ),
           OutlinedButton.icon(
             onPressed: onDelete,
-            icon: Icon(Icons.delete_outline, color: AppColors.error),
-            label: Text('Delete', style: TextStyle(color: AppColors.error)),
+            icon: Icon(Icons.archive_outlined, color: AppColors.error),
+            label: Text('Archive', style: TextStyle(color: AppColors.error)),
           ),
           TextButton(onPressed: onClear, child: const Text('Clear')),
         ],
@@ -797,7 +798,7 @@ class _InvoicePreviewPanel extends StatelessWidget {
                   if (invoice.status == InvoiceStatus.cancelled) ...[
                     const SizedBox(height: AppSpacing.sm),
                     Text(
-                      'Cancelled invoices can still be duplicated, exported, or deleted.',
+                      'Cancelled invoices can still be duplicated, exported, or archived.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -985,7 +986,7 @@ extension _InvoiceActionDetails on _InvoiceAction {
       _InvoiceAction.recordPayment => Icons.payments_outlined,
       _InvoiceAction.cancel => Icons.block_outlined,
       _InvoiceAction.exportPdf => Icons.picture_as_pdf_outlined,
-      _InvoiceAction.delete => Icons.delete_outline,
+      _InvoiceAction.delete => Icons.archive_outlined,
     };
   }
 
@@ -1017,7 +1018,7 @@ extension _InvoiceActionDetails on _InvoiceAction {
         invoice.amountPaid <= 0 ? 'Mark paid' : 'Record payment',
       _InvoiceAction.cancel => 'Cancel',
       _InvoiceAction.exportPdf => 'Export PDF',
-      _InvoiceAction.delete => 'Delete',
+      _InvoiceAction.delete => 'Archive',
     };
   }
 }
@@ -1134,10 +1135,10 @@ Future<void> _showRecordPaymentDialog(
 Future<void> _confirmAndDelete(BuildContext context, Invoice invoice) async {
   final confirmed = await _confirmAction(
     context,
-    title: 'Delete invoice?',
+    title: 'Archive invoice?',
     message:
-        'This will permanently remove ${invoice.invoiceNumber} from the invoice list.',
-    confirmLabel: 'Delete',
+        'This will remove ${invoice.invoiceNumber} from the active invoice list while keeping it in your records.',
+    confirmLabel: 'Archive',
     confirmColor: AppColors.error,
   );
   if (confirmed != true || !context.mounted) return;

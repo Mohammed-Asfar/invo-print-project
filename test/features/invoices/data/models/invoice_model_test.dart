@@ -86,6 +86,22 @@ void main() {
       expect(model.amountPaid, 0);
       expect(model.paymentHistory, isEmpty);
       expect(model.balanceDue, 1180);
+      expect(
+        InvoiceModel.isDocumentActive({'invoiceNumber': 'INV-001'}),
+        isTrue,
+      );
+    });
+
+    test('marks archived invoices inactive in Firestore map', () {
+      final archivedAt = DateTime(2026, 6, 2);
+      final map = InvoiceModel.fromEntity(
+        _invoice(),
+      ).toArchiveMap(archivedAt: archivedAt);
+
+      expect(map['isActive'], isFalse);
+      expect(map['archivedAt'], archivedAt);
+      expect(map['updatedAt'], archivedAt);
+      expect(InvoiceModel.isDocumentActive(map), isFalse);
     });
   });
 }

@@ -7,6 +7,7 @@ import '../../../customers/domain/entities/customer.dart';
 import '../../data/repositories/invoice_repository.dart';
 import '../entities/invoice.dart';
 import '../entities/invoice_draft.dart';
+import '../entities/invoice_item.dart';
 import '../services/invoice_calculator.dart';
 
 class InvoiceCreationResult {
@@ -62,17 +63,15 @@ class InvoiceCreator {
   }) async {
     final validItems = draft.items.where((item) => item.name.trim().isNotEmpty);
     final items = validItems.toList();
-    if (draft.customerName.trim().isEmpty) {
-      throw const AppException('Customer name is required.');
-    }
-    if (items.isEmpty) {
-      throw const AppException('Add at least one invoice item.');
-    }
+    _validateDraftForSave(draft: draft, items: items);
 
-    final customer = await _customerRepository.findOrCreateFromInvoice(
-      draft.toCustomerDraft(loyaltyEnabled: settings.loyaltyEnabled),
-      existingCustomers: knownCustomers,
-    );
+    final shouldPersistCustomer = _shouldPersistCustomerRecord(draft);
+    final customer = shouldPersistCustomer
+        ? await _customerRepository.findOrCreateFromInvoice(
+            draft.toCustomerDraft(loyaltyEnabled: settings.loyaltyEnabled),
+            existingCustomers: knownCustomers,
+          )
+        : (draft.existingCustomer ?? Customer.empty());
 
     final totals = _calculator.calculate(
       items: items,
@@ -189,17 +188,15 @@ class InvoiceCreator {
   }) async {
     final validItems = draft.items.where((item) => item.name.trim().isNotEmpty);
     final items = validItems.toList();
-    if (draft.customerName.trim().isEmpty) {
-      throw const AppException('Customer name is required.');
-    }
-    if (items.isEmpty) {
-      throw const AppException('Add at least one invoice item.');
-    }
+    _validateDraftForSave(draft: draft, items: items);
 
-    final customer = await _customerRepository.findOrCreateFromInvoice(
-      draft.toCustomerDraft(loyaltyEnabled: settings.loyaltyEnabled),
-      existingCustomers: knownCustomers,
-    );
+    final shouldPersistCustomer = _shouldPersistCustomerRecord(draft);
+    final customer = shouldPersistCustomer
+        ? await _customerRepository.findOrCreateFromInvoice(
+            draft.toCustomerDraft(loyaltyEnabled: settings.loyaltyEnabled),
+            existingCustomers: knownCustomers,
+          )
+        : (draft.existingCustomer ?? Customer.empty());
 
     final totals = _calculator.calculate(
       items: items,
@@ -270,7 +267,9 @@ class InvoiceCreator {
       financialYear: financialYear,
       invoiceDate: draft.invoiceDate,
       dueDate: draft.dueDate,
-      customerId: customer.id,
+      customerId: customer.id.isEmpty
+          ? existingInvoice.customerId
+          : customer.id,
       customerSnapshot: draft.customerSnapshot,
       companySnapshot: _companySnapshot(companyProfile),
       items: totals.items,
@@ -329,6 +328,51 @@ class InvoiceCreator {
 
   bool _consumesInvoiceNumber(InvoiceStatus status) {
     return status != InvoiceStatus.draft && status != InvoiceStatus.cancelled;
+  }
+
+  bool _shouldPersistCustomerRecord(InvoiceDraft draft) {
+    return draft.customerName.trim().isNotEmpty &&
+        draft.customerPhone.trim().isNotEmpty;
+  }
+
+  void _validateDraftForSave({
+    required InvoiceDraft draft,
+    required List<InvoiceItem> items,
+  }) {
+    final requiresFinalValidation = _consumesInvoiceNumber(draft.status);
+    if (!requiresFinalValidation) {
+      return;
+    }
+    if (draft.customerName.trim().isEmpty) {
+      throw const AppException('Customer name is required.');
+    }
+    if (draft.customerPhone.trim().isEmpty) {
+      throw const AppException('Phone is required.');
+    }
+    if (items.isEmpty) {
+      throw const AppException('Add at least one invoice item.');
+    }
+    if (draft.dueDate.isBefore(draft.invoiceDate)) {
+      throw const AppException('Due date cannot be earlier than invoice date.');
+    }
+    for (final item in items) {
+      if (item.quantity <= 0) {
+        throw const AppException(
+          'Quantity must be greater than zero for all invoice items.',
+        );
+      }
+      if (item.unit.trim().isEmpty) {
+        throw const AppException('Unit is required for all invoice items.');
+      }
+      if (item.rate <= 0) {
+        throw const AppException(
+          'Rate must be greater than zero for all invoice items.',
+        );
+      }
+      if (item.gstRate < 0 || item.gstRate > 100) {
+        throw const AppException('GST percentage must stay between 0 and 100.');
+      }
+    }
   }
 
   Map<String, dynamic> _companySnapshot(CompanyProfile profile) {

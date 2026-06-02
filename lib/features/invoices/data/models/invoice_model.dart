@@ -194,6 +194,17 @@ class InvoiceModel extends Invoice {
     return map;
   }
 
+  Map<String, dynamic> toArchiveMap({required DateTime archivedAt}) {
+    return toMap()
+      ..['isActive'] = false
+      ..['archivedAt'] = archivedAt
+      ..['updatedAt'] = archivedAt;
+  }
+
+  static bool isDocumentActive(Map<String, dynamic> map) {
+    return map['isActive'] as bool? ?? true;
+  }
+
   static Map<String, dynamic> _toMap(dynamic value) {
     if (value is Map<String, dynamic>) return value;
     if (value is Map) return Map<String, dynamic>.from(value);
