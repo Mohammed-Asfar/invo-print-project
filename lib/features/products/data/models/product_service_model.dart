@@ -6,10 +6,14 @@ class ProductServiceModel extends ProductService {
     required super.name,
     required super.description,
     required super.type,
+    required super.sku,
     required super.unit,
     required super.defaultRate,
     required super.hsnSac,
     required super.gstRate,
+    required super.trackInventory,
+    required super.stockQuantity,
+    required super.reorderLevel,
     required super.isActive,
     required super.createdAt,
     required super.updatedAt,
@@ -21,10 +25,14 @@ class ProductServiceModel extends ProductService {
       name: product.name,
       description: product.description,
       type: product.type,
+      sku: product.sku,
       unit: product.unit,
       defaultRate: product.defaultRate,
       hsnSac: product.hsnSac,
       gstRate: product.gstRate,
+      trackInventory: product.trackInventory,
+      stockQuantity: product.stockQuantity,
+      reorderLevel: product.reorderLevel,
       isActive: product.isActive,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
@@ -40,10 +48,14 @@ class ProductServiceModel extends ProductService {
       type: ProductServiceType.fromValue(
         map['type'] as String? ?? defaults.type.firestoreValue,
       ),
+      sku: map['sku'] as String? ?? defaults.sku,
       unit: map['unit'] as String? ?? defaults.unit,
       defaultRate: _toDouble(map['defaultRate'], defaults.defaultRate),
       hsnSac: map['hsnSac'] as String? ?? defaults.hsnSac,
       gstRate: _toDouble(map['gstRate'], defaults.gstRate),
+      trackInventory: map['trackInventory'] as bool? ?? defaults.trackInventory,
+      stockQuantity: _toDouble(map['stockQuantity'], defaults.stockQuantity),
+      reorderLevel: _toDouble(map['reorderLevel'], defaults.reorderLevel),
       isActive: map['isActive'] as bool? ?? defaults.isActive,
       createdAt: _toDateTime(map['createdAt']) ?? defaults.createdAt,
       updatedAt: _toDateTime(map['updatedAt']) ?? defaults.updatedAt,
@@ -51,7 +63,7 @@ class ProductServiceModel extends ProductService {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = {
       'name': name,
       'description': description,
       'type': type.firestoreValue,
@@ -63,6 +75,15 @@ class ProductServiceModel extends ProductService {
       'createdAt': createdAt,
       'updatedAt': updatedAt,
     };
+    if (sku.trim().isNotEmpty) {
+      map['sku'] = sku.trim();
+    }
+    if (trackInventory) {
+      map['trackInventory'] = true;
+      map['stockQuantity'] = stockQuantity;
+      map['reorderLevel'] = reorderLevel;
+    }
+    return map;
   }
 
   static double _toDouble(dynamic value, double fallback) {

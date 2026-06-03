@@ -24,6 +24,7 @@ class ProductState extends Equatable {
     return products.where((product) {
       return product.name.toLowerCase().contains(query) ||
           product.description.toLowerCase().contains(query) ||
+          product.sku.toLowerCase().contains(query) ||
           product.unit.toLowerCase().contains(query) ||
           product.hsnSac.toLowerCase().contains(query) ||
           product.type.label.toLowerCase().contains(query);

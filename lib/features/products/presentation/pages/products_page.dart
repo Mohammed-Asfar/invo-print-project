@@ -263,7 +263,13 @@ class _ProductCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.lg),
               _Metric(label: 'GST', value: '${product.gstRate}%'),
               const SizedBox(width: AppSpacing.lg),
-              _Metric(label: 'Unit', value: product.unit),
+              _Metric(
+                label: product.trackInventory ? 'Stock' : 'Unit',
+                value: product.trackInventory
+                    ? _stockLabel(product)
+                    : product.unit,
+                highlight: product.isLowStock,
+              ),
             ],
           ),
         ],
@@ -283,13 +289,25 @@ class _ProductCard extends StatelessWidget {
       ),
     );
   }
+
+  String _stockLabel(ProductService product) {
+    final quantity = product.stockQuantity.toStringAsFixed(
+      product.stockQuantity.truncateToDouble() == product.stockQuantity ? 0 : 2,
+    );
+    return '$quantity ${product.unit}';
+  }
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
+  const _Metric({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
 
   final String label;
   final String value;
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +327,7 @@ class _Metric extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.textPrimary,
+              color: highlight ? AppColors.warning : AppColors.textPrimary,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -332,11 +350,15 @@ class _ProductDialogState extends State<_ProductDialog> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _description = TextEditingController();
+  final _sku = TextEditingController();
   final _unit = TextEditingController();
   final _rate = TextEditingController();
   final _hsnSac = TextEditingController();
   final _gstRate = TextEditingController();
+  final _stockQuantity = TextEditingController();
+  final _reorderLevel = TextEditingController();
   ProductServiceType _type = ProductServiceType.service;
+  bool _trackInventory = false;
 
   @override
   void initState() {
@@ -351,10 +373,14 @@ class _ProductDialogState extends State<_ProductDialog> {
     _name.text = product.name;
     _description.text = product.description;
     _type = product.type;
+    _sku.text = product.sku;
     _unit.text = product.unit;
     _rate.text = product.defaultRate.toString();
     _hsnSac.text = product.hsnSac;
     _gstRate.text = product.gstRate.toString();
+    _trackInventory = product.trackInventory;
+    _stockQuantity.text = product.stockQuantity.toString();
+    _reorderLevel.text = product.reorderLevel.toString();
   }
 
   @override
@@ -362,10 +388,13 @@ class _ProductDialogState extends State<_ProductDialog> {
     for (final controller in [
       _name,
       _description,
+      _sku,
       _unit,
       _rate,
       _hsnSac,
       _gstRate,
+      _stockQuantity,
+      _reorderLevel,
     ]) {
       controller.dispose();
     }
@@ -413,10 +442,34 @@ class _ProductDialogState extends State<_ProductDialog> {
                   ),
                 ),
                 _DialogField(_name, 'Name', required: true),
+                _DialogField(_sku, 'SKU'),
                 _DialogField(_unit, 'Unit', required: true),
                 _DialogField(_rate, 'Default Rate', numeric: true),
                 _DialogField(_gstRate, 'GST Rate %', numeric: true),
                 _DialogField(_hsnSac, 'HSN/SAC'),
+                SizedBox(
+                  width: 680,
+                  child: SwitchListTile(
+                    value: _trackInventory,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Track inventory'),
+                    subtitle: const Text(
+                      'Enable only for physical items where stock matters.',
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _trackInventory = value;
+                        if (value && _type == ProductServiceType.service) {
+                          _type = ProductServiceType.product;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                if (_trackInventory) ...[
+                  _DialogField(_stockQuantity, 'Current Stock', numeric: true),
+                  _DialogField(_reorderLevel, 'Reorder Level', numeric: true),
+                ],
                 _DialogField(_description, 'Description', maxLines: 3),
               ],
             ),
@@ -446,10 +499,14 @@ class _ProductDialogState extends State<_ProductDialog> {
         name: _name.text.trim(),
         description: _description.text.trim(),
         type: _type,
+        sku: _sku.text.trim(),
         unit: _unit.text.trim(),
         defaultRate: _doubleValue(_rate),
         hsnSac: _hsnSac.text.trim(),
         gstRate: _doubleValue(_gstRate),
+        trackInventory: _trackInventory,
+        stockQuantity: _trackInventory ? _doubleValue(_stockQuantity) : 0,
+        reorderLevel: _trackInventory ? _doubleValue(_reorderLevel) : 0,
         isActive: true,
         createdAt: existing.createdAt,
         updatedAt: DateTime.now(),

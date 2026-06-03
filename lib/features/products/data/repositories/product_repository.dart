@@ -27,16 +27,8 @@ class ProductRepository {
         ? 'prod_${now.microsecondsSinceEpoch}'
         : product.id;
     final model = ProductServiceModel.fromEntity(
-      ProductService(
+      product.copyWith(
         id: id,
-        name: product.name,
-        description: product.description,
-        type: product.type,
-        unit: product.unit,
-        defaultRate: product.defaultRate,
-        hsnSac: product.hsnSac,
-        gstRate: product.gstRate,
-        isActive: product.isActive,
         createdAt: product.id.isEmpty ? now : product.createdAt,
         updatedAt: now,
       ),
@@ -45,17 +37,8 @@ class ProductRepository {
   }
 
   Future<void> archiveProduct(ProductService product) {
-    final archived = ProductService(
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      type: product.type,
-      unit: product.unit,
-      defaultRate: product.defaultRate,
-      hsnSac: product.hsnSac,
-      gstRate: product.gstRate,
+    final archived = product.copyWith(
       isActive: false,
-      createdAt: product.createdAt,
       updatedAt: DateTime.now(),
     );
     return _firestore.setDocument(
