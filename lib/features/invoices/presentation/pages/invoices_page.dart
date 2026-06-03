@@ -15,16 +15,18 @@ import '../../domain/services/invoice_filters.dart';
 import '../../domain/services/invoice_pdf_service.dart';
 import '../cubit/invoice_cubit.dart';
 import 'create_invoice_page.dart';
+import 'invoice_export_file_names.dart';
 
 class InvoicesPage extends StatelessWidget {
-  const InvoicesPage({super.key});
+  const InvoicesPage({super.key, this.cubitFactory});
 
   static const routePath = '/invoices';
+  final InvoiceCubit Function()? cubitFactory;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => sl<InvoiceCubit>()..load(),
+      create: (_) => (cubitFactory?.call() ?? sl<InvoiceCubit>())..load(),
       child: const _InvoicesView(),
     );
   }
@@ -80,6 +82,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
                   children: [
                     Expanded(
                       child: TextField(
+                        key: const ValueKey('invoice-search-field'),
                         onChanged: (value) {
                           setState(_bulkSelectedIds.clear);
                           context.read<InvoiceCubit>().search(value);
@@ -92,6 +95,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
                     ),
                     const SizedBox(width: AppSpacing.md),
                     _FilterDropdown<_InvoiceStatusFilter>(
+                      key: const ValueKey('invoice-status-filter'),
                       width: 190,
                       label: 'Status',
                       value: _statusFilter,
@@ -104,6 +108,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
                     ),
                     const SizedBox(width: AppSpacing.md),
                     _FilterDropdown<_InvoiceDateFilter>(
+                      key: const ValueKey('invoice-date-filter'),
                       width: 190,
                       label: 'Date',
                       value: _dateFilter,
@@ -231,7 +236,9 @@ class _InvoicesViewState extends State<_InvoicesView> {
     );
     if (directory == null || directory.trim().isEmpty) return;
     try {
-      for (final invoice in invoices) {
+      final fileNames = buildBulkInvoicePdfFileNames(invoices);
+      for (var index = 0; index < invoices.length; index++) {
+        final invoice = invoices[index];
         final bytes = await sl<InvoicePdfService>().buildInvoicePdf(
           invoice: invoice,
           currencySymbol: settings?.currencySymbol ?? 'Rs',
@@ -239,7 +246,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
           settings: settings,
         );
         final file = File(
-          '$directory${Platform.pathSeparator}${_sanitizeFileName(invoice.invoiceNumber)}.pdf',
+          '$directory${Platform.pathSeparator}${fileNames[index]}',
         );
         await file.writeAsBytes(bytes, flush: true);
       }
@@ -390,6 +397,7 @@ class _Header extends StatelessWidget {
 
 class _FilterDropdown<T> extends StatelessWidget {
   const _FilterDropdown({
+    super.key,
     required this.width,
     required this.label,
     required this.value,
@@ -411,6 +419,7 @@ class _FilterDropdown<T> extends StatelessWidget {
       width: width,
       child: DropdownButtonFormField<T>(
         initialValue: value,
+        isExpanded: true,
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: const Icon(Icons.filter_list_outlined),
@@ -605,6 +614,7 @@ class _InvoiceList extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Checkbox(
+                  key: ValueKey('invoice-bulk-selection-${invoice.id}'),
                   value: isBulkSelected,
                   onChanged: (value) =>
                       onToggleBulkSelection(invoice, value ?? false),
@@ -1192,8 +1202,7 @@ Future<bool?> _confirmAction(
 }
 
 String _sanitizeFileName(String value) {
-  final sanitized = value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-').trim();
-  return sanitized.isEmpty ? 'invoice' : sanitized;
+  return sanitizeInvoicePdfBaseName(value);
 }
 
 enum _InvoiceStatusFilter {
