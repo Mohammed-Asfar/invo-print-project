@@ -4,17 +4,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/errors/app_exception.dart';
 import '../../../company/data/repositories/company_settings_repository.dart';
 import '../../../company/domain/entities/app_settings.dart';
+import '../../../invoices/data/repositories/invoice_repository.dart';
+import '../../../invoices/domain/entities/invoice.dart';
+import '../../domain/services/customer_ledger.dart';
 import '../../data/repositories/customer_repository.dart';
 import '../../domain/entities/customer.dart';
 
 part 'customer_state.dart';
 
 class CustomerCubit extends Cubit<CustomerState> {
-  CustomerCubit(this._repository, this._settingsRepository)
-    : super(const CustomerState());
+  CustomerCubit(
+    this._repository,
+    this._settingsRepository,
+    this._invoiceRepository,
+  ) : super(const CustomerState());
 
   final CustomerRepository _repository;
   final CompanySettingsRepository _settingsRepository;
+  final InvoiceRepository _invoiceRepository;
 
   Future<void> load() async {
     emit(state.copyWith(status: CustomerStatus.loading));
@@ -22,13 +29,16 @@ class CustomerCubit extends Cubit<CustomerState> {
       final results = await Future.wait<Object>([
         _repository.fetchCustomers(),
         _settingsRepository.fetchAppSettings(),
+        _invoiceRepository.fetchInvoices(),
       ]);
       final customers = results[0] as List<Customer>;
       final settings = results[1] as AppSettings;
+      final invoices = results[2] as List<Invoice>;
       emit(
         state.copyWith(
           status: CustomerStatus.loaded,
           customers: customers,
+          invoices: invoices,
           globalLoyaltyEnabled: settings.loyaltyEnabled,
           clearMessage: true,
         ),
@@ -49,6 +59,10 @@ class CustomerCubit extends Cubit<CustomerState> {
 
   void search(String value) {
     emit(state.copyWith(searchQuery: value));
+  }
+
+  CustomerLedger ledgerFor(Customer customer) {
+    return buildCustomerLedger(customer: customer, invoices: state.invoices);
   }
 
   Future<void> save(Customer customer) async {

@@ -79,6 +79,7 @@ void setupServiceLocator() {
       () => CustomerCubit(
         sl<CustomerRepository>(),
         sl<CompanySettingsRepository>(),
+        sl<InvoiceRepository>(),
       ),
     )
     ..registerFactory(() => ProductCubit(sl<ProductRepository>()))

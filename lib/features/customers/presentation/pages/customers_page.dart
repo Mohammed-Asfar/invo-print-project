@@ -5,6 +5,7 @@ import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../domain/entities/customer.dart';
+import '../../domain/services/customer_ledger.dart';
 import '../cubit/customer_cubit.dart';
 
 class CustomersPage extends StatelessWidget {
@@ -177,6 +178,11 @@ class _CustomerTable extends StatelessWidget {
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton(
+                  tooltip: 'Ledger',
+                  onPressed: () => _showLedgerDialog(context, customer),
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                ),
+                IconButton(
                   tooltip: 'Archive',
                   onPressed: () =>
                       context.read<CustomerCubit>().archive(customer),
@@ -206,6 +212,266 @@ class _CustomerTable extends StatelessWidget {
       ),
     );
   }
+
+  void _showLedgerDialog(BuildContext context, Customer customer) {
+    final ledger = context.read<CustomerCubit>().ledgerFor(customer);
+    showDialog<void>(
+      context: context,
+      builder: (_) => _CustomerLedgerDialog(ledger: ledger),
+    );
+  }
+}
+
+class _CustomerLedgerDialog extends StatelessWidget {
+  const _CustomerLedgerDialog({required this.ledger});
+
+  final CustomerLedger ledger;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: Text('${ledger.customer.name} Ledger'),
+      content: SizedBox(
+        width: 860,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  _LedgerMetric(
+                    label: 'Total Invoiced',
+                    value: _formatMoney(ledger.totalInvoiced),
+                  ),
+                  _LedgerMetric(
+                    label: 'Total Paid',
+                    value: _formatMoney(ledger.totalPaid),
+                  ),
+                  _LedgerMetric(
+                    label: 'Credits',
+                    value: _formatMoney(ledger.totalCredited),
+                  ),
+                  _LedgerMetric(
+                    label: 'Outstanding',
+                    value: _formatMoney(ledger.outstandingBalance),
+                    highlight: ledger.outstandingBalance > 0,
+                  ),
+                  _LedgerMetric(
+                    label: 'Customer Credit',
+                    value: _formatMoney(ledger.creditBalance),
+                    highlight: ledger.creditBalance > 0,
+                  ),
+                  _LedgerMetric(
+                    label: 'Loyalty Points',
+                    value: ledger.loyaltyPoints.toString(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'Invoice History',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (ledger.invoices.isEmpty)
+                Text(
+                  'No invoice history yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                _LedgerTable(
+                  headers: const [
+                    'Invoice',
+                    'Date',
+                    'Status',
+                    'Total',
+                    'Paid',
+                    'Credits',
+                    'Balance',
+                  ],
+                  rows: [
+                    for (final invoice in ledger.invoices)
+                      [
+                        invoice.invoiceNumber,
+                        _formatDate(invoice.invoiceDate),
+                        invoice.status.label,
+                        _formatMoney(invoice.grandTotal),
+                        _formatMoney(invoice.amountPaid),
+                        _formatMoney(invoice.creditTotal),
+                        _formatMoney(invoice.balanceDue),
+                      ],
+                  ],
+                ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'Timeline',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (ledger.entries.isEmpty)
+                Text(
+                  'No ledger entries yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                _LedgerTable(
+                  headers: const [
+                    'Date',
+                    'Type',
+                    'Reference',
+                    'Amount',
+                    'Info',
+                  ],
+                  rows: [
+                    for (final entry in ledger.entries)
+                      [
+                        _formatDate(entry.date),
+                        entry.type.label,
+                        entry.reference,
+                        _formatMoney(entry.amount),
+                        entry.description,
+                      ],
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class _LedgerMetric extends StatelessWidget {
+  const _LedgerMetric({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlight ? AppColors.primaryPurple : AppColors.textPrimary;
+    return Container(
+      width: 178,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: highlight ? AppColors.primaryPurple : AppColors.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LedgerTable extends StatelessWidget {
+  const _LedgerTable({required this.headers, required this.rows});
+
+  final List<String> headers;
+  final List<List<String>> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Table(
+        columnWidths: {
+          for (var index = 0; index < headers.length; index++)
+            index: const FlexColumnWidth(),
+        },
+        border: TableBorder(
+          horizontalInside: BorderSide(color: AppColors.border),
+        ),
+        children: [
+          TableRow(
+            decoration: BoxDecoration(color: AppColors.background),
+            children: [
+              for (final header in headers) _LedgerCell(header, strong: true),
+            ],
+          ),
+          for (final row in rows)
+            TableRow(children: [for (final value in row) _LedgerCell(value)]),
+        ],
+      ),
+    );
+  }
+}
+
+class _LedgerCell extends StatelessWidget {
+  const _LedgerCell(this.value, {this.strong = false});
+
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      child: Text(
+        value,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: strong ? AppColors.textPrimary : AppColors.textSecondary,
+          fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+String _formatMoney(double value) {
+  final prefix = value < 0 ? '-' : '';
+  return '$prefix${value.abs().toStringAsFixed(2)}';
+}
+
+String _formatDate(DateTime date) {
+  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
 }
 
 class _CustomerDialog extends StatefulWidget {

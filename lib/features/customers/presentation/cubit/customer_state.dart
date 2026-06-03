@@ -6,6 +6,7 @@ class CustomerState extends Equatable {
   const CustomerState({
     this.status = CustomerStatus.initial,
     this.customers = const [],
+    this.invoices = const [],
     this.searchQuery = '',
     this.globalLoyaltyEnabled = false,
     this.message,
@@ -13,6 +14,7 @@ class CustomerState extends Equatable {
 
   final CustomerStatus status;
   final List<Customer> customers;
+  final List<Invoice> invoices;
   final String searchQuery;
   final bool globalLoyaltyEnabled;
   final String? message;
@@ -34,6 +36,7 @@ class CustomerState extends Equatable {
   CustomerState copyWith({
     CustomerStatus? status,
     List<Customer>? customers,
+    List<Invoice>? invoices,
     String? searchQuery,
     bool? globalLoyaltyEnabled,
     String? message,
@@ -42,6 +45,7 @@ class CustomerState extends Equatable {
     return CustomerState(
       status: status ?? this.status,
       customers: customers ?? this.customers,
+      invoices: invoices ?? this.invoices,
       searchQuery: searchQuery ?? this.searchQuery,
       globalLoyaltyEnabled: globalLoyaltyEnabled ?? this.globalLoyaltyEnabled,
       message: clearMessage ? null : message ?? this.message,
@@ -52,6 +56,7 @@ class CustomerState extends Equatable {
   List<Object?> get props => [
     status,
     customers,
+    invoices,
     searchQuery,
     globalLoyaltyEnabled,
     message,
