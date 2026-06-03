@@ -29,15 +29,9 @@ class InvoiceState extends Equatable {
       status == InvoiceStatusView.loading || status == InvoiceStatusView.saving;
 
   List<Invoice> get filteredInvoices {
-    final query = searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return invoices;
-    return invoices.where((invoice) {
-      final customerName =
-          invoice.customerSnapshot['name']?.toString().toLowerCase() ?? '';
-      return invoice.invoiceNumber.toLowerCase().contains(query) ||
-          customerName.contains(query) ||
-          invoice.status.label.toLowerCase().contains(query);
-    }).toList();
+    return invoices
+        .where((invoice) => matchesInvoiceSearch(invoice, searchQuery))
+        .toList();
   }
 
   InvoiceState copyWith({

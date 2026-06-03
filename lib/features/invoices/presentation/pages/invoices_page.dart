@@ -11,6 +11,7 @@ import '../../../../app/theme/app_spacing.dart';
 import '../../../company/domain/entities/app_settings.dart';
 import '../../../company/domain/entities/company_profile.dart';
 import '../../domain/entities/invoice.dart';
+import '../../domain/services/invoice_filters.dart';
 import '../../domain/services/invoice_pdf_service.dart';
 import '../cubit/invoice_cubit.dart';
 import 'create_invoice_page.dart';
@@ -79,7 +80,10 @@ class _InvoicesViewState extends State<_InvoicesView> {
                   children: [
                     Expanded(
                       child: TextField(
-                        onChanged: context.read<InvoiceCubit>().search,
+                        onChanged: (value) {
+                          setState(_bulkSelectedIds.clear);
+                          context.read<InvoiceCubit>().search(value);
+                        },
                         decoration: const InputDecoration(
                           labelText: 'Search invoices',
                           prefixIcon: Icon(Icons.search),
@@ -93,8 +97,10 @@ class _InvoicesViewState extends State<_InvoicesView> {
                       value: _statusFilter,
                       values: _InvoiceStatusFilter.values,
                       labelBuilder: (value) => value.label,
-                      onChanged: (value) =>
-                          setState(() => _statusFilter = value),
+                      onChanged: (value) => setState(() {
+                        _statusFilter = value;
+                        _bulkSelectedIds.clear();
+                      }),
                     ),
                     const SizedBox(width: AppSpacing.md),
                     _FilterDropdown<_InvoiceDateFilter>(
@@ -103,7 +109,10 @@ class _InvoicesViewState extends State<_InvoicesView> {
                       value: _dateFilter,
                       values: _InvoiceDateFilter.values,
                       labelBuilder: (value) => value.label,
-                      onChanged: (value) => setState(() => _dateFilter = value),
+                      onChanged: (value) => setState(() {
+                        _dateFilter = value;
+                        _bulkSelectedIds.clear();
+                      }),
                     ),
                   ],
                 ),
@@ -111,7 +120,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
                 _FilterSummary(
                   totalCount: state.invoices.length,
                   visibleCount: filteredInvoices.length,
-                  overdueCount: state.invoices.where(_isOverdue).length,
+                  overdueCount: filteredInvoices.where(_isOverdue).length,
                 ),
                 if (selectedBulkInvoices.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.md),
@@ -149,6 +158,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
                                 Expanded(
                                   child: _InvoiceList(
                                     invoices: filteredInvoices,
+                                    hasAnyInvoices: state.invoices.isNotEmpty,
                                     settings: state.settings,
                                     companyProfile: state.companyProfile,
                                     selectedInvoiceId: selectedInvoice?.id,
@@ -252,9 +262,7 @@ class _InvoicesViewState extends State<_InvoicesView> {
   }
 
   Future<void> _bulkCancel(BuildContext context, List<Invoice> invoices) async {
-    final cancellable = invoices
-        .where((invoice) => invoice.status != InvoiceStatus.cancelled)
-        .toList();
+    final cancellable = invoices.where(_canCancelInvoice).toList();
     if (cancellable.isEmpty) return;
     final confirmed = await _confirmBulkAction(
       context,
@@ -539,6 +547,7 @@ class _StatusPill extends StatelessWidget {
 class _InvoiceList extends StatelessWidget {
   const _InvoiceList({
     required this.invoices,
+    required this.hasAnyInvoices,
     required this.settings,
     required this.companyProfile,
     required this.selectedInvoiceId,
@@ -548,6 +557,7 @@ class _InvoiceList extends StatelessWidget {
   });
 
   final List<Invoice> invoices;
+  final bool hasAnyInvoices;
   final AppSettings? settings;
   final CompanyProfile? companyProfile;
   final String? selectedInvoiceId;
@@ -560,7 +570,9 @@ class _InvoiceList extends StatelessWidget {
     if (invoices.isEmpty) {
       return Center(
         child: Text(
-          'No invoices yet.',
+          hasAnyInvoices
+              ? 'No invoices match the current search or filters.'
+              : 'No invoices yet.',
           style: Theme.of(
             context,
           ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
@@ -1004,7 +1016,7 @@ extension _InvoiceActionDetails on _InvoiceAction {
       _InvoiceAction.duplicate => true,
       _InvoiceAction.recordPayment =>
         invoice.status != InvoiceStatus.cancelled && invoice.balanceDue > 0,
-      _InvoiceAction.cancel => invoice.status != InvoiceStatus.cancelled,
+      _InvoiceAction.cancel => _canCancelInvoice(invoice),
       _InvoiceAction.exportPdf => true,
       _InvoiceAction.delete => true,
     };
@@ -1119,6 +1131,12 @@ Future<void> _confirmAndCancel(BuildContext context, Invoice invoice) async {
   await context.read<InvoiceCubit>().cancelInvoice(invoice);
 }
 
+bool _canCancelInvoice(Invoice invoice) {
+  return invoice.status != InvoiceStatus.cancelled &&
+      invoice.amountPaid <= 0 &&
+      invoice.paymentHistory.isEmpty;
+}
+
 Future<void> _showRecordPaymentDialog(
   BuildContext context,
   Invoice invoice,
@@ -1224,28 +1242,20 @@ enum _InvoiceDateFilter {
         invoice.invoiceDate.year == today.year &&
             invoice.invoiceDate.month == today.month,
       _InvoiceDateFilter.lastMonth => _isLastMonth(invoice.invoiceDate, today),
-      _InvoiceDateFilter.dueThisWeek =>
-        !_dateOnly(invoice.dueDate).isBefore(today) &&
-            !_dateOnly(
-              invoice.dueDate,
-            ).isAfter(today.add(const Duration(days: 7))),
+      _InvoiceDateFilter.dueThisWeek => isInvoiceDueThisWeek(
+        invoice,
+        today: today,
+      ),
     };
   }
 }
 
 bool _isLastMonth(DateTime value, DateTime today) {
-  final month = today.month == 1 ? 12 : today.month - 1;
-  final year = today.month == 1 ? today.year - 1 : today.year;
-  return value.year == year && value.month == month;
+  return isInvoiceFromLastMonth(value, today: today);
 }
 
 bool _isOverdue(Invoice invoice) {
-  if (invoice.status == InvoiceStatus.paid ||
-      invoice.status == InvoiceStatus.cancelled) {
-    return false;
-  }
-  if (invoice.balanceDue <= 0) return false;
-  return _dateOnly(invoice.dueDate).isBefore(_dateOnly(DateTime.now()));
+  return isInvoiceOverdue(invoice);
 }
 
 DateTime _dateOnly(DateTime value) {

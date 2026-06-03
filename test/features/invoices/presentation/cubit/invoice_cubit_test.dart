@@ -68,6 +68,229 @@ void main() {
         );
       },
     );
+
+    test('recordPayment rejects zero or negative amounts', () async {
+      final invoice = _invoice();
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.recordPayment(
+        invoice,
+        amount: 0,
+        paidAt: DateTime(2026, 5, 3),
+      );
+
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('greater than zero'));
+    });
+
+    test('recordPayment rejects fully paid invoices', () async {
+      final invoice = _invoice(
+        status: InvoiceStatus.paid,
+        amountPaid: 1180,
+        balanceDue: 0,
+        paidAt: DateTime(2026, 5, 2),
+        paymentHistory: [
+          InvoicePaymentRecord(amount: 1180, paidAt: DateTime(2026, 5, 2)),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.recordPayment(
+        invoice,
+        amount: 100,
+        paidAt: DateTime(2026, 5, 3),
+      );
+
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('already fully paid'));
+    });
+
+    test('recordPayment caps overpayment and marks invoice as paid', () async {
+      final invoice = _invoice();
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.recordPayment(
+        invoice,
+        amount: 2000,
+        paidAt: DateTime(2026, 5, 3),
+        method: 'UPI',
+      );
+
+      final updated = cubit.state.invoices.single;
+      expect(cubit.state.status, InvoiceStatusView.saved);
+      expect(updated.amountPaid, 1180);
+      expect(updated.balanceDue, 0);
+      expect(updated.status, InvoiceStatus.paid);
+      expect(updated.paidAt, DateTime(2026, 5, 3));
+      expect(updated.paymentHistory.single.amount, 1180);
+      expect(cubit.state.message, contains('marked as paid'));
+    });
+
+    test(
+      'recordPayment sets paidAt from the latest sorted payment date',
+      () async {
+        final invoice = _invoice(
+          amountPaid: 1000,
+          balanceDue: 180,
+          status: InvoiceStatus.partialPaid,
+          paymentHistory: [
+            InvoicePaymentRecord(
+              amount: 1000,
+              paidAt: DateTime(2026, 5, 5),
+              method: 'Bank',
+            ),
+          ],
+        );
+        final cubit = _buildCubit(invoices: [invoice]);
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.recordPayment(
+          invoice,
+          amount: 180,
+          paidAt: DateTime(2026, 5, 3),
+          method: 'Cash',
+        );
+
+        final updated = cubit.state.invoices.single;
+        expect(updated.status, InvoiceStatus.paid);
+        expect(updated.paidAt, DateTime(2026, 5, 5));
+        expect(updated.paymentHistory.map((entry) => entry.paidAt), [
+          DateTime(2026, 5, 3),
+          DateTime(2026, 5, 5),
+        ]);
+      },
+    );
+
+    test(
+      'recordPayment keeps payments sorted and status partial for balance due',
+      () async {
+        final invoice = _invoice(
+          paymentHistory: [
+            InvoicePaymentRecord(
+              amount: 200,
+              paidAt: DateTime(2026, 5, 4),
+              method: 'Cash',
+            ),
+          ],
+          amountPaid: 200,
+          balanceDue: 980,
+          status: InvoiceStatus.partialPaid,
+        );
+        final cubit = _buildCubit(invoices: [invoice]);
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.recordPayment(
+          invoice,
+          amount: 300,
+          paidAt: DateTime(2026, 5, 3),
+          method: 'Bank',
+        );
+
+        final updated = cubit.state.invoices.single;
+        expect(updated.status, InvoiceStatus.partialPaid);
+        expect(updated.amountPaid, 500);
+        expect(updated.balanceDue, 680);
+        expect(updated.paymentHistory.map((entry) => entry.paidAt), [
+          DateTime(2026, 5, 3),
+          DateTime(2026, 5, 4),
+        ]);
+        expect(cubit.state.message, contains('Payment recorded'));
+      },
+    );
+
+    test('cancelInvoice rejects invoices with recorded payments', () async {
+      final invoice = _invoice(
+        status: InvoiceStatus.partialPaid,
+        amountPaid: 300,
+        balanceDue: 880,
+        paymentHistory: [
+          InvoicePaymentRecord(amount: 300, paidAt: DateTime(2026, 5, 2)),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.cancelInvoice(invoice);
+
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('cannot be cancelled'));
+    });
+
+    test('cancelInvoice marks unpaid invoices as cancelled', () async {
+      final invoice = _invoice();
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.cancelInvoice(invoice);
+
+      final updated = cubit.state.invoices.single;
+      expect(updated.status, InvoiceStatus.cancelled);
+      expect(updated.amountPaid, 0);
+      expect(updated.balanceDue, 1180);
+      expect(updated.paidAt, isNull);
+      expect(cubit.state.message, contains('cancelled'));
+    });
+
+    test('cancelInvoice rejects already cancelled invoices', () async {
+      final invoice = _invoice(status: InvoiceStatus.cancelled, balanceDue: 0);
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.cancelInvoice(invoice);
+
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('already cancelled'));
+    });
+  });
+
+  group('InvoiceState', () {
+    test(
+      'filteredInvoices trims and matches number, customer name, and status',
+      () {
+        final invoices = [
+          _invoice(invoiceNumber: 'INV-001'),
+          _invoice(
+            id: 'inv_2',
+            invoiceNumber: 'INV-XYZ',
+            customerName: 'Acme Stores',
+            status: InvoiceStatus.partialPaid,
+          ),
+        ];
+
+        expect(
+          InvoiceState(
+            invoices: invoices,
+            searchQuery: '  xyz ',
+          ).filteredInvoices,
+          [invoices[1]],
+        );
+        expect(
+          InvoiceState(
+            invoices: invoices,
+            searchQuery: 'acme',
+          ).filteredInvoices,
+          [invoices[1]],
+        );
+        expect(
+          InvoiceState(
+            invoices: invoices,
+            searchQuery: 'partial paid',
+          ).filteredInvoices,
+          [invoices[1]],
+        );
+      },
+    );
   });
 }
 
@@ -158,17 +381,26 @@ AppSettings _settings({
   );
 }
 
-Invoice _invoice() {
+Invoice _invoice({
+  String id = 'inv_1',
+  String invoiceNumber = 'INV-001',
+  String customerName = 'TBS Enterprises',
+  InvoiceStatus status = InvoiceStatus.unpaid,
+  double amountPaid = 0,
+  double balanceDue = 1180,
+  DateTime? paidAt,
+  List<InvoicePaymentRecord> paymentHistory = const [],
+}) {
   final now = DateTime(2026, 5, 2);
   return Invoice(
-    id: 'inv_1',
-    invoiceNumber: 'INV-001',
+    id: id,
+    invoiceNumber: invoiceNumber,
     invoiceSequence: 1,
     financialYear: '2026-27',
     invoiceDate: now,
     dueDate: now.add(const Duration(days: 15)),
     customerId: 'cust_1',
-    customerSnapshot: const {'name': 'TBS Enterprises'},
+    customerSnapshot: {'name': customerName},
     companySnapshot: const {'businessName': 'CompanyTest'},
     items: [
       InvoiceItem.empty().copyWith(
@@ -183,7 +415,7 @@ Invoice _invoice() {
       ),
     ],
     taxMode: TaxMode.cgstSgst,
-    status: InvoiceStatus.unpaid,
+    status: status,
     subtotal: 1000,
     discountType: 'none',
     discountValue: 0,
@@ -197,11 +429,12 @@ Invoice _invoice() {
     roundOffEnabled: false,
     roundOffAmount: 0,
     grandTotal: 1180,
-    amountPaid: 0,
-    balanceDue: 1180,
+    amountPaid: amountPaid,
+    balanceDue: balanceDue,
+    paidAt: paidAt,
     notes: '',
     terms: '',
-    paymentHistory: const [],
+    paymentHistory: paymentHistory,
     loyaltyPointsAwarded: false,
     pointsEarned: 0,
     createdAt: now,

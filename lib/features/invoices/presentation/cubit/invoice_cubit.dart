@@ -14,6 +14,7 @@ import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
 import '../../domain/entities/invoice_item.dart';
 import '../../domain/services/invoice_creator.dart';
+import '../../domain/services/invoice_filters.dart';
 import '../../../customers/data/services/gstin_lookup_service.dart';
 
 part 'invoice_state.dart';
@@ -258,6 +259,16 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       );
       return;
     }
+    if (_hasRecordedPayments(invoice)) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message:
+              '${invoice.invoiceNumber} has recorded payments and cannot be cancelled.',
+        ),
+      );
+      return;
+    }
 
     emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
     try {
@@ -316,7 +327,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       emit(
         state.copyWith(
           status: InvoiceStatusView.failure,
-          message: 'Unable to delete invoice: $error',
+          message: 'Unable to archive invoice: $error',
         ),
       );
     }
@@ -335,6 +346,15 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         state.copyWith(
           status: InvoiceStatusView.failure,
           message: 'Cancelled invoices cannot receive payments.',
+        ),
+      );
+      return;
+    }
+    if (invoice.status == InvoiceStatus.paid || invoice.balanceDue <= 0) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: '${invoice.invoiceNumber} is already fully paid.',
         ),
       );
       return;
@@ -379,7 +399,9 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         status: status,
         amountPaid: amountPaid,
         balanceDue: balanceDue,
-        paidAt: status == InvoiceStatus.paid ? paidAt : null,
+        paidAt: status == InvoiceStatus.paid
+            ? paymentHistory.last.paidAt
+            : null,
         paymentHistory: paymentHistory,
         updatedAt: DateTime.now(),
       );
@@ -465,6 +487,10 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     if (amountPaid >= grandTotal) return InvoiceStatus.paid;
     if (amountPaid > 0) return InvoiceStatus.partialPaid;
     return InvoiceStatus.unpaid;
+  }
+
+  bool _hasRecordedPayments(Invoice invoice) {
+    return invoice.amountPaid > 0 || invoice.paymentHistory.isNotEmpty;
   }
 
   double _roundMoney(double value) {
