@@ -29,7 +29,16 @@ class CustomerState extends Equatable {
       return customer.name.toLowerCase().contains(query) ||
           customer.phone.toLowerCase().contains(query) ||
           customer.email.toLowerCase().contains(query) ||
-          customer.gstin.toLowerCase().contains(query);
+          customer.gstin.toLowerCase().contains(query) ||
+          customer.state.toLowerCase().contains(query) ||
+          customer.billingAddress.toLowerCase().contains(query) ||
+          customer.shippingAddress.toLowerCase().contains(query) ||
+          customer.notes.toLowerCase().contains(query) ||
+          customer.defaultInvoiceTerms.toLowerCase().contains(query) ||
+          customer.customFields.entries.any((entry) {
+            return entry.key.toLowerCase().contains(query) ||
+                entry.value.toLowerCase().contains(query);
+          });
     }).toList();
   }
 

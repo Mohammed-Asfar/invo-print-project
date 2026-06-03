@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -5,6 +8,7 @@ import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../domain/entities/customer.dart';
+import '../../domain/services/customer_csv_export.dart';
 import '../../domain/services/customer_ledger.dart';
 import '../cubit/customer_cubit.dart';
 
@@ -44,6 +48,7 @@ class _CustomersView extends StatelessWidget {
         }
       },
       builder: (context, state) {
+        final filteredCustomers = state.filteredCustomers;
         return ColoredBox(
           color: AppColors.background,
           child: Padding(
@@ -78,6 +83,15 @@ class _CustomersView extends StatelessWidget {
                       icon: const Icon(Icons.add),
                       label: const Text('New Customer'),
                     ),
+                    const SizedBox(width: AppSpacing.md),
+                    OutlinedButton.icon(
+                      onPressed: state.isBusy || filteredCustomers.isEmpty
+                          ? null
+                          : () =>
+                                _exportCustomersCsv(context, filteredCustomers),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Export CSV'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.xl),
@@ -92,7 +106,7 @@ class _CustomersView extends StatelessWidget {
                 Expanded(
                   child: state.status == CustomerStatus.loading
                       ? const Center(child: CircularProgressIndicator())
-                      : _CustomerTable(customers: state.filteredCustomers),
+                      : _CustomerTable(customers: filteredCustomers),
                 ),
               ],
             ),
@@ -100,6 +114,41 @@ class _CustomersView extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _exportCustomersCsv(
+    BuildContext context,
+    List<Customer> customers,
+  ) async {
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Save customers CSV',
+        fileName: 'customers.csv',
+        type: FileType.custom,
+        allowedExtensions: const ['csv'],
+      );
+      if (path == null) return;
+      await File(path).writeAsString(buildCustomersCsv(customers), flush: true);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Customers exported.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Could not export customers.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+    }
   }
 
   void _showCustomerSheet(BuildContext context, {Customer? customer}) {
