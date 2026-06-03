@@ -269,6 +269,16 @@ class InvoiceCubit extends Cubit<InvoiceState> {
       );
       return;
     }
+    if (_hasRecordedCredits(invoice)) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message:
+              '${invoice.invoiceNumber} has credit notes and cannot be cancelled.',
+        ),
+      );
+      return;
+    }
 
     emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
     try {
@@ -388,12 +398,16 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         ..sort((a, b) => a.paidAt.compareTo(b.paidAt));
       final amountPaid = _roundMoney(
         paymentHistory.fold<double>(0, (sum, entry) => sum + entry.amount),
-      ).clamp(0, invoice.grandTotal).toDouble();
-      final balanceDue = _roundMoney(invoice.grandTotal - amountPaid);
+      ).clamp(0, _effectiveInvoiceTotal(invoice)).toDouble();
+      final balanceDue = _balanceDue(
+        grandTotal: invoice.grandTotal,
+        amountPaid: amountPaid,
+        creditTotal: invoice.creditTotal,
+      );
       final status = _statusFromAmounts(
         requestedStatus: invoice.status,
         amountPaid: amountPaid,
-        grandTotal: invoice.grandTotal,
+        balanceDue: balanceDue,
       );
       final updatedInvoice = invoice.copyWith(
         status: status,
@@ -428,6 +442,122 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         state.copyWith(
           status: InvoiceStatusView.failure,
           message: 'Unable to record payment: $error',
+        ),
+      );
+    }
+  }
+
+  Future<void> issueCreditNote(
+    Invoice invoice, {
+    required double amount,
+    required DateTime issuedAt,
+    required String reason,
+    String reference = '',
+  }) async {
+    if (invoice.status == InvoiceStatus.draft) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Draft invoices do not need credit notes.',
+        ),
+      );
+      return;
+    }
+    if (invoice.status == InvoiceStatus.cancelled) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Cancelled invoices cannot receive credit notes.',
+        ),
+      );
+      return;
+    }
+    final normalizedAmount = _roundMoney(amount);
+    if (normalizedAmount <= 0) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Enter a credit amount greater than zero.',
+        ),
+      );
+      return;
+    }
+    if (reason.trim().isEmpty) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Enter a reason for the credit note.',
+        ),
+      );
+      return;
+    }
+    final remainingInvoiceValue = _roundMoney(
+      invoice.grandTotal - invoice.creditTotal,
+    );
+    if (remainingInvoiceValue <= 0) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: '${invoice.invoiceNumber} is already fully credited.',
+        ),
+      );
+      return;
+    }
+
+    emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
+    try {
+      final cappedAmount = normalizedAmount > remainingInvoiceValue
+          ? remainingInvoiceValue
+          : normalizedAmount;
+      final creditNote = InvoiceCreditNote(
+        amount: cappedAmount,
+        issuedAt: issuedAt,
+        reason: reason.trim(),
+        reference: reference.trim(),
+      );
+      final creditNotes = [...invoice.creditNotes, creditNote]
+        ..sort((a, b) => a.issuedAt.compareTo(b.issuedAt));
+      final creditTotal = _roundMoney(
+        creditNotes.fold<double>(0, (sum, entry) => sum + entry.amount),
+      ).clamp(0, invoice.grandTotal).toDouble();
+      final balanceDue = _balanceDue(
+        grandTotal: invoice.grandTotal,
+        amountPaid: invoice.amountPaid,
+        creditTotal: creditTotal,
+      );
+      final status = _statusFromAmounts(
+        requestedStatus: invoice.status,
+        amountPaid: invoice.amountPaid,
+        balanceDue: balanceDue,
+      );
+      final updatedInvoice = invoice.copyWith(
+        status: status,
+        balanceDue: balanceDue,
+        creditTotal: creditTotal,
+        creditNotes: creditNotes,
+        updatedAt: DateTime.now(),
+      );
+      await _invoiceRepository.saveInvoice(updatedInvoice);
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.saved,
+          invoices: _replaceInvoice(state.invoices, updatedInvoice)
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+          message: 'Credit note recorded for ${invoice.invoiceNumber}.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: error.message,
+        ),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: InvoiceStatusView.failure,
+          message: 'Unable to issue credit note: $error',
         ),
       );
     }
@@ -477,20 +607,35 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   InvoiceStatus _statusFromAmounts({
     required InvoiceStatus requestedStatus,
     required double amountPaid,
-    required double grandTotal,
+    required double balanceDue,
   }) {
     if (requestedStatus == InvoiceStatus.draft ||
         requestedStatus == InvoiceStatus.cancelled) {
       return requestedStatus;
     }
-    if (grandTotal <= 0) return requestedStatus;
-    if (amountPaid >= grandTotal) return InvoiceStatus.paid;
+    if (balanceDue <= 0) return InvoiceStatus.paid;
     if (amountPaid > 0) return InvoiceStatus.partialPaid;
     return InvoiceStatus.unpaid;
   }
 
   bool _hasRecordedPayments(Invoice invoice) {
     return invoice.amountPaid > 0 || invoice.paymentHistory.isNotEmpty;
+  }
+
+  bool _hasRecordedCredits(Invoice invoice) {
+    return invoice.creditTotal > 0 || invoice.creditNotes.isNotEmpty;
+  }
+
+  double _effectiveInvoiceTotal(Invoice invoice) {
+    return _roundMoney(invoice.grandTotal - invoice.creditTotal);
+  }
+
+  double _balanceDue({
+    required double grandTotal,
+    required double amountPaid,
+    required double creditTotal,
+  }) {
+    return _roundMoney(grandTotal - amountPaid - creditTotal);
   }
 
   double _roundMoney(double value) {

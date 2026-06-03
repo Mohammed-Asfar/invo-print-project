@@ -65,6 +65,32 @@ void main() {
 
       expect(_decodedPdfText(bytes), isNot(contains('DRAFT')));
     });
+
+    test('prints credit note totals and history', () async {
+      final bytes = await const InvoicePdfService(InvoiceOutputBuilder())
+          .buildInvoicePdf(
+            invoice: _invoice(
+              creditTotal: 100,
+              balanceDue: 1080,
+              creditNotes: [
+                InvoiceCreditNote(
+                  amount: 100,
+                  issuedAt: DateTime(2026, 5, 5),
+                  reason: 'Short supply',
+                  reference: 'CN-1',
+                ),
+              ],
+            ),
+            currencySymbol: 'Rs',
+          );
+
+      final decoded = _decodedPdfText(bytes);
+      expect(decoded, contains('Credit'));
+      expect(decoded, contains('Notes'));
+      expect(decoded, contains('Short'));
+      expect(decoded, contains('supply'));
+      expect(decoded, contains('CN-1'));
+    });
   });
 }
 
@@ -72,8 +98,10 @@ Invoice _invoice({
   Map<String, dynamic> companySnapshot = const {'businessName': 'CompanyTest'},
   double amountPaid = 0,
   double balanceDue = 1180,
+  double creditTotal = 0,
   InvoiceStatus? status,
   List<InvoicePaymentRecord> paymentHistory = const [],
+  List<InvoiceCreditNote> creditNotes = const [],
 }) {
   final now = DateTime(2026, 5, 2);
   return Invoice(
@@ -121,9 +149,11 @@ Invoice _invoice({
     grandTotal: 1180,
     amountPaid: amountPaid,
     balanceDue: balanceDue,
+    creditTotal: creditTotal,
     notes: '',
     terms: '',
     paymentHistory: paymentHistory,
+    creditNotes: creditNotes,
     loyaltyPointsAwarded: false,
     pointsEarned: 0,
     createdAt: now,

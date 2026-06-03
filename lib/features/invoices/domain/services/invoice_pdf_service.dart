@@ -98,6 +98,10 @@ class InvoicePdfService {
             pw.SizedBox(height: 12),
             _buildPaymentHistory(invoice, currencySymbol: currencySymbol),
           ],
+          if (invoice.creditNotes.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            _buildCreditNotes(invoice, currencySymbol: currencySymbol),
+          ],
           if (invoice.notes.trim().isNotEmpty ||
               invoice.terms.trim().isNotEmpty) ...[
             pw.SizedBox(height: 12),
@@ -404,7 +408,11 @@ class InvoicePdfService {
         _AmountRow('Round Off', invoice.roundOffAmount, signed: true),
       _AmountRow('Total', invoice.grandTotal, strong: true),
       if (invoice.amountPaid > 0) _AmountRow('Amount Paid', invoice.amountPaid),
-      if (invoice.amountPaid > 0 || invoice.balanceDue > 0)
+      if (invoice.creditTotal > 0)
+        _AmountRow('Credit Notes', -invoice.creditTotal, signed: true),
+      if (invoice.amountPaid > 0 ||
+          invoice.creditTotal > 0 ||
+          invoice.balanceDue != 0)
         _AmountRow('Balance Due', invoice.balanceDue, strong: true),
     ];
 
@@ -572,6 +580,32 @@ class InvoicePdfService {
               '${payment.method.trim().isNotEmpty ? ' via ${payment.method.trim()}' : ''}'
               '${payment.reference.trim().isNotEmpty ? ' (${payment.reference.trim()})' : ''}'
               '${payment.notes.trim().isNotEmpty ? ' - ${payment.notes.trim()}' : ''}',
+              style: const pw.TextStyle(fontSize: 8.2),
+            ),
+          ),
+      ],
+    );
+  }
+
+  pw.Widget _buildCreditNotes(
+    Invoice invoice, {
+    required String currencySymbol,
+  }) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Credit Notes:',
+          style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 4),
+        for (final credit in invoice.creditNotes)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 2),
+            child: pw.Text(
+              '${_formatDateLong(credit.issuedAt)} - ${_formatMoney(credit.amount, currencySymbol)}'
+              '${credit.reason.trim().isNotEmpty ? ' - ${credit.reason.trim()}' : ''}'
+              '${credit.reference.trim().isNotEmpty ? ' (${credit.reference.trim()})' : ''}',
               style: const pw.TextStyle(fontSize: 8.2),
             ),
           ),

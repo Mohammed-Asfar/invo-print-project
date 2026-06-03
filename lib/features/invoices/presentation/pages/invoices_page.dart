@@ -798,6 +798,11 @@ class _InvoicePreviewPanel extends StatelessWidget {
                     value: invoice.balanceDue.toStringAsFixed(2),
                     strong: invoice.balanceDue > 0,
                   ),
+                  if (invoice.creditTotal > 0)
+                    _PreviewMetric(
+                      label: 'Credits',
+                      value: '-${invoice.creditTotal.toStringAsFixed(2)}',
+                    ),
                   _PreviewMetric(label: 'Status', value: invoice.status.label),
                   _PreviewMetric(
                     label: 'Invoice Date',
@@ -843,6 +848,26 @@ class _InvoicePreviewPanel extends StatelessWidget {
                           label:
                               '${_formatDateShort(payment.paidAt)}${payment.method.trim().isNotEmpty ? ' • ${payment.method.trim()}' : ''}',
                           value: payment.amount.toStringAsFixed(2),
+                        ),
+                      ),
+                  ],
+                  if (invoice.creditNotes.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Credit Notes',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    for (final credit in invoice.creditNotes)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: _PreviewMetric(
+                          label:
+                              '${_formatDateShort(credit.issuedAt)}${credit.reason.trim().isNotEmpty ? ' • ${credit.reason.trim()}' : ''}',
+                          value: '-${credit.amount.toStringAsFixed(2)}',
                         ),
                       ),
                   ],
@@ -980,6 +1005,7 @@ enum _InvoiceAction {
   edit,
   duplicate,
   recordPayment,
+  issueCredit,
   cancel,
   exportPdf,
   delete,
@@ -989,12 +1015,14 @@ const _invoicePrimaryActions = [
   _InvoiceAction.edit,
   _InvoiceAction.duplicate,
   _InvoiceAction.recordPayment,
+  _InvoiceAction.issueCredit,
 ];
 
 const _invoicePreviewActions = [
   _InvoiceAction.edit,
   _InvoiceAction.duplicate,
   _InvoiceAction.recordPayment,
+  _InvoiceAction.issueCredit,
   _InvoiceAction.exportPdf,
   _InvoiceAction.cancel,
   _InvoiceAction.delete,
@@ -1006,6 +1034,7 @@ extension _InvoiceActionDetails on _InvoiceAction {
       _InvoiceAction.edit => Icons.edit_outlined,
       _InvoiceAction.duplicate => Icons.copy_all_outlined,
       _InvoiceAction.recordPayment => Icons.payments_outlined,
+      _InvoiceAction.issueCredit => Icons.request_quote_outlined,
       _InvoiceAction.cancel => Icons.block_outlined,
       _InvoiceAction.exportPdf => Icons.picture_as_pdf_outlined,
       _InvoiceAction.delete => Icons.archive_outlined,
@@ -1026,6 +1055,10 @@ extension _InvoiceActionDetails on _InvoiceAction {
       _InvoiceAction.duplicate => true,
       _InvoiceAction.recordPayment =>
         invoice.status != InvoiceStatus.cancelled && invoice.balanceDue > 0,
+      _InvoiceAction.issueCredit =>
+        invoice.status != InvoiceStatus.draft &&
+            invoice.status != InvoiceStatus.cancelled &&
+            invoice.creditTotal < invoice.grandTotal,
       _InvoiceAction.cancel => _canCancelInvoice(invoice),
       _InvoiceAction.exportPdf => true,
       _InvoiceAction.delete => true,
@@ -1038,6 +1071,7 @@ extension _InvoiceActionDetails on _InvoiceAction {
       _InvoiceAction.duplicate => 'Duplicate',
       _InvoiceAction.recordPayment =>
         invoice.amountPaid <= 0 ? 'Mark paid' : 'Record payment',
+      _InvoiceAction.issueCredit => 'Issue credit',
       _InvoiceAction.cancel => 'Cancel',
       _InvoiceAction.exportPdf => 'Export PDF',
       _InvoiceAction.delete => 'Archive',
@@ -1067,6 +1101,9 @@ Future<void> _runInvoiceAction(
       break;
     case _InvoiceAction.recordPayment:
       await _showRecordPaymentDialog(context, invoice);
+      break;
+    case _InvoiceAction.issueCredit:
+      await _showCreditNoteDialog(context, invoice);
       break;
     case _InvoiceAction.cancel:
       await _confirmAndCancel(context, invoice);
@@ -1144,7 +1181,9 @@ Future<void> _confirmAndCancel(BuildContext context, Invoice invoice) async {
 bool _canCancelInvoice(Invoice invoice) {
   return invoice.status != InvoiceStatus.cancelled &&
       invoice.amountPaid <= 0 &&
-      invoice.paymentHistory.isEmpty;
+      invoice.paymentHistory.isEmpty &&
+      invoice.creditTotal <= 0 &&
+      invoice.creditNotes.isEmpty;
 }
 
 Future<void> _showRecordPaymentDialog(
@@ -1156,6 +1195,19 @@ Future<void> _showRecordPaymentDialog(
     builder: (_) => BlocProvider.value(
       value: context.read<InvoiceCubit>(),
       child: _RecordPaymentDialog(invoice: invoice),
+    ),
+  );
+}
+
+Future<void> _showCreditNoteDialog(
+  BuildContext context,
+  Invoice invoice,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (_) => BlocProvider.value(
+      value: context.read<InvoiceCubit>(),
+      child: _CreditNoteDialog(invoice: invoice),
     ),
   );
 }
@@ -1435,6 +1487,151 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
           },
           icon: const Icon(Icons.payments_outlined),
           label: const Text('Save Payment'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreditNoteDialog extends StatefulWidget {
+  const _CreditNoteDialog({required this.invoice});
+
+  final Invoice invoice;
+
+  @override
+  State<_CreditNoteDialog> createState() => _CreditNoteDialogState();
+}
+
+class _CreditNoteDialogState extends State<_CreditNoteDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _reason = TextEditingController();
+  final _reference = TextEditingController();
+  late DateTime _issuedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _issuedAt = DateTime.now();
+    final remainingValue =
+        widget.invoice.grandTotal - widget.invoice.creditTotal;
+    _amount.text = remainingValue.clamp(0, double.infinity).toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _reason.dispose();
+    _reference.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final invoice = widget.invoice;
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: Text('Issue Credit - ${invoice.invoiceNumber}'),
+      content: SizedBox(
+        width: 440,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogLine(
+                label: 'Invoice Total',
+                value: invoice.grandTotal.toStringAsFixed(2),
+              ),
+              _DialogLine(
+                label: 'Existing Credits',
+                value: invoice.creditTotal.toStringAsFixed(2),
+              ),
+              _DialogLine(
+                label: 'Current Balance',
+                value: invoice.balanceDue.toStringAsFixed(2),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _amount,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Credit Amount *',
+                  prefixIcon: Icon(Icons.currency_rupee_outlined),
+                ),
+                validator: (value) {
+                  final parsed = double.tryParse(value?.trim() ?? '');
+                  if (parsed == null || parsed <= 0) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _reason,
+                decoration: const InputDecoration(
+                  labelText: 'Reason *',
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+                validator: (value) {
+                  if ((value ?? '').trim().isEmpty) {
+                    return 'Enter a reason';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _reference,
+                decoration: const InputDecoration(
+                  labelText: 'Reference',
+                  prefixIcon: Icon(Icons.tag_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                readOnly: true,
+                key: ValueKey(_issuedAt.toIso8601String()),
+                initialValue: _formatDateShort(_issuedAt),
+                decoration: const InputDecoration(
+                  labelText: 'Credit Date',
+                  prefixIcon: Icon(Icons.event_outlined),
+                  suffixIcon: Icon(Icons.calendar_today_outlined),
+                ),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _issuedAt,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => _issuedAt = picked);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (!_formKey.currentState!.validate()) return;
+            await context.read<InvoiceCubit>().issueCreditNote(
+              invoice,
+              amount: double.tryParse(_amount.text.trim()) ?? 0,
+              issuedAt: _issuedAt,
+              reason: _reason.text.trim(),
+              reference: _reference.text.trim(),
+            );
+            if (context.mounted) Navigator.of(context).pop();
+          },
+          icon: const Icon(Icons.request_quote_outlined),
+          label: const Text('Save Credit'),
         ),
       ],
     );

@@ -225,6 +225,28 @@ void main() {
       expect(cubit.state.message, contains('cannot be cancelled'));
     });
 
+    test('cancelInvoice rejects invoices with credit notes', () async {
+      final invoice = _invoice(
+        creditTotal: 100,
+        balanceDue: 1080,
+        creditNotes: [
+          InvoiceCreditNote(
+            amount: 100,
+            issuedAt: DateTime(2026, 5, 4),
+            reason: 'Adjustment',
+          ),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.cancelInvoice(invoice);
+
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('credit notes'));
+    });
+
     test('cancelInvoice marks unpaid invoices as cancelled', () async {
       final invoice = _invoice();
       final cubit = _buildCubit(invoices: [invoice]);
@@ -251,6 +273,118 @@ void main() {
 
       expect(cubit.state.status, InvoiceStatusView.failure);
       expect(cubit.state.message, contains('already cancelled'));
+    });
+
+    test('issueCreditNote rejects invalid credit details', () async {
+      final invoice = _invoice();
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.issueCreditNote(
+        invoice,
+        amount: 0,
+        issuedAt: DateTime(2026, 5, 4),
+        reason: 'Adjustment',
+      );
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('greater than zero'));
+
+      await cubit.issueCreditNote(
+        invoice,
+        amount: 100,
+        issuedAt: DateTime(2026, 5, 4),
+        reason: '',
+      );
+      expect(cubit.state.status, InvoiceStatusView.failure);
+      expect(cubit.state.message, contains('reason'));
+    });
+
+    test('issueCreditNote reduces balance and keeps partial paid status', () async {
+      final invoice = _invoice(
+        status: InvoiceStatus.partialPaid,
+        amountPaid: 500,
+        balanceDue: 680,
+        paymentHistory: [
+          InvoicePaymentRecord(amount: 500, paidAt: DateTime(2026, 5, 3)),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.issueCreditNote(
+        invoice,
+        amount: 100,
+        issuedAt: DateTime(2026, 5, 5),
+        reason: 'Short supply',
+        reference: 'CN-1',
+      );
+
+      final updated = cubit.state.invoices.single;
+      expect(cubit.state.status, InvoiceStatusView.saved);
+      expect(updated.status, InvoiceStatus.partialPaid);
+      expect(updated.creditTotal, 100);
+      expect(updated.balanceDue, 580);
+      expect(updated.creditNotes.single.reason, 'Short supply');
+      expect(updated.creditNotes.single.reference, 'CN-1');
+    });
+
+    test('issueCreditNote can settle a paid invoice into credit balance', () async {
+      final invoice = _invoice(
+        status: InvoiceStatus.paid,
+        amountPaid: 1180,
+        balanceDue: 0,
+        paidAt: DateTime(2026, 5, 3),
+        paymentHistory: [
+          InvoicePaymentRecord(amount: 1180, paidAt: DateTime(2026, 5, 3)),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.issueCreditNote(
+        invoice,
+        amount: 200,
+        issuedAt: DateTime(2026, 5, 5),
+        reason: 'Post-payment adjustment',
+      );
+
+      final updated = cubit.state.invoices.single;
+      expect(updated.status, InvoiceStatus.paid);
+      expect(updated.creditTotal, 200);
+      expect(updated.balanceDue, -200);
+    });
+
+    test('issueCreditNote caps total credits at invoice total', () async {
+      final invoice = _invoice(
+        creditTotal: 1000,
+        balanceDue: 180,
+        creditNotes: [
+          InvoiceCreditNote(
+            amount: 1000,
+            issuedAt: DateTime(2026, 5, 3),
+            reason: 'Earlier credit',
+          ),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.issueCreditNote(
+        invoice,
+        amount: 500,
+        issuedAt: DateTime(2026, 5, 5),
+        reason: 'Final adjustment',
+      );
+
+      final updated = cubit.state.invoices.single;
+      expect(updated.creditTotal, 1180);
+      expect(updated.creditNotes.last.amount, 180);
+      expect(updated.balanceDue, 0);
+      expect(updated.status, InvoiceStatus.paid);
     });
   });
 
@@ -390,6 +524,8 @@ Invoice _invoice({
   double balanceDue = 1180,
   DateTime? paidAt,
   List<InvoicePaymentRecord> paymentHistory = const [],
+  double creditTotal = 0,
+  List<InvoiceCreditNote> creditNotes = const [],
 }) {
   final now = DateTime(2026, 5, 2);
   return Invoice(
@@ -431,10 +567,12 @@ Invoice _invoice({
     grandTotal: 1180,
     amountPaid: amountPaid,
     balanceDue: balanceDue,
+    creditTotal: creditTotal,
     paidAt: paidAt,
     notes: '',
     terms: '',
     paymentHistory: paymentHistory,
+    creditNotes: creditNotes,
     loyaltyPointsAwarded: false,
     pointsEarned: 0,
     createdAt: now,

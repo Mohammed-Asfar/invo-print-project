@@ -38,6 +38,8 @@ class Invoice extends Equatable {
     required this.pointsEarned,
     required this.createdAt,
     required this.updatedAt,
+    this.creditNotes = const [],
+    this.creditTotal = 0,
     this.paidAt,
   });
 
@@ -68,10 +70,12 @@ class Invoice extends Equatable {
   final double grandTotal;
   final double amountPaid;
   final double balanceDue;
+  final double creditTotal;
   final DateTime? paidAt;
   final String notes;
   final String terms;
   final List<InvoicePaymentRecord> paymentHistory;
+  final List<InvoiceCreditNote> creditNotes;
   final bool loyaltyPointsAwarded;
   final int pointsEarned;
   final DateTime createdAt;
@@ -105,11 +109,13 @@ class Invoice extends Equatable {
     double? grandTotal,
     double? amountPaid,
     double? balanceDue,
+    double? creditTotal,
     DateTime? paidAt,
     bool clearPaidAt = false,
     String? notes,
     String? terms,
     List<InvoicePaymentRecord>? paymentHistory,
+    List<InvoiceCreditNote>? creditNotes,
     bool? loyaltyPointsAwarded,
     int? pointsEarned,
     DateTime? createdAt,
@@ -143,10 +149,12 @@ class Invoice extends Equatable {
       grandTotal: grandTotal ?? this.grandTotal,
       amountPaid: amountPaid ?? this.amountPaid,
       balanceDue: balanceDue ?? this.balanceDue,
+      creditTotal: creditTotal ?? this.creditTotal,
       paidAt: clearPaidAt ? null : paidAt ?? this.paidAt,
       notes: notes ?? this.notes,
       terms: terms ?? this.terms,
       paymentHistory: paymentHistory ?? this.paymentHistory,
+      creditNotes: creditNotes ?? this.creditNotes,
       loyaltyPointsAwarded: loyaltyPointsAwarded ?? this.loyaltyPointsAwarded,
       pointsEarned: pointsEarned ?? this.pointsEarned,
       createdAt: createdAt ?? this.createdAt,
@@ -183,10 +191,12 @@ class Invoice extends Equatable {
     grandTotal,
     amountPaid,
     balanceDue,
+    creditTotal,
     paidAt,
     notes,
     terms,
     paymentHistory,
+    creditNotes,
     loyaltyPointsAwarded,
     pointsEarned,
     createdAt,
@@ -304,4 +314,35 @@ class InvoicePaymentRecord extends Equatable {
 
   @override
   List<Object?> get props => [amount, paidAt, method, reference, notes];
+}
+
+class InvoiceCreditNote extends Equatable {
+  const InvoiceCreditNote({
+    required this.amount,
+    required this.issuedAt,
+    required this.reason,
+    this.reference = '',
+  });
+
+  final double amount;
+  final DateTime issuedAt;
+  final String reason;
+  final String reference;
+
+  InvoiceCreditNote copyWith({
+    double? amount,
+    DateTime? issuedAt,
+    String? reason,
+    String? reference,
+  }) {
+    return InvoiceCreditNote(
+      amount: amount ?? this.amount,
+      issuedAt: issuedAt ?? this.issuedAt,
+      reason: reason ?? this.reason,
+      reference: reference ?? this.reference,
+    );
+  }
+
+  @override
+  List<Object?> get props => [amount, issuedAt, reason, reference];
 }

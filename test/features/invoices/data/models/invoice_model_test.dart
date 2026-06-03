@@ -18,6 +18,8 @@ void main() {
         expect(map.containsKey('amountPaid'), isFalse);
         expect(map.containsKey('paidAt'), isFalse);
         expect(map.containsKey('paymentHistory'), isFalse);
+        expect(map.containsKey('creditTotal'), isFalse);
+        expect(map.containsKey('creditNotes'), isFalse);
         expect(map['balanceDue'], 1180);
       },
     );
@@ -42,6 +44,15 @@ void main() {
               reference: 'UTR-1',
             ),
           ],
+          creditTotal: 100,
+          creditNotes: [
+            InvoiceCreditNote(
+              amount: 100,
+              issuedAt: DateTime(2026, 5, 24),
+              reason: 'Service issue',
+              reference: 'CN-1',
+            ),
+          ],
         ),
       ).toMap();
 
@@ -55,6 +66,15 @@ void main() {
       expect(map['amountPaid'], 500);
       expect(map['paidAt'], paidAt);
       expect(map['paymentHistory'], hasLength(1));
+      expect(map['creditTotal'], 100);
+      expect(map['creditNotes'], [
+        {
+          'amount': 100.0,
+          'issuedAt': DateTime(2026, 5, 24),
+          'reason': 'Service issue',
+          'reference': 'CN-1',
+        },
+      ]);
     });
 
     test('round trips older sparse invoice maps with defaults', () {
@@ -85,6 +105,8 @@ void main() {
       expect(model.extraCharges, isEmpty);
       expect(model.amountPaid, 0);
       expect(model.paymentHistory, isEmpty);
+      expect(model.creditTotal, 0);
+      expect(model.creditNotes, isEmpty);
       expect(model.balanceDue, 1180);
       expect(
         InvoiceModel.isDocumentActive({'invoiceNumber': 'INV-001'}),
@@ -116,6 +138,8 @@ Invoice _invoice({
   double balanceDue = 1180,
   DateTime? paidAt,
   List<InvoicePaymentRecord> paymentHistory = const [],
+  double creditTotal = 0,
+  List<InvoiceCreditNote> creditNotes = const [],
 }) {
   final now = DateTime(2026, 5, 2);
   return Invoice(
@@ -157,10 +181,12 @@ Invoice _invoice({
     grandTotal: 1180,
     amountPaid: amountPaid,
     balanceDue: balanceDue,
+    creditTotal: creditTotal,
     paidAt: paidAt,
     notes: '',
     terms: '',
     paymentHistory: paymentHistory,
+    creditNotes: creditNotes,
     loyaltyPointsAwarded: false,
     pointsEarned: 0,
     createdAt: now,

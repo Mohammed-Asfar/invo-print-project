@@ -37,6 +37,8 @@ class InvoiceModel extends Invoice {
     required super.pointsEarned,
     required super.createdAt,
     required super.updatedAt,
+    super.creditNotes,
+    super.creditTotal,
     super.paidAt,
   });
 
@@ -69,10 +71,12 @@ class InvoiceModel extends Invoice {
       grandTotal: invoice.grandTotal,
       amountPaid: invoice.amountPaid,
       balanceDue: invoice.balanceDue,
+      creditTotal: invoice.creditTotal,
       paidAt: invoice.paidAt,
       notes: invoice.notes,
       terms: invoice.terms,
       paymentHistory: invoice.paymentHistory,
+      creditNotes: invoice.creditNotes,
       loyaltyPointsAwarded: invoice.loyaltyPointsAwarded,
       pointsEarned: invoice.pointsEarned,
       createdAt: invoice.createdAt,
@@ -113,10 +117,12 @@ class InvoiceModel extends Invoice {
       grandTotal: _toDouble(map['grandTotal']),
       amountPaid: _toDouble(map['amountPaid']),
       balanceDue: _toDouble(map['balanceDue']),
+      creditTotal: _toDouble(map['creditTotal']),
       paidAt: _toDateTime(map['paidAt']),
       notes: map['notes'] as String? ?? '',
       terms: map['terms'] as String? ?? '',
       paymentHistory: _toPaymentHistory(map['paymentHistory']),
+      creditNotes: _toCreditNotes(map['creditNotes']),
       loyaltyPointsAwarded: map['loyaltyPointsAwarded'] as bool? ?? false,
       pointsEarned: _toInt(map['pointsEarned']),
       createdAt: _toDateTime(map['createdAt']) ?? DateTime.now(),
@@ -191,6 +197,21 @@ class InvoiceModel extends Invoice {
           )
           .toList();
     }
+    if (creditTotal != 0) {
+      map['creditTotal'] = creditTotal;
+    }
+    if (creditNotes.isNotEmpty) {
+      map['creditNotes'] = creditNotes
+          .map(
+            (credit) => {
+              'amount': credit.amount,
+              'issuedAt': credit.issuedAt,
+              'reason': credit.reason,
+              'reference': credit.reference,
+            },
+          )
+          .toList();
+    }
     return map;
   }
 
@@ -252,6 +273,19 @@ class InvoiceModel extends Invoice {
         method: map['method']?.toString() ?? '',
         reference: map['reference']?.toString() ?? '',
         notes: map['notes']?.toString() ?? '',
+      );
+    }).toList();
+  }
+
+  static List<InvoiceCreditNote> _toCreditNotes(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<Map>().map((entry) {
+      final map = Map<String, dynamic>.from(entry);
+      return InvoiceCreditNote(
+        amount: _toDouble(map['amount']),
+        issuedAt: _toDateTime(map['issuedAt']) ?? DateTime.now(),
+        reason: map['reason']?.toString() ?? '',
+        reference: map['reference']?.toString() ?? '',
       );
     }).toList();
   }
