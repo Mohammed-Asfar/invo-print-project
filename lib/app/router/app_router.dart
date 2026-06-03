@@ -14,6 +14,7 @@ import '../../features/dashboard/presentation/pages/dashboard_page.dart';
 import '../../features/invoices/presentation/pages/create_invoice_page.dart';
 import '../../features/invoices/presentation/pages/invoices_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
+import '../../features/reports/presentation/pages/reports_page.dart';
 import '../shell/app_shell.dart';
 
 GoRouter createAppRouter(AuthBloc authBloc) {
@@ -83,6 +84,10 @@ GoRouter createAppRouter(AuthBloc authBloc) {
           GoRoute(
             path: ProductsPage.routePath,
             builder: (context, state) => const ProductsPage(),
+          ),
+          GoRoute(
+            path: ReportsPage.routePath,
+            builder: (context, state) => const ReportsPage(),
           ),
         ],
       ),

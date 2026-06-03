@@ -8,6 +8,7 @@ import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
 import '../../features/invoices/presentation/pages/invoices_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
+import '../../features/reports/presentation/pages/reports_page.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/theme_cubit.dart';
@@ -140,6 +141,12 @@ class _SideNavigation extends StatelessWidget {
                 selected: location == ProductsPage.routePath,
               ),
               const _NavGroupLabel('Manage'),
+              _NavItem(
+                icon: Icons.analytics_outlined,
+                label: 'Reports',
+                routePath: ReportsPage.routePath,
+                selected: location == ReportsPage.routePath,
+              ),
               _NavItem(
                 icon: Icons.stars_outlined,
                 label: 'Loyalty',
