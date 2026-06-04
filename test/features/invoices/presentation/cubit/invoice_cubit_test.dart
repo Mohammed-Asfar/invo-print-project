@@ -14,7 +14,9 @@ import 'package:invo_print/features/invoices/domain/services/invoice_calculator.
 import 'package:invo_print/features/invoices/domain/services/invoice_creator.dart';
 import 'package:invo_print/features/invoices/presentation/cubit/invoice_cubit.dart';
 import 'package:invo_print/features/products/data/models/product_service_model.dart';
+import 'package:invo_print/features/products/data/repositories/product_inventory_repository.dart';
 import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/domain/entities/product_inventory_entry.dart';
 import 'package:invo_print/features/products/domain/entities/product_service.dart';
 import 'package:invo_print/features/products/domain/services/inventory_transition_service.dart';
 
@@ -99,6 +101,18 @@ void main() {
           _firestoreFor(cubit).documents['products/${product.id}']!,
         );
         expect(savedProduct.stockQuantity, 5);
+        final historyEntries = _firestoreFor(cubit).documents.entries
+            .where(
+              (entry) => entry.key.startsWith('product_inventory_entries/'),
+            )
+            .map((entry) => entry.value)
+            .toList();
+        expect(historyEntries, hasLength(1));
+        expect(
+          historyEntries.single['type'],
+          ProductInventoryEntryType.invoiceArchived.firestoreValue,
+        );
+        expect(historyEntries.single['quantityDelta'], 2);
       },
     );
 
@@ -321,6 +335,16 @@ void main() {
         _firestoreFor(cubit).documents['products/${product.id}']!,
       );
       expect(savedProduct.stockQuantity, 6);
+      final historyEntries = _firestoreFor(cubit).documents.entries
+          .where((entry) => entry.key.startsWith('product_inventory_entries/'))
+          .map((entry) => entry.value)
+          .toList();
+      expect(historyEntries, hasLength(1));
+      expect(
+        historyEntries.single['type'],
+        ProductInventoryEntryType.invoiceCancelled.firestoreValue,
+      );
+      expect(historyEntries.single['quantityDelta'], 2);
     });
 
     test('cancelInvoice rejects already cancelled invoices', () async {
@@ -513,12 +537,16 @@ InvoiceCubit _buildCubit({
   final invoiceRepository = InvoiceRepository(firestore);
   final customerRepository = CustomerRepository(firestore);
   final productRepository = ProductRepository(firestore);
+  final productInventoryRepository = ProductInventoryRepository(firestore);
   final settingsRepository = CompanySettingsRepository(firestore);
   final invoiceCreator = InvoiceCreator(
     invoiceRepository: invoiceRepository,
     customerRepository: customerRepository,
+    productRepository: productRepository,
+    productInventoryRepository: productInventoryRepository,
     settingsRepository: settingsRepository,
     calculator: InvoiceCalculator(),
+    inventoryTransitionService: const InventoryTransitionService(),
     numberingService: NumberingService(),
   );
 
@@ -526,6 +554,7 @@ InvoiceCubit _buildCubit({
     invoiceRepository,
     customerRepository,
     productRepository,
+    productInventoryRepository,
     settingsRepository,
     GstinLookupService(),
     invoiceCreator,

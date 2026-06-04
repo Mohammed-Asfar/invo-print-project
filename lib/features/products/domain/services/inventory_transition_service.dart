@@ -7,10 +7,12 @@ class InventoryTransitionResult {
   const InventoryTransitionResult({
     required this.products,
     required this.updatedProductIds,
+    required this.quantityDeltas,
   });
 
   final List<ProductService> products;
   final Set<String> updatedProductIds;
+  final Map<String, double> quantityDeltas;
 }
 
 class InventoryTransitionService {
@@ -45,6 +47,7 @@ class InventoryTransitionService {
       return InventoryTransitionResult(
         products: products,
         updatedProductIds: const {},
+        quantityDeltas: const {},
       );
     }
 
@@ -64,6 +67,7 @@ class InventoryTransitionService {
     return InventoryTransitionResult(
       products: updatedProducts,
       updatedProductIds: updatedProductIds,
+      quantityDeltas: Map.unmodifiable(deltas),
     );
   }
 

@@ -20,6 +20,7 @@ import '../../features/invoices/domain/services/invoice_creator.dart';
 import '../../features/invoices/domain/services/invoice_pdf_service.dart';
 import '../../features/invoices/presentation/cubit/invoice_cubit.dart';
 import '../../features/products/data/repositories/product_repository.dart';
+import '../../features/products/data/repositories/product_inventory_repository.dart';
 import '../../features/products/domain/services/inventory_transition_service.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
 import '../theme/theme_cubit.dart';
@@ -54,6 +55,9 @@ void setupServiceLocator() {
     ..registerLazySingleton<ProductRepository>(
       () => ProductRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<ProductInventoryRepository>(
+      () => ProductInventoryRepository(sl<CustomerFirestoreRestClient>()),
+    )
     ..registerLazySingleton<InvoiceRepository>(
       () => InvoiceRepository(sl<CustomerFirestoreRestClient>()),
     )
@@ -67,6 +71,7 @@ void setupServiceLocator() {
         invoiceRepository: sl<InvoiceRepository>(),
         customerRepository: sl<CustomerRepository>(),
         productRepository: sl<ProductRepository>(),
+        productInventoryRepository: sl<ProductInventoryRepository>(),
         settingsRepository: sl<CompanySettingsRepository>(),
         calculator: sl<InvoiceCalculator>(),
         inventoryTransitionService: sl<InventoryTransitionService>(),
@@ -88,12 +93,18 @@ void setupServiceLocator() {
         sl<InvoiceRepository>(),
       ),
     )
-    ..registerFactory(() => ProductCubit(sl<ProductRepository>()))
+    ..registerFactory(
+      () => ProductCubit(
+        sl<ProductRepository>(),
+        sl<ProductInventoryRepository>(),
+      ),
+    )
     ..registerFactory(
       () => InvoiceCubit(
         sl<InvoiceRepository>(),
         sl<CustomerRepository>(),
         sl<ProductRepository>(),
+        sl<ProductInventoryRepository>(),
         sl<CompanySettingsRepository>(),
         sl<GstinLookupService>(),
         sl<InvoiceCreator>(),

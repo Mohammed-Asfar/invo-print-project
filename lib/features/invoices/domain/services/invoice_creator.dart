@@ -4,8 +4,11 @@ import '../../../company/domain/entities/company_profile.dart';
 import '../../../company/data/repositories/company_settings_repository.dart';
 import '../../../customers/data/repositories/customer_repository.dart';
 import '../../../customers/domain/entities/customer.dart';
+import '../../../products/data/repositories/product_inventory_repository.dart';
 import '../../../products/data/repositories/product_repository.dart';
+import '../../../products/domain/entities/product_inventory_entry.dart';
 import '../../../products/domain/services/inventory_transition_service.dart';
+import '../../../products/domain/services/product_inventory_history_builder.dart';
 import '../../data/repositories/invoice_repository.dart';
 import '../entities/invoice.dart';
 import '../entities/invoice_draft.dart';
@@ -43,6 +46,7 @@ class InvoiceCreator {
     required InvoiceRepository invoiceRepository,
     required CustomerRepository customerRepository,
     ProductRepository? productRepository,
+    ProductInventoryRepository? productInventoryRepository,
     required CompanySettingsRepository settingsRepository,
     required InvoiceCalculator calculator,
     InventoryTransitionService? inventoryTransitionService,
@@ -50,6 +54,7 @@ class InvoiceCreator {
   }) : _invoiceRepository = invoiceRepository,
        _customerRepository = customerRepository,
        _productRepository = productRepository,
+       _productInventoryRepository = productInventoryRepository,
        _settingsRepository = settingsRepository,
        _calculator = calculator,
        _inventoryTransitionService = inventoryTransitionService,
@@ -58,6 +63,7 @@ class InvoiceCreator {
   final InvoiceRepository _invoiceRepository;
   final CustomerRepository _customerRepository;
   final ProductRepository? _productRepository;
+  final ProductInventoryRepository? _productInventoryRepository;
   final CompanySettingsRepository _settingsRepository;
   final InvoiceCalculator _calculator;
   final InventoryTransitionService? _inventoryTransitionService;
@@ -452,10 +458,16 @@ class InvoiceCreator {
     required InvoiceStatus previousStatus,
     required Invoice nextInvoice,
   }) async {
-    if (_productRepository == null || _inventoryTransitionService == null) {
+    if (_productRepository == null ||
+        _productInventoryRepository == null ||
+        _inventoryTransitionService == null) {
       await _invoiceRepository.saveInvoice(nextInvoice);
       return;
     }
+    final inventoryEntryType = _inventoryEntryTypeForTransition(
+      previousStatus: previousStatus,
+      nextStatus: nextInvoice.status,
+    );
     final inventoryProducts = await _productRepository.fetchProducts(
       includeInactive: true,
     );
@@ -476,18 +488,60 @@ class InvoiceCreator {
           (product) => inventoryResult.updatedProductIds.contains(product.id),
         )
         .toList();
+    final historyEntries = inventoryEntryType == null
+        ? const <ProductInventoryEntry>[]
+        : buildInventoryEntries(
+            quantityDeltas: inventoryResult.quantityDeltas,
+            products: inventoryResult.products,
+            type: inventoryEntryType,
+            createdAt: nextInvoice.updatedAt,
+            reference: nextInvoice.invoiceNumber.isNotEmpty
+                ? nextInvoice.invoiceNumber
+                : nextInvoice.id,
+            reason: nextInvoice.status.label,
+          );
 
     if (updatedProducts.isEmpty) {
       await _invoiceRepository.saveInvoice(nextInvoice);
       return;
     }
 
-    await _productRepository.saveProducts(updatedProducts);
+    if (historyEntries.isNotEmpty) {
+      await _productInventoryRepository.saveEntries(historyEntries);
+    }
     try {
-      await _invoiceRepository.saveInvoice(nextInvoice);
+      await _productRepository.saveProducts(updatedProducts);
+      try {
+        await _invoiceRepository.saveInvoice(nextInvoice);
+      } catch (_) {
+        await _productRepository.saveProducts(originalProducts);
+        rethrow;
+      }
     } catch (_) {
-      await _productRepository.saveProducts(originalProducts);
+      if (historyEntries.isNotEmpty) {
+        await _productInventoryRepository.deleteEntries(
+          historyEntries.map((entry) => entry.id),
+        );
+      }
       rethrow;
     }
+  }
+
+  ProductInventoryEntryType? _inventoryEntryTypeForTransition({
+    required InvoiceStatus previousStatus,
+    required InvoiceStatus nextStatus,
+  }) {
+    if (previousStatus == InvoiceStatus.draft &&
+        nextStatus != InvoiceStatus.draft &&
+        nextStatus != InvoiceStatus.cancelled) {
+      return ProductInventoryEntryType.invoiceIssued;
+    }
+    if (previousStatus != InvoiceStatus.draft &&
+        previousStatus != InvoiceStatus.cancelled &&
+        nextStatus != InvoiceStatus.draft &&
+        nextStatus != InvoiceStatus.cancelled) {
+      return ProductInventoryEntryType.invoiceUpdated;
+    }
+    return null;
   }
 }

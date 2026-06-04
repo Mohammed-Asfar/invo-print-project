@@ -7,9 +7,12 @@ import '../../../company/domain/entities/app_settings.dart';
 import '../../../company/domain/entities/company_profile.dart';
 import '../../../customers/data/repositories/customer_repository.dart';
 import '../../../customers/domain/entities/customer.dart';
+import '../../../products/data/repositories/product_inventory_repository.dart';
 import '../../../products/data/repositories/product_repository.dart';
+import '../../../products/domain/entities/product_inventory_entry.dart';
 import '../../../products/domain/entities/product_service.dart';
 import '../../../products/domain/services/inventory_transition_service.dart';
+import '../../../products/domain/services/product_inventory_history_builder.dart';
 import '../../data/repositories/invoice_repository.dart';
 import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
@@ -25,6 +28,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     this._invoiceRepository,
     this._customerRepository,
     this._productRepository,
+    this._productInventoryRepository,
     this._settingsRepository,
     this._gstinLookupService,
     this._invoiceCreator, [
@@ -36,6 +40,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   final InvoiceRepository _invoiceRepository;
   final CustomerRepository _customerRepository;
   final ProductRepository _productRepository;
+  final ProductInventoryRepository _productInventoryRepository;
   final CompanySettingsRepository _settingsRepository;
   final GstinLookupService _gstinLookupService;
   final InvoiceCreator _invoiceCreator;
@@ -299,6 +304,11 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         previousStatus: invoice.status,
         nextItems: updatedInvoice.items,
         nextStatus: updatedInvoice.status,
+        inventoryEntryType: ProductInventoryEntryType.invoiceCancelled,
+        reference: invoice.invoiceNumber.isNotEmpty
+            ? invoice.invoiceNumber
+            : invoice.id,
+        reason: 'Invoice cancelled',
         persistInvoice: () => _invoiceRepository.saveInvoice(updatedInvoice),
       );
       emit(
@@ -335,6 +345,11 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         previousStatus: invoice.status,
         nextItems: const [],
         nextStatus: InvoiceStatus.draft,
+        inventoryEntryType: ProductInventoryEntryType.invoiceArchived,
+        reference: invoice.invoiceNumber.isNotEmpty
+            ? invoice.invoiceNumber
+            : invoice.id,
+        reason: 'Invoice archived',
         persistInvoice: () => _invoiceRepository.archiveInvoice(invoice),
       );
       emit(
@@ -666,6 +681,9 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     required InvoiceStatus previousStatus,
     required List<InvoiceItem> nextItems,
     required InvoiceStatus nextStatus,
+    required ProductInventoryEntryType? inventoryEntryType,
+    required String reference,
+    required String reason,
     required Future<void> Function() persistInvoice,
   }) async {
     final inventoryProducts = await _productRepository.fetchProducts(
@@ -688,17 +706,39 @@ class InvoiceCubit extends Cubit<InvoiceState> {
           (product) => inventoryResult.updatedProductIds.contains(product.id),
         )
         .toList();
+    final historyEntries = inventoryEntryType == null
+        ? const <ProductInventoryEntry>[]
+        : buildInventoryEntries(
+            quantityDeltas: inventoryResult.quantityDeltas,
+            products: inventoryResult.products,
+            type: inventoryEntryType,
+            createdAt: DateTime.now(),
+            reference: reference,
+            reason: reason,
+          );
 
     if (updatedProducts.isEmpty) {
       await persistInvoice();
       return state.products;
     }
 
-    await _productRepository.saveProducts(updatedProducts);
+    if (historyEntries.isNotEmpty) {
+      await _productInventoryRepository.saveEntries(historyEntries);
+    }
     try {
-      await persistInvoice();
+      await _productRepository.saveProducts(updatedProducts);
+      try {
+        await persistInvoice();
+      } catch (_) {
+        await _productRepository.saveProducts(originalProducts);
+        rethrow;
+      }
     } catch (_) {
-      await _productRepository.saveProducts(originalProducts);
+      if (historyEntries.isNotEmpty) {
+        await _productInventoryRepository.deleteEntries(
+          historyEntries.map((entry) => entry.id),
+        );
+      }
       rethrow;
     }
 

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
+import '../../domain/entities/product_inventory_entry.dart';
 import '../../domain/entities/product_service.dart';
 import '../cubit/product_cubit.dart';
 
@@ -228,6 +229,18 @@ class _ProductCard extends StatelessWidget {
                 onPressed: () => _showProductDialog(context, product: product),
                 icon: const Icon(Icons.edit_outlined),
               ),
+              if (product.trackInventory) ...[
+                IconButton(
+                  tooltip: 'Adjust stock',
+                  onPressed: () => _showAdjustStockDialog(context, product),
+                  icon: const Icon(Icons.tune_outlined),
+                ),
+                IconButton(
+                  tooltip: 'History',
+                  onPressed: () => _showHistoryDialog(context, product),
+                  icon: const Icon(Icons.history),
+                ),
+              ],
               IconButton(
                 tooltip: 'Archive',
                 onPressed: () => context.read<ProductCubit>().archive(product),
@@ -286,6 +299,26 @@ class _ProductCard extends StatelessWidget {
       builder: (_) => BlocProvider.value(
         value: context.read<ProductCubit>(),
         child: _ProductDialog(product: product),
+      ),
+    );
+  }
+
+  void _showAdjustStockDialog(BuildContext context, ProductService product) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _StockAdjustmentDialog(product: product),
+      ),
+    );
+  }
+
+  void _showHistoryDialog(BuildContext context, ProductService product) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _InventoryHistoryDialog(product: product),
       ),
     );
   }
@@ -555,4 +588,192 @@ class _DialogField extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StockAdjustmentDialog extends StatefulWidget {
+  const _StockAdjustmentDialog({required this.product});
+
+  final ProductService product;
+
+  @override
+  State<_StockAdjustmentDialog> createState() => _StockAdjustmentDialogState();
+}
+
+class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _quantityDelta = TextEditingController();
+  final _reason = TextEditingController();
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _quantityDelta.dispose();
+    _reason.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Adjust Stock: ${widget.product.name}'),
+      content: SizedBox(
+        width: 520,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Current stock: ${_formatQuantity(widget.product.stockQuantity)} ${widget.product.unit}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _DialogField(
+                _quantityDelta,
+                'Change in stock (+/-)',
+                numeric: true,
+                required: true,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _DialogField(_reason, 'Reason', required: true),
+              const SizedBox(height: AppSpacing.md),
+              _DialogField(_note, 'Note', maxLines: 3),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.save),
+          label: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    context.read<ProductCubit>().adjustStock(
+      widget.product,
+      quantityDelta: double.tryParse(_quantityDelta.text.trim()) ?? 0,
+      reason: _reason.text.trim(),
+      note: _note.text.trim(),
+    );
+    Navigator.of(context).pop();
+  }
+}
+
+class _InventoryHistoryDialog extends StatelessWidget {
+  const _InventoryHistoryDialog({required this.product});
+
+  final ProductService product;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${product.name} History'),
+      content: SizedBox(
+        width: 760,
+        child: FutureBuilder<List<ProductInventoryEntry>>(
+          future: context.read<ProductCubit>().loadInventoryEntries(product.id),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const SizedBox(
+                height: 220,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final entries = snapshot.data!;
+            if (entries.isEmpty) {
+              return SizedBox(
+                height: 220,
+                child: Center(
+                  child: Text(
+                    'No stock activity yet.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return SizedBox(
+              height: 320,
+              child: ListView.separated(
+                itemCount: entries.length,
+                separatorBuilder: (_, _) => Divider(color: AppColors.border),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final deltaColor = entry.isIncrease
+                      ? AppColors.success
+                      : AppColors.warning;
+                  final deltaPrefix = entry.isIncrease ? '+' : '';
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(entry.type.label),
+                    subtitle: Text(
+                      [
+                        if (entry.reference.isNotEmpty) entry.reference,
+                        if (entry.reason.isNotEmpty) entry.reason,
+                        if (entry.note.isNotEmpty) entry.note,
+                        _formatDateTime(entry.createdAt),
+                      ].join('  |  '),
+                    ),
+                    trailing: SizedBox(
+                      width: 180,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '$deltaPrefix${_formatQuantity(entry.quantityDelta)}',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
+                                  color: deltaColor,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Balance ${_formatQuantity(entry.balanceAfter)}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatQuantity(double value) {
+  return value.truncateToDouble() == value
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
+}
+
+String _formatDateTime(DateTime value) {
+  return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 }

@@ -14,8 +14,10 @@ import 'package:invo_print/features/invoices/domain/entities/invoice_draft.dart'
 import 'package:invo_print/features/invoices/domain/entities/invoice_item.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_calculator.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_creator.dart';
+import 'package:invo_print/features/products/data/repositories/product_inventory_repository.dart';
 import 'package:invo_print/features/products/data/models/product_service_model.dart';
 import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/domain/entities/product_inventory_entry.dart';
 import 'package:invo_print/features/products/domain/entities/product_service.dart';
 import 'package:invo_print/features/products/domain/services/inventory_transition_service.dart';
 
@@ -614,6 +616,18 @@ void main() {
       );
       expect(result.invoice.status, InvoiceStatus.unpaid);
       expect(savedProduct.stockQuantity, 8);
+      final historyEntry = firestore.documents.entries
+          .singleWhere(
+            (entry) => entry.key.startsWith('product_inventory_entries/'),
+          )
+          .value;
+      expect(
+        historyEntry['type'],
+        ProductInventoryEntryType.invoiceIssued.firestoreValue,
+      );
+      expect(historyEntry['quantityDelta'], -2);
+      expect(historyEntry['balanceAfter'], 8);
+      expect(historyEntry['reference'], result.invoice.invoiceNumber);
     });
 
     test('does not deduct tracked stock for draft invoices', () async {
@@ -740,6 +754,17 @@ void main() {
         firestore.documents['products/${product.id}']!,
       );
       expect(savedProduct.stockQuantity, 7);
+      final historyEntries = firestore.documents.entries
+          .where((entry) => entry.key.startsWith('product_inventory_entries/'))
+          .map((entry) => entry.value)
+          .toList();
+      expect(historyEntries, hasLength(2));
+      expect(
+        historyEntries.last['type'],
+        ProductInventoryEntryType.invoiceUpdated.firestoreValue,
+      );
+      expect(historyEntries.last['quantityDelta'], -1);
+      expect(historyEntries.last['balanceAfter'], 7);
     });
 
     test('rejects final invoice when tracked stock is insufficient', () async {
@@ -854,6 +879,7 @@ InvoiceCreator _inventoryAwareCreator(
     invoiceRepository: InvoiceRepository(firestore),
     customerRepository: CustomerRepository(firestore),
     productRepository: ProductRepository(firestore),
+    productInventoryRepository: ProductInventoryRepository(firestore),
     settingsRepository: CompanySettingsRepository(firestore),
     calculator: InvoiceCalculator(),
     inventoryTransitionService: const InventoryTransitionService(),
