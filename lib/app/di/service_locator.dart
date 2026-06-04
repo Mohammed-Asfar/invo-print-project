@@ -20,6 +20,7 @@ import '../../features/invoices/domain/services/invoice_creator.dart';
 import '../../features/invoices/domain/services/invoice_pdf_service.dart';
 import '../../features/invoices/presentation/cubit/invoice_cubit.dart';
 import '../../features/products/data/repositories/product_repository.dart';
+import '../../features/products/domain/services/inventory_transition_service.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
 import '../theme/theme_cubit.dart';
 
@@ -56,14 +57,19 @@ void setupServiceLocator() {
     ..registerLazySingleton<InvoiceRepository>(
       () => InvoiceRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<InventoryTransitionService>(
+      InventoryTransitionService.new,
+    )
     ..registerLazySingleton<InvoiceOutputBuilder>(InvoiceOutputBuilder.new)
     ..registerLazySingleton<InvoiceCalculator>(InvoiceCalculator.new)
     ..registerLazySingleton<InvoiceCreator>(
       () => InvoiceCreator(
         invoiceRepository: sl<InvoiceRepository>(),
         customerRepository: sl<CustomerRepository>(),
+        productRepository: sl<ProductRepository>(),
         settingsRepository: sl<CompanySettingsRepository>(),
         calculator: sl<InvoiceCalculator>(),
+        inventoryTransitionService: sl<InventoryTransitionService>(),
         numberingService: sl<NumberingService>(),
       ),
     )
@@ -91,6 +97,7 @@ void setupServiceLocator() {
         sl<CompanySettingsRepository>(),
         sl<GstinLookupService>(),
         sl<InvoiceCreator>(),
+        sl<InventoryTransitionService>(),
       ),
     )
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)

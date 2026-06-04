@@ -7,7 +7,9 @@ class ProductRepository {
 
   final CustomerFirestoreRestClient _firestore;
 
-  Future<List<ProductService>> fetchProducts() async {
+  Future<List<ProductService>> fetchProducts({
+    bool includeInactive = false,
+  }) async {
     final documents = await _firestore.listDocuments('products');
     final products =
         documents
@@ -15,7 +17,7 @@ class ProductRepository {
               (document) =>
                   ProductServiceModel.fromMap(document.id, document.data),
             )
-            .where((product) => product.isActive)
+            .where((product) => includeInactive || product.isActive)
             .toList()
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return products;
@@ -34,6 +36,12 @@ class ProductRepository {
       ),
     );
     return _firestore.setDocument('products', id, model.toMap());
+  }
+
+  Future<void> saveProducts(Iterable<ProductService> products) async {
+    for (final product in products) {
+      await saveProduct(product);
+    }
   }
 
   Future<void> archiveProduct(ProductService product) {

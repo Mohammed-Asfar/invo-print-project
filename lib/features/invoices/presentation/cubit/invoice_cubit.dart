@@ -9,6 +9,7 @@ import '../../../customers/data/repositories/customer_repository.dart';
 import '../../../customers/domain/entities/customer.dart';
 import '../../../products/data/repositories/product_repository.dart';
 import '../../../products/domain/entities/product_service.dart';
+import '../../../products/domain/services/inventory_transition_service.dart';
 import '../../data/repositories/invoice_repository.dart';
 import '../../domain/entities/invoice.dart';
 import '../../domain/entities/invoice_draft.dart';
@@ -26,8 +27,11 @@ class InvoiceCubit extends Cubit<InvoiceState> {
     this._productRepository,
     this._settingsRepository,
     this._gstinLookupService,
-    this._invoiceCreator,
-  ) : super(const InvoiceState());
+    this._invoiceCreator, [
+    InventoryTransitionService? inventoryTransitionService,
+  ]) : _inventoryTransitionService =
+           inventoryTransitionService ?? const InventoryTransitionService(),
+       super(const InvoiceState());
 
   final InvoiceRepository _invoiceRepository;
   final CustomerRepository _customerRepository;
@@ -35,6 +39,7 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   final CompanySettingsRepository _settingsRepository;
   final GstinLookupService _gstinLookupService;
   final InvoiceCreator _invoiceCreator;
+  final InventoryTransitionService _inventoryTransitionService;
 
   Future<void> load() async {
     emit(state.copyWith(status: InvoiceStatusView.loading, clearMessage: true));
@@ -289,12 +294,19 @@ class InvoiceCubit extends Cubit<InvoiceState> {
         clearPaidAt: true,
         updatedAt: DateTime.now(),
       );
-      await _invoiceRepository.saveInvoice(updatedInvoice);
+      final updatedProducts = await _persistInventoryTransition(
+        previousItems: invoice.items,
+        previousStatus: invoice.status,
+        nextItems: updatedInvoice.items,
+        nextStatus: updatedInvoice.status,
+        persistInvoice: () => _invoiceRepository.saveInvoice(updatedInvoice),
+      );
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
           invoices: _replaceInvoice(state.invoices, updatedInvoice)
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+          products: updatedProducts,
           message: '${invoice.invoiceNumber} cancelled.',
         ),
       );
@@ -318,11 +330,18 @@ class InvoiceCubit extends Cubit<InvoiceState> {
   Future<void> deleteInvoice(Invoice invoice) async {
     emit(state.copyWith(status: InvoiceStatusView.saving, clearMessage: true));
     try {
-      await _invoiceRepository.archiveInvoice(invoice);
+      final updatedProducts = await _persistInventoryTransition(
+        previousItems: invoice.items,
+        previousStatus: invoice.status,
+        nextItems: const [],
+        nextStatus: InvoiceStatus.draft,
+        persistInvoice: () => _invoiceRepository.archiveInvoice(invoice),
+      );
       emit(
         state.copyWith(
           status: InvoiceStatusView.saved,
           invoices: _removeInvoice(state.invoices, invoice.id),
+          products: updatedProducts,
           message: '${invoice.invoiceNumber} archived.',
         ),
       );
@@ -640,5 +659,52 @@ class InvoiceCubit extends Cubit<InvoiceState> {
 
   double _roundMoney(double value) {
     return double.parse(value.toStringAsFixed(2));
+  }
+
+  Future<List<ProductService>> _persistInventoryTransition({
+    required List<InvoiceItem> previousItems,
+    required InvoiceStatus previousStatus,
+    required List<InvoiceItem> nextItems,
+    required InvoiceStatus nextStatus,
+    required Future<void> Function() persistInvoice,
+  }) async {
+    final inventoryProducts = await _productRepository.fetchProducts(
+      includeInactive: true,
+    );
+    final inventoryResult = _inventoryTransitionService.applyInvoiceTransition(
+      products: inventoryProducts,
+      previousItems: previousItems,
+      previousStatus: previousStatus,
+      nextItems: nextItems,
+      nextStatus: nextStatus,
+    );
+    final updatedProducts = inventoryResult.products
+        .where(
+          (product) => inventoryResult.updatedProductIds.contains(product.id),
+        )
+        .toList();
+    final originalProducts = inventoryProducts
+        .where(
+          (product) => inventoryResult.updatedProductIds.contains(product.id),
+        )
+        .toList();
+
+    if (updatedProducts.isEmpty) {
+      await persistInvoice();
+      return state.products;
+    }
+
+    await _productRepository.saveProducts(updatedProducts);
+    try {
+      await persistInvoice();
+    } catch (_) {
+      await _productRepository.saveProducts(originalProducts);
+      rethrow;
+    }
+
+    return inventoryResult.products
+        .where((product) => product.isActive)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 }

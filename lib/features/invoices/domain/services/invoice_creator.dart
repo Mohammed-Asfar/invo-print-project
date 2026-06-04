@@ -4,6 +4,8 @@ import '../../../company/domain/entities/company_profile.dart';
 import '../../../company/data/repositories/company_settings_repository.dart';
 import '../../../customers/data/repositories/customer_repository.dart';
 import '../../../customers/domain/entities/customer.dart';
+import '../../../products/data/repositories/product_repository.dart';
+import '../../../products/domain/services/inventory_transition_service.dart';
 import '../../data/repositories/invoice_repository.dart';
 import '../entities/invoice.dart';
 import '../entities/invoice_draft.dart';
@@ -40,19 +42,25 @@ class InvoiceCreator {
   const InvoiceCreator({
     required InvoiceRepository invoiceRepository,
     required CustomerRepository customerRepository,
+    ProductRepository? productRepository,
     required CompanySettingsRepository settingsRepository,
     required InvoiceCalculator calculator,
+    InventoryTransitionService? inventoryTransitionService,
     required NumberingService numberingService,
   }) : _invoiceRepository = invoiceRepository,
        _customerRepository = customerRepository,
+       _productRepository = productRepository,
        _settingsRepository = settingsRepository,
        _calculator = calculator,
+       _inventoryTransitionService = inventoryTransitionService,
        _numberingService = numberingService;
 
   final InvoiceRepository _invoiceRepository;
   final CustomerRepository _customerRepository;
+  final ProductRepository? _productRepository;
   final CompanySettingsRepository _settingsRepository;
   final InvoiceCalculator _calculator;
+  final InventoryTransitionService? _inventoryTransitionService;
   final NumberingService _numberingService;
 
   Future<InvoiceCreationResult> createFromDraft({
@@ -167,7 +175,11 @@ class InvoiceCreator {
       updatedAt: now,
     );
 
-    await _invoiceRepository.saveInvoice(invoice);
+    await _persistInvoiceWithInventoryTransition(
+      previousItems: const [],
+      previousStatus: InvoiceStatus.draft,
+      nextInvoice: invoice,
+    );
 
     final updatedSettings = reservation?.updatedSettings ?? settings;
 
@@ -302,7 +314,11 @@ class InvoiceCreator {
       updatedAt: DateTime.now(),
     );
 
-    await _invoiceRepository.saveInvoice(updatedInvoice);
+    await _persistInvoiceWithInventoryTransition(
+      previousItems: existingInvoice.items,
+      previousStatus: existingInvoice.status,
+      nextInvoice: updatedInvoice,
+    );
     final updatedSettings = reservation?.updatedSettings ?? settings;
     return InvoiceUpdateResult(
       invoice: updatedInvoice,
@@ -429,5 +445,49 @@ class InvoiceCreator {
 
   double _roundMoney(double value) {
     return double.parse(value.toStringAsFixed(2));
+  }
+
+  Future<void> _persistInvoiceWithInventoryTransition({
+    required List<InvoiceItem> previousItems,
+    required InvoiceStatus previousStatus,
+    required Invoice nextInvoice,
+  }) async {
+    if (_productRepository == null || _inventoryTransitionService == null) {
+      await _invoiceRepository.saveInvoice(nextInvoice);
+      return;
+    }
+    final inventoryProducts = await _productRepository.fetchProducts(
+      includeInactive: true,
+    );
+    final inventoryResult = _inventoryTransitionService.applyInvoiceTransition(
+      products: inventoryProducts,
+      previousItems: previousItems,
+      previousStatus: previousStatus,
+      nextItems: nextInvoice.items,
+      nextStatus: nextInvoice.status,
+    );
+    final updatedProducts = inventoryResult.products
+        .where(
+          (product) => inventoryResult.updatedProductIds.contains(product.id),
+        )
+        .toList();
+    final originalProducts = inventoryProducts
+        .where(
+          (product) => inventoryResult.updatedProductIds.contains(product.id),
+        )
+        .toList();
+
+    if (updatedProducts.isEmpty) {
+      await _invoiceRepository.saveInvoice(nextInvoice);
+      return;
+    }
+
+    await _productRepository.saveProducts(updatedProducts);
+    try {
+      await _invoiceRepository.saveInvoice(nextInvoice);
+    } catch (_) {
+      await _productRepository.saveProducts(originalProducts);
+      rethrow;
+    }
   }
 }

@@ -13,7 +13,10 @@ import 'package:invo_print/features/invoices/domain/entities/invoice_item.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_calculator.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_creator.dart';
 import 'package:invo_print/features/invoices/presentation/cubit/invoice_cubit.dart';
+import 'package:invo_print/features/products/data/models/product_service_model.dart';
 import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/domain/entities/product_service.dart';
+import 'package:invo_print/features/products/domain/services/inventory_transition_service.dart';
 
 import '../../../../helpers/fake_customer_firestore_rest_client.dart';
 
@@ -66,6 +69,36 @@ void main() {
           _firestoreFor(cubit).documents['invoices/${invoice.id}']!['isActive'],
           isFalse,
         );
+      },
+    );
+
+    test(
+      'deleteInvoice restores tracked product stock for final invoices',
+      () async {
+        final product = _product(stockQuantity: 3);
+        final invoice = _invoice(
+          items: [
+            InvoiceItem.empty().copyWith(
+              productId: product.id,
+              name: product.name,
+              quantity: 2,
+              unit: product.unit,
+              rate: product.defaultRate,
+              gstRate: product.gstRate,
+            ),
+          ],
+        );
+        final cubit = _buildCubit(invoices: [invoice], products: [product]);
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.deleteInvoice(invoice);
+
+        final savedProduct = ProductServiceModel.fromMap(
+          product.id,
+          _firestoreFor(cubit).documents['products/${product.id}']!,
+        );
+        expect(savedProduct.stockQuantity, 5);
       },
     );
 
@@ -263,6 +296,33 @@ void main() {
       expect(cubit.state.message, contains('cancelled'));
     });
 
+    test('cancelInvoice restores tracked product stock', () async {
+      final product = _product(stockQuantity: 4);
+      final invoice = _invoice(
+        items: [
+          InvoiceItem.empty().copyWith(
+            productId: product.id,
+            name: product.name,
+            quantity: 2,
+            unit: product.unit,
+            rate: product.defaultRate,
+            gstRate: product.gstRate,
+          ),
+        ],
+      );
+      final cubit = _buildCubit(invoices: [invoice], products: [product]);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.cancelInvoice(invoice);
+
+      final savedProduct = ProductServiceModel.fromMap(
+        product.id,
+        _firestoreFor(cubit).documents['products/${product.id}']!,
+      );
+      expect(savedProduct.stockQuantity, 6);
+    });
+
     test('cancelInvoice rejects already cancelled invoices', () async {
       final invoice = _invoice(status: InvoiceStatus.cancelled, balanceDue: 0);
       final cubit = _buildCubit(invoices: [invoice]);
@@ -300,62 +360,68 @@ void main() {
       expect(cubit.state.message, contains('reason'));
     });
 
-    test('issueCreditNote reduces balance and keeps partial paid status', () async {
-      final invoice = _invoice(
-        status: InvoiceStatus.partialPaid,
-        amountPaid: 500,
-        balanceDue: 680,
-        paymentHistory: [
-          InvoicePaymentRecord(amount: 500, paidAt: DateTime(2026, 5, 3)),
-        ],
-      );
-      final cubit = _buildCubit(invoices: [invoice]);
-      addTearDown(cubit.close);
+    test(
+      'issueCreditNote reduces balance and keeps partial paid status',
+      () async {
+        final invoice = _invoice(
+          status: InvoiceStatus.partialPaid,
+          amountPaid: 500,
+          balanceDue: 680,
+          paymentHistory: [
+            InvoicePaymentRecord(amount: 500, paidAt: DateTime(2026, 5, 3)),
+          ],
+        );
+        final cubit = _buildCubit(invoices: [invoice]);
+        addTearDown(cubit.close);
 
-      await cubit.load();
-      await cubit.issueCreditNote(
-        invoice,
-        amount: 100,
-        issuedAt: DateTime(2026, 5, 5),
-        reason: 'Short supply',
-        reference: 'CN-1',
-      );
+        await cubit.load();
+        await cubit.issueCreditNote(
+          invoice,
+          amount: 100,
+          issuedAt: DateTime(2026, 5, 5),
+          reason: 'Short supply',
+          reference: 'CN-1',
+        );
 
-      final updated = cubit.state.invoices.single;
-      expect(cubit.state.status, InvoiceStatusView.saved);
-      expect(updated.status, InvoiceStatus.partialPaid);
-      expect(updated.creditTotal, 100);
-      expect(updated.balanceDue, 580);
-      expect(updated.creditNotes.single.reason, 'Short supply');
-      expect(updated.creditNotes.single.reference, 'CN-1');
-    });
+        final updated = cubit.state.invoices.single;
+        expect(cubit.state.status, InvoiceStatusView.saved);
+        expect(updated.status, InvoiceStatus.partialPaid);
+        expect(updated.creditTotal, 100);
+        expect(updated.balanceDue, 580);
+        expect(updated.creditNotes.single.reason, 'Short supply');
+        expect(updated.creditNotes.single.reference, 'CN-1');
+      },
+    );
 
-    test('issueCreditNote can settle a paid invoice into credit balance', () async {
-      final invoice = _invoice(
-        status: InvoiceStatus.paid,
-        amountPaid: 1180,
-        balanceDue: 0,
-        paidAt: DateTime(2026, 5, 3),
-        paymentHistory: [
-          InvoicePaymentRecord(amount: 1180, paidAt: DateTime(2026, 5, 3)),
-        ],
-      );
-      final cubit = _buildCubit(invoices: [invoice]);
-      addTearDown(cubit.close);
+    test(
+      'issueCreditNote can settle a paid invoice into credit balance',
+      () async {
+        final invoice = _invoice(
+          status: InvoiceStatus.paid,
+          amountPaid: 1180,
+          balanceDue: 0,
+          paidAt: DateTime(2026, 5, 3),
+          paymentHistory: [
+            InvoicePaymentRecord(amount: 1180, paidAt: DateTime(2026, 5, 3)),
+          ],
+        );
+        final cubit = _buildCubit(invoices: [invoice]);
+        addTearDown(cubit.close);
 
-      await cubit.load();
-      await cubit.issueCreditNote(
-        invoice,
-        amount: 200,
-        issuedAt: DateTime(2026, 5, 5),
-        reason: 'Post-payment adjustment',
-      );
+        await cubit.load();
+        await cubit.issueCreditNote(
+          invoice,
+          amount: 200,
+          issuedAt: DateTime(2026, 5, 5),
+          reason: 'Post-payment adjustment',
+        );
 
-      final updated = cubit.state.invoices.single;
-      expect(updated.status, InvoiceStatus.paid);
-      expect(updated.creditTotal, 200);
-      expect(updated.balanceDue, -200);
-    });
+        final updated = cubit.state.invoices.single;
+        expect(updated.status, InvoiceStatus.paid);
+        expect(updated.creditTotal, 200);
+        expect(updated.balanceDue, -200);
+      },
+    );
 
     test('issueCreditNote caps total credits at invoice total', () async {
       final invoice = _invoice(
@@ -432,6 +498,7 @@ InvoiceCubit _buildCubit({
   AppSettings? settings,
   CompanyProfile? profile,
   List<Invoice> invoices = const [],
+  List<ProductService> products = const [],
 }) {
   final effectiveSettings = settings ?? _settings();
   final effectiveProfile = profile ?? CompanyProfile.empty();
@@ -440,6 +507,8 @@ InvoiceCubit _buildCubit({
     'company/profile': CompanyProfileModel.fromEntity(effectiveProfile).toMap(),
     for (final invoice in invoices)
       'invoices/${invoice.id}': InvoiceModel.fromEntity(invoice).toMap(),
+    for (final product in products)
+      'products/${product.id}': ProductServiceModel.fromEntity(product).toMap(),
   });
   final invoiceRepository = InvoiceRepository(firestore);
   final customerRepository = CustomerRepository(firestore);
@@ -460,6 +529,7 @@ InvoiceCubit _buildCubit({
     settingsRepository,
     GstinLookupService(),
     invoiceCreator,
+    const InventoryTransitionService(),
   );
   _cubitFirestores[cubit] = firestore;
   return cubit;
@@ -526,6 +596,7 @@ Invoice _invoice({
   List<InvoicePaymentRecord> paymentHistory = const [],
   double creditTotal = 0,
   List<InvoiceCreditNote> creditNotes = const [],
+  List<InvoiceItem>? items,
 }) {
   final now = DateTime(2026, 5, 2);
   return Invoice(
@@ -538,18 +609,20 @@ Invoice _invoice({
     customerId: 'cust_1',
     customerSnapshot: {'name': customerName},
     companySnapshot: const {'businessName': 'CompanyTest'},
-    items: [
-      InvoiceItem.empty().copyWith(
-        name: 'Service',
-        quantity: 1,
-        rate: 1000,
-        gstRate: 18,
-        taxableAmount: 1000,
-        cgstAmount: 90,
-        sgstAmount: 90,
-        total: 1180,
-      ),
-    ],
+    items:
+        items ??
+        [
+          InvoiceItem.empty().copyWith(
+            name: 'Service',
+            quantity: 1,
+            rate: 1000,
+            gstRate: 18,
+            taxableAmount: 1000,
+            cgstAmount: 90,
+            sgstAmount: 90,
+            total: 1180,
+          ),
+        ],
     taxMode: TaxMode.cgstSgst,
     status: status,
     subtotal: 1000,
@@ -575,6 +648,27 @@ Invoice _invoice({
     creditNotes: creditNotes,
     loyaltyPointsAwarded: false,
     pointsEarned: 0,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+ProductService _product({double stockQuantity = 5}) {
+  final now = DateTime(2026, 5, 2);
+  return ProductService(
+    id: 'prod_1',
+    name: 'Thermal Printer',
+    description: '',
+    type: ProductServiceType.product,
+    sku: 'PRN-1',
+    unit: 'pcs',
+    defaultRate: 1000,
+    hsnSac: '8443',
+    gstRate: 18,
+    trackInventory: true,
+    stockQuantity: stockQuantity,
+    reorderLevel: 2,
+    isActive: true,
     createdAt: now,
     updatedAt: now,
   );

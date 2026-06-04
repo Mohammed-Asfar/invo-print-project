@@ -14,6 +14,10 @@ import 'package:invo_print/features/invoices/domain/entities/invoice_draft.dart'
 import 'package:invo_print/features/invoices/domain/entities/invoice_item.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_calculator.dart';
 import 'package:invo_print/features/invoices/domain/services/invoice_creator.dart';
+import 'package:invo_print/features/products/data/models/product_service_model.dart';
+import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/domain/entities/product_service.dart';
+import 'package:invo_print/features/products/domain/services/inventory_transition_service.dart';
 
 import '../../../helpers/fake_customer_firestore_rest_client.dart';
 
@@ -579,11 +583,204 @@ void main() {
         expect(savedSettings.invoiceNextNumber, 9);
       },
     );
+
+    test('deducts tracked product stock only for final invoices', () async {
+      final product = _product(stockQuantity: 10);
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+      });
+      final creator = _inventoryAwareCreator(firestore);
+
+      final result = await creator.createFromDraft(
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 2,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      final savedProduct = ProductServiceModel.fromMap(
+        product.id,
+        firestore.documents['products/${product.id}']!,
+      );
+      expect(result.invoice.status, InvoiceStatus.unpaid);
+      expect(savedProduct.stockQuantity, 8);
+    });
+
+    test('does not deduct tracked stock for draft invoices', () async {
+      final product = _product(stockQuantity: 10);
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+      });
+      final creator = _inventoryAwareCreator(firestore);
+
+      await creator.createFromDraft(
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 2,
+          status: InvoiceStatus.draft,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      final savedProduct = ProductServiceModel.fromMap(
+        product.id,
+        firestore.documents['products/${product.id}']!,
+      );
+      expect(savedProduct.stockQuantity, 10);
+    });
+
+    test('deducts stock once when draft becomes final', () async {
+      final product = _product(stockQuantity: 10);
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+      });
+      final creator = _inventoryAwareCreator(firestore);
+
+      final draftResult = await creator.createFromDraft(
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 2,
+          status: InvoiceStatus.draft,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      await creator.updateFromDraft(
+        existingInvoice: draftResult.invoice,
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 2,
+          existingCustomer: draftResult.customer,
+          status: InvoiceStatus.unpaid,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: draftResult.updatedSettings,
+        companyProfile: profile,
+        knownCustomers: [draftResult.customer],
+      );
+
+      final savedProduct = ProductServiceModel.fromMap(
+        product.id,
+        firestore.documents['products/${product.id}']!,
+      );
+      expect(savedProduct.stockQuantity, 8);
+    });
+
+    test('adjusts stock by net delta when editing a final invoice', () async {
+      final product = _product(stockQuantity: 10);
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+      });
+      final creator = _inventoryAwareCreator(firestore);
+
+      final created = await creator.createFromDraft(
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 2,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: settings,
+        companyProfile: profile,
+        knownCustomers: const [],
+      );
+
+      await creator.updateFromDraft(
+        existingInvoice: created.invoice,
+        draft: _draft(
+          trackedProduct: product,
+          itemQuantity: 3,
+          existingCustomer: created.customer,
+          advancePaid: 0,
+          discountType: 'none',
+          discountValue: 0,
+        ),
+        settings: created.updatedSettings,
+        companyProfile: profile,
+        knownCustomers: [created.customer],
+      );
+
+      final savedProduct = ProductServiceModel.fromMap(
+        product.id,
+        firestore.documents['products/${product.id}']!,
+      );
+      expect(savedProduct.stockQuantity, 7);
+    });
+
+    test('rejects final invoice when tracked stock is insufficient', () async {
+      final product = _product(stockQuantity: 1);
+      final settings = _settings();
+      final profile = _profile();
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+      });
+      final creator = _inventoryAwareCreator(firestore);
+
+      expect(
+        () => creator.createFromDraft(
+          draft: _draft(
+            trackedProduct: product,
+            itemQuantity: 2,
+            advancePaid: 0,
+            discountType: 'none',
+            discountValue: 0,
+          ),
+          settings: settings,
+          companyProfile: profile,
+          knownCustomers: const [],
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('Not enough stock'),
+          ),
+        ),
+      );
+    });
   });
 }
 
 InvoiceDraft _draft({
   Customer? existingCustomer,
+  ProductService? trackedProduct,
   InvoiceStatus status = InvoiceStatus.unpaid,
   String discountType = 'percentage',
   double discountValue = 10,
@@ -593,6 +790,7 @@ InvoiceDraft _draft({
   DateTime? invoiceDate,
   DateTime? dueDate,
   double itemRate = 1000,
+  double itemQuantity = 1,
 }) {
   final resolvedInvoiceDate = invoiceDate ?? DateTime(2026, 5, 2);
   return InvoiceDraft(
@@ -628,11 +826,13 @@ InvoiceDraft _draft({
     advancePaidReference: advancePaid > 0 ? 'UTR-1' : '',
     items: [
       InvoiceItem.empty().copyWith(
+        productId: trackedProduct?.id ?? '',
         name: 'Thermal Printer',
-        quantity: 1,
-        unit: 'pcs',
-        rate: itemRate,
+        quantity: itemQuantity,
+        unit: trackedProduct?.unit ?? 'pcs',
+        rate: trackedProduct?.defaultRate ?? itemRate,
         gstRate: 18,
+        hsnSac: trackedProduct?.hsnSac ?? '',
       ),
       InvoiceItem.empty().copyWith(
         name: 'Installation',
@@ -644,6 +844,20 @@ InvoiceDraft _draft({
     ],
     notes: '',
     terms: terms,
+  );
+}
+
+InvoiceCreator _inventoryAwareCreator(
+  FakeCustomerFirestoreRestClient firestore,
+) {
+  return InvoiceCreator(
+    invoiceRepository: InvoiceRepository(firestore),
+    customerRepository: CustomerRepository(firestore),
+    productRepository: ProductRepository(firestore),
+    settingsRepository: CompanySettingsRepository(firestore),
+    calculator: InvoiceCalculator(),
+    inventoryTransitionService: const InventoryTransitionService(),
+    numberingService: NumberingService(),
   );
 }
 
@@ -746,5 +960,26 @@ CompanyProfile _profile({String defaultInvoiceTerms = 'Company terms'}) {
     logoBase64: empty.logoBase64,
     paymentQrBase64: empty.paymentQrBase64,
     updatedAt: DateTime(2026, 5, 1),
+  );
+}
+
+ProductService _product({double stockQuantity = 10}) {
+  final now = DateTime(2026, 5, 1);
+  return ProductService(
+    id: 'prod_1',
+    name: 'Thermal Printer',
+    description: '',
+    type: ProductServiceType.product,
+    sku: 'PRN-1',
+    unit: 'pcs',
+    defaultRate: 1000,
+    hsnSac: '8443',
+    gstRate: 18,
+    trackInventory: true,
+    stockQuantity: stockQuantity,
+    reorderLevel: 2,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
   );
 }
