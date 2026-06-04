@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -34,6 +37,35 @@ class _ProductsViewState extends State<_ProductsView> {
   String _inventorySearchQuery = '';
   String _selectedInventoryProductId = '';
   ProductInventoryEntryType? _selectedInventoryType;
+
+  Future<void> _exportInventoryCsv(ProductState state) async {
+    final report = buildInventoryActivityReport(
+      products: state.products,
+      entries: state.inventoryEntries,
+      productId: _selectedInventoryProductId,
+      type: _selectedInventoryType,
+      searchQuery: _inventorySearchQuery,
+    );
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'Save inventory activity CSV',
+      fileName: 'inventory-activity.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+    );
+    if (!mounted || path == null) return;
+    await File(
+      path,
+    ).writeAsString(buildInventoryActivityCsv(report), flush: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Inventory activity exported.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +143,9 @@ class _ProductsViewState extends State<_ProductsView> {
                                           () => _selectedInventoryType = value,
                                         );
                                       },
+                                      onExport: state.inventoryEntries.isEmpty
+                                          ? null
+                                          : () => _exportInventoryCsv(state),
                                     ),
                                   ],
                                 ),
@@ -160,6 +195,7 @@ class _InventoryTab extends StatelessWidget {
     required this.onSearchChanged,
     required this.onProductChanged,
     required this.onTypeChanged,
+    required this.onExport,
   });
 
   final ProductState state;
@@ -169,6 +205,7 @@ class _InventoryTab extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onProductChanged;
   final ValueChanged<ProductInventoryEntryType?> onTypeChanged;
+  final VoidCallback? onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -192,6 +229,11 @@ class _InventoryTab extends StatelessWidget {
           spacing: AppSpacing.md,
           runSpacing: AppSpacing.md,
           children: [
+            OutlinedButton.icon(
+              onPressed: onExport,
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Export CSV'),
+            ),
             SizedBox(
               width: 280,
               child: TextField(
@@ -249,6 +291,10 @@ class _InventoryTab extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         _InventoryMetrics(report: report),
+        if (report.reasonBreakdown.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _InventoryReasonPanel(reasonBreakdown: report.reasonBreakdown),
+        ],
         if (lowStockProducts.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
           _LowStockPanel(products: lowStockProducts),
@@ -652,6 +698,85 @@ class _InventoryMetricCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InventoryReasonPanel extends StatelessWidget {
+  const _InventoryReasonPanel({required this.reasonBreakdown});
+
+  final List<InventoryReasonSummary> reasonBreakdown;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Movement Reasons',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              for (final summary in reasonBreakdown.take(8))
+                Container(
+                  width: 220,
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSoft,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        summary.reason,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        '${summary.count} movement${summary.count == 1 ? '' : 's'}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Net ${summary.netQuantityDelta > 0 ? '+' : ''}${_formatQuantity(summary.netQuantityDelta)}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: summary.netQuantityDelta >= 0
+                              ? AppColors.success
+                              : AppColors.warning,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ],
       ),

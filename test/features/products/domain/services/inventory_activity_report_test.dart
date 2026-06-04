@@ -30,6 +30,10 @@ void main() {
       expect(report.lowStockCount, 1);
       expect(report.movementCount, 2);
       expect(report.manualAdjustmentCount, 1);
+      expect(
+        report.reasonBreakdown.map((summary) => summary.reason),
+        containsAll(['Manual adjustment', 'Invoice issued']),
+      );
     });
 
     test('filters by product type and search query', () {
@@ -83,6 +87,53 @@ void main() {
       expect(report.rows.map((row) => row.entry.id), ['newer', 'older']);
       expect(report.rows.last.productName, 'Unknown item');
     });
+
+    test('summarizes reason breakdown by count and net quantity', () {
+      final report = buildInventoryActivityReport(
+        products: [_product(id: 'prod_1')],
+        entries: [
+          _entry(id: 'one', productId: 'prod_1', reason: 'Purchase'),
+          _entry(
+            id: 'two',
+            productId: 'prod_1',
+            reason: 'Purchase',
+            type: ProductInventoryEntryType.manualAdjustment,
+          ),
+          _entry(id: 'three', productId: 'prod_1', reason: 'Damage', delta: -2),
+        ],
+      );
+
+      expect(report.reasonBreakdown, hasLength(2));
+      expect(report.reasonBreakdown.first.reason, 'Purchase');
+      expect(report.reasonBreakdown.first.count, 2);
+      expect(report.reasonBreakdown.first.netQuantityDelta, 2);
+      expect(report.reasonBreakdown.last.reason, 'Damage');
+      expect(report.reasonBreakdown.last.netQuantityDelta, -2);
+    });
+  });
+
+  group('buildInventoryActivityCsv', () {
+    test('exports rows summary and reason breakdown with escaping', () {
+      final report = buildInventoryActivityReport(
+        products: [_product(id: 'prod_1', name: 'Printer, "A"')],
+        entries: [
+          _entry(
+            id: 'one',
+            productId: 'prod_1',
+            reason: 'Purchase',
+            note: 'Batch\n1',
+          ),
+        ],
+      );
+
+      final csv = buildInventoryActivityCsv(report);
+
+      expect(csv, contains('"Printer, ""A"""'));
+      expect(csv, contains('"Batch\n1"'));
+      expect(csv, contains('Summary,Value'));
+      expect(csv, contains('Reason,Count,Net Delta'));
+      expect(csv, contains('Purchase,1,1.00'));
+    });
   });
 }
 
@@ -122,15 +173,18 @@ ProductInventoryEntry _entry({
   DateTime? createdAt,
   String reference = '',
   String reason = '',
+  String note = '',
+  double delta = 1,
 }) {
   return ProductInventoryEntry(
     id: id,
     productId: productId,
     type: type,
-    quantityDelta: 1,
+    quantityDelta: delta,
     balanceAfter: 5,
     createdAt: createdAt ?? DateTime(2026, 6, 4),
     reference: reference,
     reason: reason,
+    note: note,
   );
 }

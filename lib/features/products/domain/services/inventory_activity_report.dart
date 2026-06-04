@@ -8,6 +8,7 @@ class InventoryActivityReport {
     required this.lowStockCount,
     required this.movementCount,
     required this.manualAdjustmentCount,
+    required this.reasonBreakdown,
   });
 
   final List<InventoryActivityRow> rows;
@@ -15,6 +16,7 @@ class InventoryActivityReport {
   final int lowStockCount;
   final int movementCount;
   final int manualAdjustmentCount;
+  final List<InventoryReasonSummary> reasonBreakdown;
 }
 
 class InventoryActivityRow {
@@ -31,6 +33,18 @@ class InventoryActivityRow {
   final String sku;
   final String unit;
   final bool isLowStock;
+}
+
+class InventoryReasonSummary {
+  const InventoryReasonSummary({
+    required this.reason,
+    required this.count,
+    required this.netQuantityDelta,
+  });
+
+  final String reason;
+  final int count;
+  final double netQuantityDelta;
 }
 
 InventoryActivityReport buildInventoryActivityReport({
@@ -82,6 +96,27 @@ InventoryActivityReport buildInventoryActivityReport({
           .toList()
         ..sort((a, b) => b.entry.createdAt.compareTo(a.entry.createdAt));
 
+  final reasonMap = <String, InventoryReasonSummary>{};
+  for (final row in rows) {
+    final reason = row.entry.reason.trim().isEmpty
+        ? row.entry.type.label
+        : row.entry.reason.trim();
+    final previous = reasonMap[reason];
+    reasonMap[reason] = InventoryReasonSummary(
+      reason: reason,
+      count: (previous?.count ?? 0) + 1,
+      netQuantityDelta: _roundQuantity(
+        (previous?.netQuantityDelta ?? 0) + row.entry.quantityDelta,
+      ),
+    );
+  }
+  final reasonBreakdown = reasonMap.values.toList()
+    ..sort((a, b) {
+      final countCompare = b.count.compareTo(a.count);
+      if (countCompare != 0) return countCompare;
+      return a.reason.compareTo(b.reason);
+    });
+
   return InventoryActivityReport(
     rows: rows,
     trackedProductCount: trackedProducts.length,
@@ -94,5 +129,63 @@ InventoryActivityReport buildInventoryActivityReport({
           (entry) => entry.type == ProductInventoryEntryType.manualAdjustment,
         )
         .length,
+    reasonBreakdown: reasonBreakdown,
   );
+}
+
+String buildInventoryActivityCsv(InventoryActivityReport report) {
+  final buffer = StringBuffer()
+    ..writeln('Product,SKU,Type,Reference,Reason,Note,Date,Delta,Balance');
+
+  for (final row in report.rows) {
+    buffer.writeln(
+      [
+        row.productName,
+        row.sku,
+        row.entry.type.label,
+        row.entry.reference,
+        row.entry.reason,
+        row.entry.note,
+        row.entry.createdAt.toIso8601String(),
+        row.entry.quantityDelta.toStringAsFixed(2),
+        row.entry.balanceAfter.toStringAsFixed(2),
+      ].map(_csvCell).join(','),
+    );
+  }
+
+  buffer
+    ..writeln()
+    ..writeln('Summary,Value')
+    ..writeln('Tracked Products,${report.trackedProductCount}')
+    ..writeln('Low Stock,${report.lowStockCount}')
+    ..writeln('Movements,${report.movementCount}')
+    ..writeln('Manual Adjustments,${report.manualAdjustmentCount}')
+    ..writeln()
+    ..writeln('Reason,Count,Net Delta');
+
+  for (final summary in report.reasonBreakdown) {
+    buffer.writeln(
+      [
+        summary.reason,
+        summary.count.toString(),
+        summary.netQuantityDelta.toStringAsFixed(2),
+      ].map(_csvCell).join(','),
+    );
+  }
+
+  return buffer.toString();
+}
+
+String _csvCell(String value) {
+  final escaped = value.replaceAll('"', '""');
+  if (escaped.contains(',') ||
+      escaped.contains('"') ||
+      escaped.contains('\n')) {
+    return '"$escaped"';
+  }
+  return escaped;
+}
+
+double _roundQuantity(double value) {
+  return double.parse(value.toStringAsFixed(4));
 }
