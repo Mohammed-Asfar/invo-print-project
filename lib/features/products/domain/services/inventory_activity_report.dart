@@ -8,6 +8,8 @@ class InventoryActivityReport {
     required this.lowStockCount,
     required this.movementCount,
     required this.manualAdjustmentCount,
+    required this.totalStockValue,
+    required this.totalRecommendedRestockQuantity,
     required this.reasonBreakdown,
   });
 
@@ -16,6 +18,8 @@ class InventoryActivityReport {
   final int lowStockCount;
   final int movementCount;
   final int manualAdjustmentCount;
+  final double totalStockValue;
+  final double totalRecommendedRestockQuantity;
   final List<InventoryReasonSummary> reasonBreakdown;
 }
 
@@ -129,6 +133,18 @@ InventoryActivityReport buildInventoryActivityReport({
           (entry) => entry.type == ProductInventoryEntryType.manualAdjustment,
         )
         .length,
+    totalStockValue: _roundQuantity(
+      trackedProducts.fold<double>(
+        0,
+        (sum, product) => sum + product.stockValue,
+      ),
+    ),
+    totalRecommendedRestockQuantity: _roundQuantity(
+      trackedProducts.fold<double>(
+        0,
+        (sum, product) => sum + product.recommendedRestockQuantity,
+      ),
+    ),
     reasonBreakdown: reasonBreakdown,
   );
 }
@@ -160,6 +176,10 @@ String buildInventoryActivityCsv(InventoryActivityReport report) {
     ..writeln('Low Stock,${report.lowStockCount}')
     ..writeln('Movements,${report.movementCount}')
     ..writeln('Manual Adjustments,${report.manualAdjustmentCount}')
+    ..writeln('Inventory Value,${report.totalStockValue.toStringAsFixed(2)}')
+    ..writeln(
+      'Recommended Restock Qty,${report.totalRecommendedRestockQuantity.toStringAsFixed(2)}',
+    )
     ..writeln()
     ..writeln('Reason,Count,Net Delta');
 

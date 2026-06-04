@@ -505,7 +505,12 @@ class _ProductCard extends StatelessWidget {
             children: [
               _Metric(label: 'Rate', value: product.defaultRate.toString()),
               const SizedBox(width: AppSpacing.lg),
-              _Metric(label: 'GST', value: '${product.gstRate}%'),
+              _Metric(
+                label: product.trackInventory ? 'Cost' : 'GST',
+                value: product.trackInventory
+                    ? product.costPrice.toStringAsFixed(2)
+                    : '${product.gstRate}%',
+              ),
               const SizedBox(width: AppSpacing.lg),
               _Metric(
                 label: product.trackInventory ? 'Stock' : 'Unit',
@@ -640,6 +645,19 @@ class _InventoryMetrics extends StatelessWidget {
           icon: Icons.tune_outlined,
           label: 'Manual Adjustments',
           value: report.manualAdjustmentCount.toString(),
+        ),
+        _InventoryMetricCard(
+          icon: Icons.account_balance_wallet_outlined,
+          label: 'Inventory Value',
+          value: report.totalStockValue.toStringAsFixed(2),
+        ),
+        _InventoryMetricCard(
+          icon: Icons.local_shipping_outlined,
+          label: 'Restock Qty',
+          value: report.totalRecommendedRestockQuantity.toStringAsFixed(2),
+          valueColor: report.totalRecommendedRestockQuantity > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
         ),
       ],
     );
@@ -832,7 +850,7 @@ class _LowStockPanel extends StatelessWidget {
                     border: Border.all(color: AppColors.border),
                   ),
                   child: Text(
-                    '${product.name}  •  ${_formatQuantity(product.stockQuantity)} ${product.unit}',
+                    '${product.name}  •  ${_formatQuantity(product.stockQuantity)} ${product.unit}  •  Restock ${_formatQuantity(product.recommendedRestockQuantity)} ${product.unit}',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w700,
@@ -975,6 +993,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   final _rate = TextEditingController();
   final _hsnSac = TextEditingController();
   final _gstRate = TextEditingController();
+  final _costPrice = TextEditingController();
   final _stockQuantity = TextEditingController();
   final _reorderLevel = TextEditingController();
   ProductServiceType _type = ProductServiceType.service;
@@ -988,6 +1007,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       _unit.text = 'service';
       _rate.text = '0';
       _gstRate.text = '0';
+      _costPrice.text = '0';
       return;
     }
     _name.text = product.name;
@@ -999,6 +1019,7 @@ class _ProductDialogState extends State<_ProductDialog> {
     _hsnSac.text = product.hsnSac;
     _gstRate.text = product.gstRate.toString();
     _trackInventory = product.trackInventory;
+    _costPrice.text = product.costPrice.toString();
     _stockQuantity.text = product.stockQuantity.toString();
     _reorderLevel.text = product.reorderLevel.toString();
   }
@@ -1013,6 +1034,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       _rate,
       _hsnSac,
       _gstRate,
+      _costPrice,
       _stockQuantity,
       _reorderLevel,
     ]) {
@@ -1087,6 +1109,7 @@ class _ProductDialogState extends State<_ProductDialog> {
                   ),
                 ),
                 if (_trackInventory) ...[
+                  _DialogField(_costPrice, 'Cost Price', numeric: true),
                   _DialogField(_stockQuantity, 'Current Stock', numeric: true),
                   _DialogField(_reorderLevel, 'Reorder Level', numeric: true),
                 ],
@@ -1125,6 +1148,7 @@ class _ProductDialogState extends State<_ProductDialog> {
         hsnSac: _hsnSac.text.trim(),
         gstRate: _doubleValue(_gstRate),
         trackInventory: _trackInventory,
+        costPrice: _trackInventory ? _doubleValue(_costPrice) : 0,
         stockQuantity: _trackInventory ? _doubleValue(_stockQuantity) : 0,
         reorderLevel: _trackInventory ? _doubleValue(_reorderLevel) : 0,
         isActive: true,

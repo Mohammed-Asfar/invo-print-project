@@ -12,6 +12,7 @@ class ProductService extends Equatable {
     required this.hsnSac,
     required this.gstRate,
     required this.trackInventory,
+    required this.costPrice,
     required this.stockQuantity,
     required this.reorderLevel,
     required this.isActive,
@@ -32,6 +33,7 @@ class ProductService extends Equatable {
       hsnSac: '',
       gstRate: 0,
       trackInventory: false,
+      costPrice: 0,
       stockQuantity: 0,
       reorderLevel: 0,
       isActive: true,
@@ -50,6 +52,7 @@ class ProductService extends Equatable {
   final String hsnSac;
   final double gstRate;
   final bool trackInventory;
+  final double costPrice;
   final double stockQuantity;
   final double reorderLevel;
   final bool isActive;
@@ -58,6 +61,13 @@ class ProductService extends Equatable {
 
   bool get isLowStock =>
       trackInventory && reorderLevel > 0 && stockQuantity <= reorderLevel;
+
+  double get stockValue => trackInventory ? stockQuantity * costPrice : 0;
+
+  double get recommendedRestockQuantity =>
+      trackInventory && reorderLevel > stockQuantity
+      ? reorderLevel - stockQuantity
+      : 0;
 
   ProductService copyWith({
     String? id,
@@ -70,6 +80,7 @@ class ProductService extends Equatable {
     String? hsnSac,
     double? gstRate,
     bool? trackInventory,
+    double? costPrice,
     double? stockQuantity,
     double? reorderLevel,
     bool? isActive,
@@ -87,6 +98,7 @@ class ProductService extends Equatable {
       hsnSac: hsnSac ?? this.hsnSac,
       gstRate: gstRate ?? this.gstRate,
       trackInventory: trackInventory ?? this.trackInventory,
+      costPrice: costPrice ?? this.costPrice,
       stockQuantity: stockQuantity ?? this.stockQuantity,
       reorderLevel: reorderLevel ?? this.reorderLevel,
       isActive: isActive ?? this.isActive,
@@ -107,6 +119,7 @@ class ProductService extends Equatable {
     hsnSac,
     gstRate,
     trackInventory,
+    costPrice,
     stockQuantity,
     reorderLevel,
     isActive,

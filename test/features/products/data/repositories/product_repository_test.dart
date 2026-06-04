@@ -37,6 +37,7 @@ void main() {
           sku: 'PRN-001',
           unit: 'pcs',
           trackInventory: true,
+          costPrice: 1900,
           stockQuantity: 12,
           reorderLevel: 4,
         ),
@@ -46,6 +47,7 @@ void main() {
       expect(saved.key, startsWith('products/prod_'));
       expect(saved.value, containsPair('sku', 'PRN-001'));
       expect(saved.value, containsPair('trackInventory', true));
+      expect(saved.value, containsPair('costPrice', 1900));
       expect(saved.value, containsPair('stockQuantity', 12));
       expect(saved.value, containsPair('reorderLevel', 4));
     });
@@ -54,6 +56,7 @@ void main() {
       final product = _product(
         id: 'prod_1',
         trackInventory: true,
+        costPrice: 1200,
         stockQuantity: 3,
         reorderLevel: 5,
       );
@@ -66,6 +69,7 @@ void main() {
       final archived = firestore.documents['products/prod_1']!;
       expect(archived, containsPair('isActive', false));
       expect(archived, containsPair('trackInventory', true));
+      expect(archived, containsPair('costPrice', 1200));
       expect(archived, containsPair('stockQuantity', 3));
       expect(archived, containsPair('reorderLevel', 5));
     });
@@ -78,6 +82,7 @@ ProductService _product({
   String sku = '',
   String unit = 'service',
   bool trackInventory = false,
+  double costPrice = 0,
   double stockQuantity = 0,
   double reorderLevel = 0,
   bool isActive = true,
@@ -95,6 +100,7 @@ ProductService _product({
     hsnSac: '8443',
     gstRate: 18,
     trackInventory: trackInventory,
+    costPrice: costPrice,
     stockQuantity: stockQuantity,
     reorderLevel: reorderLevel,
     isActive: isActive,

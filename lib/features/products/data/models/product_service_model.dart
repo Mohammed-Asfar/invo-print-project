@@ -12,6 +12,7 @@ class ProductServiceModel extends ProductService {
     required super.hsnSac,
     required super.gstRate,
     required super.trackInventory,
+    required super.costPrice,
     required super.stockQuantity,
     required super.reorderLevel,
     required super.isActive,
@@ -31,6 +32,7 @@ class ProductServiceModel extends ProductService {
       hsnSac: product.hsnSac,
       gstRate: product.gstRate,
       trackInventory: product.trackInventory,
+      costPrice: product.costPrice,
       stockQuantity: product.stockQuantity,
       reorderLevel: product.reorderLevel,
       isActive: product.isActive,
@@ -54,6 +56,7 @@ class ProductServiceModel extends ProductService {
       hsnSac: map['hsnSac'] as String? ?? defaults.hsnSac,
       gstRate: _toDouble(map['gstRate'], defaults.gstRate),
       trackInventory: map['trackInventory'] as bool? ?? defaults.trackInventory,
+      costPrice: _toDouble(map['costPrice'], defaults.costPrice),
       stockQuantity: _toDouble(map['stockQuantity'], defaults.stockQuantity),
       reorderLevel: _toDouble(map['reorderLevel'], defaults.reorderLevel),
       isActive: map['isActive'] as bool? ?? defaults.isActive,
@@ -80,6 +83,7 @@ class ProductServiceModel extends ProductService {
     }
     if (trackInventory) {
       map['trackInventory'] = true;
+      map['costPrice'] = costPrice;
       map['stockQuantity'] = stockQuantity;
       map['reorderLevel'] = reorderLevel;
     }

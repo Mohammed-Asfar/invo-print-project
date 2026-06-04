@@ -15,6 +15,7 @@ void main() {
       expect(product.name, 'Installation');
       expect(product.sku, isEmpty);
       expect(product.trackInventory, isFalse);
+      expect(product.costPrice, 0);
       expect(product.stockQuantity, 0);
       expect(product.reorderLevel, 0);
     });
@@ -26,6 +27,7 @@ void main() {
 
       expect(untracked, containsPair('sku', 'CONS-1'));
       expect(untracked, isNot(contains('trackInventory')));
+      expect(untracked, isNot(contains('costPrice')));
       expect(untracked, isNot(contains('stockQuantity')));
       expect(untracked, isNot(contains('reorderLevel')));
 
@@ -36,12 +38,14 @@ void main() {
           sku: 'PRN-1',
           unit: 'pcs',
           trackInventory: true,
+          costPrice: 1800,
           stockQuantity: 5,
           reorderLevel: 10,
         ),
       ).toMap();
 
       expect(tracked, containsPair('trackInventory', true));
+      expect(tracked, containsPair('costPrice', 1800));
       expect(tracked, containsPair('stockQuantity', 5));
       expect(tracked, containsPair('reorderLevel', 10));
     });
@@ -65,6 +69,18 @@ void main() {
             .isLowStock,
         isFalse,
       );
+    });
+
+    test('computes stock value and restock recommendation', () {
+      final product = ProductService.empty().copyWith(
+        trackInventory: true,
+        costPrice: 100,
+        stockQuantity: 4,
+        reorderLevel: 10,
+      );
+
+      expect(product.stockValue, 400);
+      expect(product.recommendedRestockQuantity, 6);
     });
   });
 }

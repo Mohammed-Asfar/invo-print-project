@@ -8,8 +8,18 @@ void main() {
     test('builds metrics from tracked products and all movements', () {
       final report = buildInventoryActivityReport(
         products: [
-          _product(id: 'prod_1', stockQuantity: 2, reorderLevel: 3),
-          _product(id: 'prod_2', stockQuantity: 8, reorderLevel: 2),
+          _product(
+            id: 'prod_1',
+            stockQuantity: 2,
+            reorderLevel: 3,
+            costPrice: 12,
+          ),
+          _product(
+            id: 'prod_2',
+            stockQuantity: 8,
+            reorderLevel: 2,
+            costPrice: 7.5,
+          ),
           _product(
             id: 'svc_1',
             trackInventory: false,
@@ -30,6 +40,8 @@ void main() {
       expect(report.lowStockCount, 1);
       expect(report.movementCount, 2);
       expect(report.manualAdjustmentCount, 1);
+      expect(report.totalStockValue, 84);
+      expect(report.totalRecommendedRestockQuantity, 1);
       expect(
         report.reasonBreakdown.map((summary) => summary.reason),
         containsAll(['Manual adjustment', 'Invoice issued']),
@@ -131,6 +143,8 @@ void main() {
       expect(csv, contains('"Printer, ""A"""'));
       expect(csv, contains('"Batch\n1"'));
       expect(csv, contains('Summary,Value'));
+      expect(csv, contains('Inventory Value,25.00'));
+      expect(csv, contains('Recommended Restock Qty,0.00'));
       expect(csv, contains('Reason,Count,Net Delta'));
       expect(csv, contains('Purchase,1,1.00'));
     });
@@ -145,6 +159,7 @@ ProductService _product({
   bool trackInventory = true,
   double stockQuantity = 5,
   double reorderLevel = 2,
+  double costPrice = 5,
 }) {
   final now = DateTime(2026, 6, 4);
   return ProductService(
@@ -158,6 +173,7 @@ ProductService _product({
     hsnSac: '8443',
     gstRate: 18,
     trackInventory: trackInventory,
+    costPrice: costPrice,
     stockQuantity: stockQuantity,
     reorderLevel: reorderLevel,
     isActive: true,

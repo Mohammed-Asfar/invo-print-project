@@ -138,6 +138,7 @@ ProductService _product({double stockQuantity = 5}) {
     hsnSac: '8443',
     gstRate: 18,
     trackInventory: true,
+    costPrice: 1800,
     stockQuantity: stockQuantity,
     reorderLevel: 2,
     isActive: true,

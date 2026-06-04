@@ -118,6 +118,7 @@ ProductService _product({
     hsnSac: '8443',
     gstRate: 18,
     trackInventory: trackInventory,
+    costPrice: 0,
     stockQuantity: stockQuantity,
     reorderLevel: 2,
     isActive: true,
