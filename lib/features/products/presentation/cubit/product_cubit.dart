@@ -20,11 +20,17 @@ class ProductCubit extends Cubit<ProductState> {
   Future<void> load() async {
     emit(state.copyWith(status: ProductStatus.loading, clearMessage: true));
     try {
-      final products = await _repository.fetchProducts();
+      final results = await Future.wait<Object>([
+        _repository.fetchProducts(),
+        _inventoryRepository.fetchAllEntries(),
+      ]);
+      final products = results[0] as List<ProductService>;
+      final inventoryEntries = results[1] as List<ProductInventoryEntry>;
       emit(
         state.copyWith(
           status: ProductStatus.loaded,
           products: products,
+          inventoryEntries: inventoryEntries,
           clearMessage: true,
         ),
       );
@@ -159,11 +165,17 @@ class ProductCubit extends Cubit<ProductState> {
         );
         rethrow;
       }
-      final products = await _repository.fetchProducts();
+      final results = await Future.wait<Object>([
+        _repository.fetchProducts(),
+        _inventoryRepository.fetchAllEntries(),
+      ]);
+      final products = results[0] as List<ProductService>;
+      final inventoryEntries = results[1] as List<ProductInventoryEntry>;
       emit(
         state.copyWith(
           status: ProductStatus.saved,
           products: products,
+          inventoryEntries: inventoryEntries,
           message: 'Stock adjusted.',
         ),
       );

@@ -7,7 +7,7 @@ class ProductInventoryRepository {
 
   final CustomerFirestoreRestClient _firestore;
 
-  Future<List<ProductInventoryEntry>> fetchEntries(String productId) async {
+  Future<List<ProductInventoryEntry>> fetchAllEntries() async {
     final documents = await _firestore.listDocuments(
       'product_inventory_entries',
     );
@@ -19,10 +19,14 @@ class ProductInventoryRepository {
                 document.data,
               ),
             )
-            .where((entry) => entry.productId == productId)
             .toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return entries;
+  }
+
+  Future<List<ProductInventoryEntry>> fetchEntries(String productId) async {
+    final entries = await fetchAllEntries();
+    return entries.where((entry) => entry.productId == productId).toList();
   }
 
   Future<void> saveEntry(ProductInventoryEntry entry) {

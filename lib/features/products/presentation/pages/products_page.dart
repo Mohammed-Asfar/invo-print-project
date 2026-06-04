@@ -6,6 +6,7 @@ import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../domain/entities/product_inventory_entry.dart';
 import '../../domain/entities/product_service.dart';
+import '../../domain/services/inventory_activity_report.dart';
 import '../cubit/product_cubit.dart';
 
 class ProductsPage extends StatelessWidget {
@@ -22,8 +23,17 @@ class ProductsPage extends StatelessWidget {
   }
 }
 
-class _ProductsView extends StatelessWidget {
+class _ProductsView extends StatefulWidget {
   const _ProductsView();
+
+  @override
+  State<_ProductsView> createState() => _ProductsViewState();
+}
+
+class _ProductsViewState extends State<_ProductsView> {
+  String _inventorySearchQuery = '';
+  String _selectedInventoryProductId = '';
+  ProductInventoryEntryType? _selectedInventoryType;
 
   @override
   Widget build(BuildContext context) {
@@ -53,24 +63,199 @@ class _ProductsView extends StatelessWidget {
               children: [
                 _ProductsHeader(state: state),
                 const SizedBox(height: AppSpacing.xl),
-                TextField(
-                  onChanged: context.read<ProductCubit>().search,
-                  decoration: const InputDecoration(
-                    labelText: 'Search products and services',
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
                 Expanded(
-                  child: state.status == ProductStatus.loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _ProductGrid(products: state.filteredProducts),
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(AppSpacing.sm),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: const TabBar(
+                            tabs: [
+                              Tab(text: 'Catalog'),
+                              Tab(text: 'Inventory'),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        Expanded(
+                          child: state.status == ProductStatus.loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : TabBarView(
+                                  children: [
+                                    _CatalogTab(state: state),
+                                    _InventoryTab(
+                                      state: state,
+                                      searchQuery: _inventorySearchQuery,
+                                      selectedProductId:
+                                          _selectedInventoryProductId,
+                                      selectedType: _selectedInventoryType,
+                                      onSearchChanged: (value) {
+                                        setState(
+                                          () => _inventorySearchQuery = value,
+                                        );
+                                      },
+                                      onProductChanged: (value) {
+                                        setState(
+                                          () => _selectedInventoryProductId =
+                                              value,
+                                        );
+                                      },
+                                      onTypeChanged: (value) {
+                                        setState(
+                                          () => _selectedInventoryType = value,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _CatalogTab extends StatelessWidget {
+  const _CatalogTab({required this.state});
+
+  final ProductState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          onChanged: context.read<ProductCubit>().search,
+          decoration: const InputDecoration(
+            labelText: 'Search products and services',
+            prefixIcon: Icon(Icons.search),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Expanded(child: _ProductGrid(products: state.filteredProducts)),
+      ],
+    );
+  }
+}
+
+class _InventoryTab extends StatelessWidget {
+  const _InventoryTab({
+    required this.state,
+    required this.searchQuery,
+    required this.selectedProductId,
+    required this.selectedType,
+    required this.onSearchChanged,
+    required this.onProductChanged,
+    required this.onTypeChanged,
+  });
+
+  final ProductState state;
+  final String searchQuery;
+  final String selectedProductId;
+  final ProductInventoryEntryType? selectedType;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<String> onProductChanged;
+  final ValueChanged<ProductInventoryEntryType?> onTypeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final trackedProducts =
+        state.products.where((product) => product.trackInventory).toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+    final report = buildInventoryActivityReport(
+      products: state.products,
+      entries: state.inventoryEntries,
+      productId: selectedProductId,
+      type: selectedType,
+      searchQuery: searchQuery,
+    );
+    final lowStockProducts =
+        trackedProducts.where((product) => product.isLowStock).toList()
+          ..sort((a, b) => a.stockQuantity.compareTo(b.stockQuantity));
+
+    return Column(
+      children: [
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            SizedBox(
+              width: 280,
+              child: TextField(
+                onChanged: onSearchChanged,
+                decoration: const InputDecoration(
+                  labelText: 'Search movements',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 260,
+              child: DropdownButtonFormField<String>(
+                initialValue: selectedProductId,
+                decoration: const InputDecoration(
+                  labelText: 'Product',
+                  prefixIcon: Icon(Icons.inventory_2_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('All tracked products'),
+                  ),
+                  for (final product in trackedProducts)
+                    DropdownMenuItem<String>(
+                      value: product.id,
+                      child: Text(product.name),
+                    ),
+                ],
+                onChanged: (value) => onProductChanged(value ?? ''),
+              ),
+            ),
+            SizedBox(
+              width: 240,
+              child: DropdownButtonFormField<ProductInventoryEntryType?>(
+                initialValue: selectedType,
+                decoration: const InputDecoration(
+                  labelText: 'Movement Type',
+                  prefixIcon: Icon(Icons.compare_arrows_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<ProductInventoryEntryType?>(
+                    child: Text('All movement types'),
+                  ),
+                  for (final type in ProductInventoryEntryType.values)
+                    DropdownMenuItem<ProductInventoryEntryType?>(
+                      value: type,
+                      child: Text(type.label),
+                    ),
+                ],
+                onChanged: onTypeChanged,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _InventoryMetrics(report: report),
+        if (lowStockProducts.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _LowStockPanel(products: lowStockProducts),
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        Expanded(child: _InventoryActivityTable(rows: report.rows)),
+      ],
     );
   }
 }
@@ -370,6 +555,283 @@ class _Metric extends StatelessWidget {
   }
 }
 
+class _InventoryMetrics extends StatelessWidget {
+  const _InventoryMetrics({required this.report});
+
+  final InventoryActivityReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _InventoryMetricCard(
+          icon: Icons.inventory_outlined,
+          label: 'Tracked Products',
+          value: report.trackedProductCount.toString(),
+        ),
+        _InventoryMetricCard(
+          icon: Icons.warning_amber_outlined,
+          label: 'Low Stock',
+          value: report.lowStockCount.toString(),
+          valueColor: report.lowStockCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _InventoryMetricCard(
+          icon: Icons.swap_vert_circle_outlined,
+          label: 'Movements',
+          value: report.movementCount.toString(),
+        ),
+        _InventoryMetricCard(
+          icon: Icons.tune_outlined,
+          label: 'Manual Adjustments',
+          value: report.manualAdjustmentCount.toString(),
+        ),
+      ],
+    );
+  }
+}
+
+class _InventoryMetricCard extends StatelessWidget {
+  const _InventoryMetricCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primaryPurple),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: valueColor ?? AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LowStockPanel extends StatelessWidget {
+  const _LowStockPanel({required this.products});
+
+  final List<ProductService> products;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_outlined, color: AppColors.warning),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'Needs Attention',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final product in products)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSoft,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    '${product.name}  •  ${_formatQuantity(product.stockQuantity)} ${product.unit}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InventoryActivityTable extends StatelessWidget {
+  const _InventoryActivityTable({required this.rows});
+
+  final List<InventoryActivityRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return Center(
+        child: Text(
+          'No stock movements match these filters.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+              columns: const [
+                DataColumn(label: Text('Date')),
+                DataColumn(label: Text('Product')),
+                DataColumn(label: Text('Type')),
+                DataColumn(label: Text('Reference')),
+                DataColumn(label: Text('Reason')),
+                DataColumn(numeric: true, label: Text('Delta')),
+                DataColumn(numeric: true, label: Text('Balance')),
+              ],
+              rows: [
+                for (final row in rows)
+                  DataRow(
+                    cells: [
+                      DataCell(Text(_formatDateTime(row.entry.createdAt))),
+                      DataCell(
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(row.productName),
+                            if (row.sku.isNotEmpty)
+                              Text(
+                                row.sku,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: AppColors.textSecondary),
+                              ),
+                          ],
+                        ),
+                      ),
+                      DataCell(Text(row.entry.type.label)),
+                      DataCell(
+                        Text(
+                          row.entry.reference.isEmpty
+                              ? '—'
+                              : row.entry.reference,
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.entry.reason.isNotEmpty
+                              ? row.entry.reason
+                              : (row.entry.note.isNotEmpty
+                                    ? row.entry.note
+                                    : '—'),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          '${row.entry.isIncrease ? '+' : ''}${_formatQuantity(row.entry.quantityDelta)}',
+                          style: TextStyle(
+                            color: row.entry.isIncrease
+                                ? AppColors.success
+                                : AppColors.warning,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          '${_formatQuantity(row.entry.balanceAfter)}${row.unit.isEmpty ? '' : ' ${row.unit}'}',
+                          style: TextStyle(
+                            color: row.isLowStock
+                                ? AppColors.warning
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProductDialog extends StatefulWidget {
   const _ProductDialog({this.product});
 
@@ -601,14 +1063,14 @@ class _StockAdjustmentDialog extends StatefulWidget {
 
 class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _quantityDelta = TextEditingController();
-  final _reason = TextEditingController();
+  final _quantity = TextEditingController();
   final _note = TextEditingController();
+  _StockAdjustmentMode _mode = _StockAdjustmentMode.add;
+  String _reason = _stockAdjustmentReasons.first;
 
   @override
   void dispose() {
-    _quantityDelta.dispose();
-    _reason.dispose();
+    _quantity.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -631,14 +1093,48 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
+              DropdownButtonFormField<_StockAdjustmentMode>(
+                initialValue: _mode,
+                decoration: const InputDecoration(
+                  labelText: 'Adjustment Mode',
+                  prefixIcon: Icon(Icons.swap_horiz_outlined),
+                ),
+                items: _StockAdjustmentMode.values
+                    .map(
+                      (mode) => DropdownMenuItem(
+                        value: mode,
+                        child: Text(mode.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _mode = value);
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
               _DialogField(
-                _quantityDelta,
-                'Change in stock (+/-)',
+                _quantity,
+                _mode.quantityLabel,
                 numeric: true,
                 required: true,
               ),
               const SizedBox(height: AppSpacing.md),
-              _DialogField(_reason, 'Reason', required: true),
+              DropdownButtonFormField<String>(
+                initialValue: _reason,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  prefixIcon: Icon(Icons.category_outlined),
+                ),
+                items: [
+                  for (final reason in _stockAdjustmentReasons)
+                    DropdownMenuItem(value: reason, child: Text(reason)),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _reason = value);
+                },
+              ),
               const SizedBox(height: AppSpacing.md),
               _DialogField(_note, 'Note', maxLines: 3),
             ],
@@ -661,15 +1157,42 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
 
   void _save() {
     if (!_formKey.currentState!.validate()) return;
+    final enteredQuantity = double.tryParse(_quantity.text.trim()) ?? 0;
+    final quantityDelta = switch (_mode) {
+      _StockAdjustmentMode.add => enteredQuantity,
+      _StockAdjustmentMode.remove => -enteredQuantity,
+      _StockAdjustmentMode.setExact =>
+        enteredQuantity - widget.product.stockQuantity,
+    };
     context.read<ProductCubit>().adjustStock(
       widget.product,
-      quantityDelta: double.tryParse(_quantityDelta.text.trim()) ?? 0,
-      reason: _reason.text.trim(),
+      quantityDelta: quantityDelta,
+      reason: _reason,
       note: _note.text.trim(),
     );
     Navigator.of(context).pop();
   }
 }
+
+enum _StockAdjustmentMode {
+  add('Add stock', 'Quantity to add'),
+  remove('Remove stock', 'Quantity to remove'),
+  setExact('Set exact stock', 'New stock balance');
+
+  const _StockAdjustmentMode(this.label, this.quantityLabel);
+
+  final String label;
+  final String quantityLabel;
+}
+
+const List<String> _stockAdjustmentReasons = [
+  'Opening stock',
+  'Purchase',
+  'Return',
+  'Damage',
+  'Correction',
+  'Physical count',
+];
 
 class _InventoryHistoryDialog extends StatelessWidget {
   const _InventoryHistoryDialog({required this.product});
