@@ -192,6 +192,15 @@ class ProductCubit extends Cubit<ProductState> {
   Future<void> savePurchaseEntry(PurchaseEntry purchaseEntry) async {
     final trimmedEntryNumber = purchaseEntry.entryNumber.trim();
     final trimmedSupplierName = purchaseEntry.supplierName.trim();
+    PurchaseEntry? existingEntry;
+    if (purchaseEntry.id.isNotEmpty) {
+      for (final entry in state.purchaseEntries) {
+        if (entry.id == purchaseEntry.id) {
+          existingEntry = entry;
+          break;
+        }
+      }
+    }
     if (trimmedEntryNumber.isEmpty) {
       emit(
         state.copyWith(
@@ -230,13 +239,30 @@ class ProductCubit extends Cubit<ProductState> {
       return;
     }
 
+    final normalizedTotalAmount = _roundQuantity(
+      purchaseEntry.items.fold<double>(0, (sum, item) => sum + item.lineTotal),
+    );
+    if (existingEntry != null &&
+        existingEntry.amountPaid > normalizedTotalAmount) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message:
+              'This bill already has more payments recorded than the edited total.',
+        ),
+      );
+      return;
+    }
+
     final productsById = {
       for (final product in state.products) product.id: product,
     };
     final updatedProducts = <ProductService>[];
     final originalProducts = <ProductService>[];
-    final quantityTotals = <String, double>{};
+    final newQuantityTotals = <String, double>{};
+    final oldQuantityTotals = <String, double>{};
     final latestUnitCostByProductId = <String, double>{};
+    final existingUnitCostByProductId = <String, double>{};
 
     for (final item in purchaseEntry.items) {
       final product = productsById[item.productId];
@@ -259,90 +285,146 @@ class ProductCubit extends Cubit<ProductState> {
         );
         return;
       }
-      quantityTotals[item.productId] = _roundQuantity(
-        (quantityTotals[item.productId] ?? 0) + item.quantity,
+      newQuantityTotals[item.productId] = _roundQuantity(
+        (newQuantityTotals[item.productId] ?? 0) + item.quantity,
       );
       if (item.unitCost > 0) {
         latestUnitCostByProductId[item.productId] = item.unitCost;
       }
     }
 
-    for (final entry in quantityTotals.entries) {
+    if (existingEntry != null) {
+      for (final item in existingEntry.items) {
+        final product = productsById[item.productId];
+        if (product == null || !product.trackInventory) {
+          emit(
+            state.copyWith(
+              status: ProductStatus.failure,
+              message:
+                  'Existing purchase items reference products that are no longer available for inventory tracking.',
+            ),
+          );
+          return;
+        }
+        oldQuantityTotals[item.productId] = _roundQuantity(
+          (oldQuantityTotals[item.productId] ?? 0) + item.quantity,
+        );
+        if (item.unitCost > 0) {
+          existingUnitCostByProductId[item.productId] = item.unitCost;
+        }
+      }
+    }
+
+    final quantityDeltas = <String, double>{};
+    final productIds = {...newQuantityTotals.keys, ...oldQuantityTotals.keys};
+
+    for (final productId in productIds) {
+      final delta = _roundQuantity(
+        (newQuantityTotals[productId] ?? 0) -
+            (oldQuantityTotals[productId] ?? 0),
+      );
+      if (delta == 0) continue;
+      quantityDeltas[productId] = delta;
+    }
+
+    for (final entry in quantityDeltas.entries) {
       final product = productsById[entry.key]!;
+      final nextStock = _roundQuantity(product.stockQuantity + entry.value);
+      if (nextStock < 0) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Editing ${purchaseEntry.entryNumber} would make ${product.name} stock go below zero.',
+          ),
+        );
+        return;
+      }
       originalProducts.add(product);
       updatedProducts.add(
         product.copyWith(
-          stockQuantity: _roundQuantity(product.stockQuantity + entry.value),
-          costPrice: latestUnitCostByProductId[entry.key] ?? product.costPrice,
+          stockQuantity: nextStock,
+          costPrice: entry.value > 0
+              ? (latestUnitCostByProductId[entry.key] ?? product.costPrice)
+              : product.costPrice,
           updatedAt: DateTime.now(),
         ),
       );
     }
 
     emit(state.copyWith(status: ProductStatus.saving));
-    final historyEntries = <ProductInventoryEntry>[
-      for (final item in purchaseEntry.items)
+    final historyEntries = <ProductInventoryEntry>[];
+    for (final entry in quantityDeltas.entries) {
+      final updatedProduct = updatedProducts
+          .where((product) => product.id == entry.key)
+          .first;
+      final unitCost = entry.value > 0
+          ? (latestUnitCostByProductId[entry.key] ?? 0)
+          : (existingUnitCostByProductId[entry.key] ?? 0);
+      historyEntries.add(
         buildInventoryEntries(
-          quantityDeltas: {item.productId: item.quantity},
-          products: updatedProducts
-              .where((product) => product.id == item.productId)
-              .toList(),
-          type: ProductInventoryEntryType.purchaseReceived,
+          quantityDeltas: {entry.key: entry.value},
+          products: [updatedProduct],
+          type: existingEntry == null
+              ? ProductInventoryEntryType.purchaseReceived
+              : ProductInventoryEntryType.manualAdjustment,
           createdAt: purchaseEntry.purchaseDate,
           reference: trimmedEntryNumber,
           secondaryReference: purchaseEntry.billReference.trim(),
           supplierName: trimmedSupplierName,
-          unitCost: item.unitCost,
-          reason: 'Purchase',
+          unitCost: unitCost,
+          reason: existingEntry == null ? 'Purchase' : 'Purchase edit',
           note: purchaseEntry.notes.trim(),
         ).single,
-    ];
+      );
+    }
 
     try {
-      await _repository.saveProducts(updatedProducts);
-      try {
-        await _inventoryRepository.saveEntries(historyEntries);
-      } catch (_) {
-        await _repository.saveProducts(originalProducts);
-        rethrow;
+      if (updatedProducts.isNotEmpty) {
+        await _repository.saveProducts(updatedProducts);
+        try {
+          if (historyEntries.isNotEmpty) {
+            await _inventoryRepository.saveEntries(historyEntries);
+          }
+        } catch (_) {
+          await _repository.saveProducts(originalProducts);
+          rethrow;
+        }
       }
       try {
-        await _purchaseEntryRepository.savePurchaseEntry(
-          purchaseEntry.copyWith(
-            totalAmount: _roundQuantity(
-              purchaseEntry.items.fold<double>(
-                0,
-                (sum, item) => sum + item.lineTotal,
-              ),
-            ),
-            amountPaid: 0,
-            paymentHistory: const [],
-            status: PurchasePaymentStatus.unpaid,
-          ),
-        );
+        final normalizedEntry = existingEntry == null
+            ? purchaseEntry.copyWith(
+                totalAmount: normalizedTotalAmount,
+                amountPaid: 0,
+                paymentHistory: const [],
+                status: PurchasePaymentStatus.unpaid,
+              )
+            : _rebuildPurchasePaymentState(
+                purchaseEntry.copyWith(
+                  totalAmount: normalizedTotalAmount,
+                  amountPaid: existingEntry.amountPaid,
+                  paymentHistory: existingEntry.paymentHistory,
+                  status: existingEntry.status,
+                  createdAt: existingEntry.createdAt,
+                ),
+                [...existingEntry.paymentHistory],
+              );
+        await _purchaseEntryRepository.savePurchaseEntry(normalizedEntry);
       } catch (_) {
-        await _inventoryRepository.deleteEntries(
-          historyEntries.map((entry) => entry.id),
-        );
-        await _repository.saveProducts(originalProducts);
+        if (historyEntries.isNotEmpty) {
+          await _inventoryRepository.deleteEntries(
+            historyEntries.map((entry) => entry.id),
+          );
+        }
+        if (updatedProducts.isNotEmpty) {
+          await _repository.saveProducts(originalProducts);
+        }
         rethrow;
       }
-
-      final results = await Future.wait<Object>([
-        _repository.fetchProducts(),
-        _inventoryRepository.fetchAllEntries(),
-        _purchaseEntryRepository.fetchPurchaseEntries(),
-        _supplierRepository.fetchSuppliers(),
-      ]);
-      emit(
-        state.copyWith(
-          status: ProductStatus.saved,
-          products: results[0] as List<ProductService>,
-          inventoryEntries: results[1] as List<ProductInventoryEntry>,
-          purchaseEntries: results[2] as List<PurchaseEntry>,
-          suppliers: results[3] as List<Supplier>,
-          message: 'Purchase entry saved.',
-        ),
+      await _reloadState(
+        message: existingEntry == null
+            ? 'Purchase entry saved.'
+            : 'Purchase bill updated.',
       );
     } on AppException catch (error) {
       emit(

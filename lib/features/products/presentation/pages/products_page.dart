@@ -494,6 +494,14 @@ class _PurchasesTab extends StatelessWidget {
   }
 
   void _showPurchaseDialog(BuildContext context, ProductState state) {
+    _openPurchaseDialog(context, state);
+  }
+
+  void _openPurchaseDialog(
+    BuildContext context,
+    ProductState state, {
+    PurchaseEntry? existingEntry,
+  }) {
     showDialog<void>(
       context: context,
       builder: (_) => BlocProvider.value(
@@ -504,6 +512,7 @@ class _PurchasesTab extends StatelessWidget {
               .where((product) => product.trackInventory)
               .toList(),
           existingCount: state.purchaseEntries.length,
+          existingEntry: existingEntry,
         ),
       ),
     );
@@ -1726,11 +1735,13 @@ class _PurchaseEntryDialog extends StatefulWidget {
     required this.suppliers,
     required this.products,
     required this.existingCount,
+    this.existingEntry,
   });
 
   final List<Supplier> suppliers;
   final List<ProductService> products;
   final int existingCount;
+  final PurchaseEntry? existingEntry;
 
   @override
   State<_PurchaseEntryDialog> createState() => _PurchaseEntryDialogState();
@@ -1750,6 +1761,36 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
   @override
   void initState() {
     super.initState();
+    final existingEntry = widget.existingEntry;
+    if (existingEntry != null) {
+      _items.first.dispose();
+      _entryNumber.text = existingEntry.entryNumber;
+      _billReference.text = existingEntry.billReference;
+      _supplierName.text = existingEntry.supplierName;
+      _notes.text = existingEntry.notes;
+      _purchaseDate = existingEntry.purchaseDate;
+      _dueDate = existingEntry.dueDate ?? existingEntry.purchaseDate;
+      _supplierId = existingEntry.supplierId;
+      _items
+        ..clear()
+        ..addAll(
+          existingEntry.items.map((item) {
+            ProductService? product;
+            for (final candidate in widget.products) {
+              if (candidate.id == item.productId) {
+                product = candidate;
+                break;
+              }
+            }
+            return _PurchaseItemDraft.fromEntryItem(item, product: product);
+          }),
+        );
+      if (_items.isEmpty) {
+        _items.add(_PurchaseItemDraft());
+      }
+      return;
+    }
+
     final seq = (widget.existingCount + 1).toString().padLeft(3, '0');
     _entryNumber.text =
         'PUR-${_purchaseDate.year}${_purchaseDate.month.toString().padLeft(2, '0')}-$seq';
@@ -1775,7 +1816,11 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return AlertDialog(
-      title: const Text('New Purchase Entry'),
+      title: Text(
+        widget.existingEntry == null
+            ? 'New Purchase Entry'
+            : 'Edit Purchase Bill',
+      ),
       content: SizedBox(
         width: 920,
         child: Form(
@@ -1925,7 +1970,9 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
         ElevatedButton.icon(
           onPressed: _save,
           icon: const Icon(Icons.save),
-          label: const Text('Save Purchase'),
+          label: Text(
+            widget.existingEntry == null ? 'Save Purchase' : 'Update Purchase',
+          ),
         ),
       ],
     );
@@ -1982,7 +2029,7 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
     }
     context.read<ProductCubit>().savePurchaseEntry(
       PurchaseEntry(
-        id: '',
+        id: widget.existingEntry?.id ?? '',
         entryNumber: _entryNumber.text.trim(),
         supplierId: _supplierId,
         supplierName: _supplierName.text.trim(),
@@ -1994,12 +2041,12 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
         totalAmount: _roundCurrency(
           items.fold<double>(0, (sum, item) => sum + item.lineTotal),
         ),
-        amountPaid: 0,
-        paymentHistory: const [],
-        status: PurchasePaymentStatus.unpaid,
-        isActive: true,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
+        amountPaid: widget.existingEntry?.amountPaid ?? 0,
+        paymentHistory: widget.existingEntry?.paymentHistory ?? const [],
+        status: widget.existingEntry?.status ?? PurchasePaymentStatus.unpaid,
+        isActive: widget.existingEntry?.isActive ?? true,
+        createdAt: widget.existingEntry?.createdAt ?? DateTime.now(),
+        updatedAt: widget.existingEntry?.updatedAt ?? DateTime.now(),
       ),
     );
     Navigator.of(context).pop();
@@ -2007,9 +2054,27 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
 }
 
 class _PurchaseItemDraft {
+  _PurchaseItemDraft({
+    this.product,
+    String quantity = '1',
+    String unitCost = '0',
+  }) : quantity = TextEditingController(text: quantity),
+       unitCost = TextEditingController(text: unitCost);
+
+  factory _PurchaseItemDraft.fromEntryItem(
+    PurchaseEntryItem item, {
+    ProductService? product,
+  }) {
+    return _PurchaseItemDraft(
+      product: product,
+      quantity: _formatQuantity(item.quantity),
+      unitCost: item.unitCost.toStringAsFixed(2),
+    );
+  }
+
   ProductService? product;
-  final quantity = TextEditingController(text: '1');
-  final unitCost = TextEditingController(text: '0');
+  final TextEditingController quantity;
+  final TextEditingController unitCost;
 
   void dispose() {
     quantity.dispose();
@@ -2253,6 +2318,14 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
           child: const Text('Close'),
         ),
         OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).pop();
+            _showEditPurchaseDialog(context, entry);
+          },
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Edit Bill'),
+        ),
+        OutlinedButton.icon(
           onPressed: () async {
             Navigator.of(context).pop();
             await context.read<ProductCubit>().voidPurchaseEntry(entry);
@@ -2287,6 +2360,25 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
           entry: entry,
           paymentIndex: paymentIndex,
           payment: payment,
+        ),
+      ),
+    );
+  }
+
+  void _showEditPurchaseDialog(BuildContext context, PurchaseEntry entry) {
+    final cubit = context.read<ProductCubit>();
+    final state = cubit.state;
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: cubit,
+        child: _PurchaseEntryDialog(
+          suppliers: state.suppliers,
+          products: state.products
+              .where((product) => product.trackInventory)
+              .toList(),
+          existingCount: state.purchaseEntries.length,
+          existingEntry: entry,
         ),
       ),
     );

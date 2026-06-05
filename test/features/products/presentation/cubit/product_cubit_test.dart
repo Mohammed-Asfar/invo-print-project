@@ -378,6 +378,249 @@ void main() {
       },
     );
 
+    test(
+      'savePurchaseEntry edits existing purchase and applies only stock delta',
+      () async {
+        final product = _product(stockQuantity: 8, costPrice: 1800);
+        final existing = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          dueDate: DateTime(2026, 6, 20),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 3,
+              unitCost: 2000,
+              lineTotal: 6000,
+            ),
+          ],
+          notes: 'Monthly restock',
+          totalAmount: 6000,
+          amountPaid: 1000,
+          paymentHistory: [
+            PurchasePayment(
+              amount: 1000,
+              paidAt: DateTime(2026, 6, 6),
+              reference: 'PAY-1',
+            ),
+          ],
+          status: PurchasePaymentStatus.partial,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${existing.id}': PurchaseEntryModel.fromEntity(
+            existing,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.savePurchaseEntry(
+          existing.copyWith(
+            items: const [
+              PurchaseEntryItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                sku: 'PRN-1',
+                unit: 'pcs',
+                quantity: 5,
+                unitCost: 2100,
+                lineTotal: 10500,
+              ),
+            ],
+            totalAmount: 10500,
+            notes: 'Expanded restock',
+          ),
+        );
+
+        expect(cubit.state.status, ProductStatus.saved);
+        final updatedProduct = cubit.state.products.single;
+        expect(updatedProduct.stockQuantity, 10);
+        expect(updatedProduct.costPrice, 2100);
+
+        final updatedEntry = cubit.state.purchaseEntries.single;
+        expect(updatedEntry.totalAmount, 10500);
+        expect(updatedEntry.amountPaid, 1000);
+        expect(updatedEntry.status, PurchasePaymentStatus.partial);
+        expect(updatedEntry.items.single.quantity, 5);
+        expect(updatedEntry.paymentHistory.single.reference, 'PAY-1');
+
+        final inventoryEntries = firestore.documents.entries
+            .where(
+              (entry) => entry.key.startsWith('product_inventory_entries/'),
+            )
+            .toList();
+        expect(inventoryEntries, hasLength(1));
+        final historyEntry = ProductInventoryEntryModel.fromMap(
+          inventoryEntries.single.key.split('/').last,
+          inventoryEntries.single.value,
+        );
+        expect(historyEntry.type, ProductInventoryEntryType.manualAdjustment);
+        expect(historyEntry.quantityDelta, 2);
+        expect(historyEntry.reason, 'Purchase edit');
+      },
+    );
+
+    test(
+      'savePurchaseEntry rejects edit when payments exceed new bill total',
+      () async {
+        final product = _product(stockQuantity: 8, costPrice: 1800);
+        final existing = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 3,
+              unitCost: 2000,
+              lineTotal: 6000,
+            ),
+          ],
+          notes: '',
+          totalAmount: 6000,
+          amountPaid: 5000,
+          paymentHistory: [
+            PurchasePayment(amount: 5000, paidAt: DateTime(2026, 6, 6)),
+          ],
+          status: PurchasePaymentStatus.partial,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${existing.id}': PurchaseEntryModel.fromEntity(
+            existing,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.savePurchaseEntry(
+          existing.copyWith(
+            items: const [
+              PurchaseEntryItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                sku: 'PRN-1',
+                unit: 'pcs',
+                quantity: 2,
+                unitCost: 2000,
+                lineTotal: 4000,
+              ),
+            ],
+            totalAmount: 4000,
+          ),
+        );
+
+        expect(cubit.state.status, ProductStatus.failure);
+        expect(cubit.state.message, contains('payments recorded'));
+      },
+    );
+
+    test(
+      'savePurchaseEntry rejects edit when reducing quantity would send stock below zero',
+      () async {
+        final product = _product(stockQuantity: 2, costPrice: 1800);
+        final existing = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 5,
+              unitCost: 2000,
+              lineTotal: 10000,
+            ),
+          ],
+          notes: '',
+          totalAmount: 10000,
+          amountPaid: 0,
+          paymentHistory: const [],
+          status: PurchasePaymentStatus.unpaid,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${existing.id}': PurchaseEntryModel.fromEntity(
+            existing,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.savePurchaseEntry(
+          existing.copyWith(
+            items: const [
+              PurchaseEntryItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                sku: 'PRN-1',
+                unit: 'pcs',
+                quantity: 1,
+                unitCost: 2000,
+                lineTotal: 2000,
+              ),
+            ],
+            totalAmount: 2000,
+          ),
+        );
+
+        expect(cubit.state.status, ProductStatus.failure);
+        expect(cubit.state.message, contains('below zero'));
+      },
+    );
+
     test('recordPurchasePayment updates paid amount and status', () async {
       final purchaseDate = DateTime(2026, 6, 5);
       final entry = PurchaseEntry(
