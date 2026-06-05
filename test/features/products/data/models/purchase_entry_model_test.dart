@@ -13,6 +13,7 @@ void main() {
         supplierName: 'Supply Hub',
         billReference: 'BILL-44',
         purchaseDate: date,
+        dueDate: date.add(const Duration(days: 21)),
         items: const [
           PurchaseEntryItem(
             productId: 'prod_1',
@@ -48,6 +49,7 @@ void main() {
       expect(restored, model);
       expect((map['items'] as List).single['productId'], 'prod_1');
       expect((map['paymentHistory'] as List).single['reference'], 'PAY-1');
+      expect(map['dueDate'], model.dueDate);
     });
 
     test('reads sparse legacy purchase entry maps safely', () {
@@ -66,6 +68,7 @@ void main() {
       expect(model.paymentHistory, isEmpty);
       expect(model.status, PurchasePaymentStatus.unpaid);
       expect(model.billReference, isEmpty);
+      expect(model.dueDate, isNull);
     });
   });
 }

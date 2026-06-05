@@ -7,11 +7,13 @@ class SupplierPayablesReport {
     required this.supplierCount,
     required this.billCount,
     required this.openBillCount,
+    required this.overdueBillCount,
     required this.unpaidBillCount,
     required this.partialBillCount,
     required this.totalPurchased,
     required this.totalPaid,
     required this.totalOutstanding,
+    required this.totalOverdue,
     required this.currentBucketTotal,
     required this.days31To60BucketTotal,
     required this.days61To90BucketTotal,
@@ -23,11 +25,13 @@ class SupplierPayablesReport {
   final int supplierCount;
   final int billCount;
   final int openBillCount;
+  final int overdueBillCount;
   final int unpaidBillCount;
   final int partialBillCount;
   final double totalPurchased;
   final double totalPaid;
   final double totalOutstanding;
+  final double totalOverdue;
   final double currentBucketTotal;
   final double days31To60BucketTotal;
   final double days61To90BucketTotal;
@@ -41,9 +45,11 @@ class SupplierPayablesRow {
     required this.supplierName,
     required this.billCount,
     required this.openBillCount,
+    required this.overdueBillCount,
     required this.totalPurchased,
     required this.totalPaid,
     required this.outstandingBalance,
+    required this.overdueAmount,
     required this.lastPurchaseDate,
     required this.currentBucketAmount,
     required this.days31To60BucketAmount,
@@ -55,9 +61,11 @@ class SupplierPayablesRow {
   final String supplierName;
   final int billCount;
   final int openBillCount;
+  final int overdueBillCount;
   final double totalPurchased;
   final double totalPaid;
   final double outstandingBalance;
+  final double overdueAmount;
   final DateTime? lastPurchaseDate;
   final double currentBucketAmount;
   final double days31To60BucketAmount;
@@ -114,13 +122,23 @@ SupplierPayablesReport buildSupplierPayablesReport({
         final outstanding = _money(
           entries.fold<double>(0, (sum, entry) => sum + entry.balanceDue),
         );
+        final overdueEntries = entries.where(
+          (entry) => entry.isOverdue(today: effectiveAsOfDate),
+        );
+        final overdueBillCount = overdueEntries.length;
+        final overdueAmount = _money(
+          overdueEntries.fold<double>(
+            0,
+            (sum, entry) => sum + entry.balanceDue,
+          ),
+        );
         var currentBucketAmount = 0.0;
         var days31To60BucketAmount = 0.0;
         var days61To90BucketAmount = 0.0;
         var days90PlusBucketAmount = 0.0;
         for (final entry in entries.where((entry) => entry.balanceDue > 0)) {
           final age = effectiveAsOfDate
-              .difference(_dateOnly(entry.purchaseDate))
+              .difference(_dateOnly(entry.effectiveDueDate))
               .inDays;
           if (age <= 30) {
             currentBucketAmount += entry.balanceDue;
@@ -140,9 +158,11 @@ SupplierPayablesReport buildSupplierPayablesReport({
           supplierName: supplierName,
           billCount: entries.length,
           openBillCount: openBillCount,
+          overdueBillCount: overdueBillCount,
           totalPurchased: totalPurchased,
           totalPaid: totalPaid,
           outstandingBalance: outstanding,
+          overdueAmount: overdueAmount,
           lastPurchaseDate: entries.first.purchaseDate,
           currentBucketAmount: _money(currentBucketAmount),
           days31To60BucketAmount: _money(days31To60BucketAmount),
@@ -164,6 +184,9 @@ SupplierPayablesReport buildSupplierPayablesReport({
     supplierCount: rows.length,
     billCount: activeEntries.length,
     openBillCount: activeEntries.where((entry) => entry.balanceDue > 0).length,
+    overdueBillCount: activeEntries
+        .where((entry) => entry.isOverdue(today: effectiveAsOfDate))
+        .length,
     unpaidBillCount: activeEntries
         .where((entry) => entry.status == PurchasePaymentStatus.unpaid)
         .length,
@@ -178,6 +201,11 @@ SupplierPayablesReport buildSupplierPayablesReport({
     ),
     totalOutstanding: _money(
       activeEntries.fold<double>(0, (sum, entry) => sum + entry.balanceDue),
+    ),
+    totalOverdue: _money(
+      activeEntries
+          .where((entry) => entry.isOverdue(today: effectiveAsOfDate))
+          .fold<double>(0, (sum, entry) => sum + entry.balanceDue),
     ),
     currentBucketTotal: _money(
       rows.fold<double>(0, (sum, row) => sum + row.currentBucketAmount),
@@ -201,9 +229,11 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
       'Supplier',
       'Bills',
       'Open Bills',
+      'Overdue Bills',
       'Total Purchased',
       'Total Paid',
       'Outstanding',
+      'Overdue Amount',
       '0-30 Days',
       '31-60 Days',
       '61-90 Days',
@@ -215,9 +245,11 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
         row.supplierName,
         row.billCount.toString(),
         row.openBillCount.toString(),
+        row.overdueBillCount.toString(),
         _formatMoney(row.totalPurchased),
         _formatMoney(row.totalPaid),
         _formatMoney(row.outstandingBalance),
+        _formatMoney(row.overdueAmount),
         _formatMoney(row.currentBucketAmount),
         _formatMoney(row.days31To60BucketAmount),
         _formatMoney(row.days61To90BucketAmount),
@@ -229,11 +261,13 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
     ['Suppliers', report.supplierCount.toString()],
     ['Bills', report.billCount.toString()],
     ['Open Bills', report.openBillCount.toString()],
+    ['Overdue Bills', report.overdueBillCount.toString()],
     ['Unpaid Bills', report.unpaidBillCount.toString()],
     ['Partial Bills', report.partialBillCount.toString()],
     ['Total Purchased', _formatMoney(report.totalPurchased)],
     ['Total Paid', _formatMoney(report.totalPaid)],
     ['Total Outstanding', _formatMoney(report.totalOutstanding)],
+    ['Total Overdue', _formatMoney(report.totalOverdue)],
     ['0-30 Days', _formatMoney(report.currentBucketTotal)],
     ['31-60 Days', _formatMoney(report.days31To60BucketTotal)],
     ['61-90 Days', _formatMoney(report.days61To90BucketTotal)],

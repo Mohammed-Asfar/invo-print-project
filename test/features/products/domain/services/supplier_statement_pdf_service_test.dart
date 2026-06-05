@@ -30,6 +30,7 @@ void main() {
       supplierName: supplier.name,
       billReference: 'BILL-44',
       purchaseDate: DateTime(2026, 6, 5),
+      dueDate: DateTime(2026, 6, 20),
       items: const [],
       notes: '',
       totalAmount: 6000,
@@ -71,6 +72,7 @@ void main() {
     expect(decoded, contains('Supply'));
     expect(decoded, contains('Hub'));
     expect(decoded, contains('PUR-001'));
+    expect(decoded, contains('Due'));
   });
 }
 

@@ -8,6 +8,7 @@ class PurchaseEntry extends Equatable {
     required this.supplierName,
     required this.billReference,
     required this.purchaseDate,
+    this.dueDate,
     required this.items,
     required this.notes,
     required this.totalAmount,
@@ -25,6 +26,7 @@ class PurchaseEntry extends Equatable {
   final String supplierName;
   final String billReference;
   final DateTime purchaseDate;
+  final DateTime? dueDate;
   final List<PurchaseEntryItem> items;
   final String notes;
   final double totalAmount;
@@ -40,6 +42,21 @@ class PurchaseEntry extends Equatable {
     return balance < 0 ? 0 : double.parse(balance.toStringAsFixed(2));
   }
 
+  DateTime get effectiveDueDate => dueDate ?? purchaseDate;
+
+  bool isOverdue({DateTime? today}) {
+    if (balanceDue <= 0) return false;
+    final compareDay = _dateOnly(today ?? DateTime.now());
+    return _dateOnly(effectiveDueDate).isBefore(compareDay);
+  }
+
+  int daysOverdue({DateTime? today}) {
+    if (!isOverdue(today: today)) return 0;
+    return _dateOnly(
+      today ?? DateTime.now(),
+    ).difference(_dateOnly(effectiveDueDate)).inDays;
+  }
+
   PurchaseEntry copyWith({
     String? id,
     String? entryNumber,
@@ -47,6 +64,7 @@ class PurchaseEntry extends Equatable {
     String? supplierName,
     String? billReference,
     DateTime? purchaseDate,
+    DateTime? dueDate,
     List<PurchaseEntryItem>? items,
     String? notes,
     double? totalAmount,
@@ -64,6 +82,7 @@ class PurchaseEntry extends Equatable {
       supplierName: supplierName ?? this.supplierName,
       billReference: billReference ?? this.billReference,
       purchaseDate: purchaseDate ?? this.purchaseDate,
+      dueDate: dueDate ?? this.dueDate,
       items: items ?? this.items,
       notes: notes ?? this.notes,
       totalAmount: totalAmount ?? this.totalAmount,
@@ -84,6 +103,7 @@ class PurchaseEntry extends Equatable {
     supplierName,
     billReference,
     purchaseDate,
+    dueDate,
     items,
     notes,
     totalAmount,
@@ -95,6 +115,9 @@ class PurchaseEntry extends Equatable {
     updatedAt,
   ];
 }
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
 
 class PurchasePayment extends Equatable {
   const PurchasePayment({

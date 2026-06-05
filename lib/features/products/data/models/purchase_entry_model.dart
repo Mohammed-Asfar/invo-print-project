@@ -8,6 +8,7 @@ class PurchaseEntryModel extends PurchaseEntry {
     required super.supplierName,
     required super.billReference,
     required super.purchaseDate,
+    super.dueDate,
     required super.items,
     required super.notes,
     required super.totalAmount,
@@ -27,6 +28,7 @@ class PurchaseEntryModel extends PurchaseEntry {
       supplierName: entry.supplierName,
       billReference: entry.billReference,
       purchaseDate: entry.purchaseDate,
+      dueDate: entry.dueDate,
       items: entry.items,
       notes: entry.notes,
       totalAmount: entry.totalAmount,
@@ -49,6 +51,7 @@ class PurchaseEntryModel extends PurchaseEntry {
       supplierName: map['supplierName'] as String? ?? '',
       billReference: map['billReference'] as String? ?? '',
       purchaseDate: _toDateTime(map['purchaseDate']) ?? now,
+      dueDate: _toDateTime(map['dueDate']),
       items: rawItems is List
           ? rawItems
                 .whereType<Map>()
@@ -85,6 +88,9 @@ class PurchaseEntryModel extends PurchaseEntry {
     }
     if (billReference.trim().isNotEmpty) {
       map['billReference'] = billReference.trim();
+    }
+    if (dueDate != null) {
+      map['dueDate'] = dueDate;
     }
     if (notes.trim().isNotEmpty) {
       map['notes'] = notes.trim();

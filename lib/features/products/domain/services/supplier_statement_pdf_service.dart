@@ -14,8 +14,10 @@ class SupplierStatementPdfService {
     required Supplier supplier,
     required SupplierLedger ledger,
     required SupplierPayablesRow? payableRow,
+    DateTime? asOfDate,
   }) async {
     final pdf = pw.Document();
+    final effectiveAsOfDate = asOfDate ?? DateTime.now();
 
     pdf.addPage(
       pw.MultiPage(
@@ -26,6 +28,8 @@ class SupplierStatementPdfService {
             'Supplier Statement',
             style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
           ),
+          pw.SizedBox(height: 8),
+          pw.Text('As of ${_date(effectiveAsOfDate)}'),
           pw.SizedBox(height: 8),
           pw.Text(
             supplier.name,
@@ -47,7 +51,7 @@ class SupplierStatementPdfService {
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
-          _openBillsTable(ledger),
+          _openBillsTable(ledger, effectiveAsOfDate),
           pw.SizedBox(height: 16),
           pw.Text(
             'Ledger Timeline',
@@ -109,7 +113,7 @@ class SupplierStatementPdfService {
     );
   }
 
-  pw.Widget _openBillsTable(SupplierLedger ledger) {
+  pw.Widget _openBillsTable(SupplierLedger ledger, DateTime asOfDate) {
     final rows = ledger.purchaseEntries
         .where((entry) => entry.balanceDue > 0)
         .toList();
@@ -122,22 +126,28 @@ class SupplierStatementPdfService {
       headers: const [
         'Entry',
         'Date',
+        'Due Date',
         'Bill Ref',
         'Status',
         'Total',
         'Paid',
         'Balance',
+        'Overdue',
       ],
       data: [
         for (final entry in rows)
           [
             entry.entryNumber,
             _date(entry.purchaseDate),
+            _date(entry.effectiveDueDate),
             entry.billReference,
             entry.status.label,
             _money(entry.totalAmount),
             _money(entry.amountPaid),
             _money(entry.balanceDue),
+            entry.isOverdue(today: asOfDate)
+                ? '${entry.daysOverdue(today: asOfDate)}d'
+                : '-',
           ],
       ],
       cellStyle: const pw.TextStyle(fontSize: 9),

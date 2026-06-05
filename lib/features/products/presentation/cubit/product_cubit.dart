@@ -219,6 +219,16 @@ class ProductCubit extends Cubit<ProductState> {
       );
       return;
     }
+    if (purchaseEntry.dueDate != null &&
+        purchaseEntry.dueDate!.isBefore(purchaseEntry.purchaseDate)) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Purchase due date cannot be earlier than purchase date.',
+        ),
+      );
+      return;
+    }
 
     final productsById = {
       for (final product in state.products) product.id: product,

@@ -2,12 +2,13 @@ part of 'product_cubit.dart';
 
 enum ProductStatus { initial, loading, loaded, saving, saved, failure }
 
-enum PurchaseStatusFilter { all, open, unpaid, partial, paid }
+enum PurchaseStatusFilter { all, open, overdue, unpaid, partial, paid }
 
 extension PurchaseStatusFilterX on PurchaseStatusFilter {
   String get label => switch (this) {
     PurchaseStatusFilter.all => 'All bills',
     PurchaseStatusFilter.open => 'Open bills',
+    PurchaseStatusFilter.overdue => 'Overdue',
     PurchaseStatusFilter.unpaid => 'Unpaid',
     PurchaseStatusFilter.partial => 'Partial',
     PurchaseStatusFilter.paid => 'Paid',
@@ -87,6 +88,7 @@ class ProductState extends Equatable {
       final matchesStatus = switch (purchaseStatusFilter) {
         PurchaseStatusFilter.all => true,
         PurchaseStatusFilter.open => entry.balanceDue > 0,
+        PurchaseStatusFilter.overdue => isPurchaseOverdue(entry),
         PurchaseStatusFilter.unpaid =>
           entry.status == PurchasePaymentStatus.unpaid,
         PurchaseStatusFilter.partial =>
@@ -114,12 +116,22 @@ class ProductState extends Equatable {
       .where((entry) => entry.status == PurchasePaymentStatus.unpaid)
       .length;
 
+  int get overduePurchaseCount =>
+      purchaseEntries.where(isPurchaseOverdue).length;
+
   int get partialPurchaseCount => purchaseEntries
       .where((entry) => entry.status == PurchasePaymentStatus.partial)
       .length;
 
   double get totalPurchaseOutstanding => double.parse(
     purchaseEntries
+        .fold<double>(0, (sum, entry) => sum + entry.balanceDue)
+        .toStringAsFixed(2),
+  );
+
+  double get overduePurchaseAmount => double.parse(
+    purchaseEntries
+        .where(isPurchaseOverdue)
         .fold<double>(0, (sum, entry) => sum + entry.balanceDue)
         .toStringAsFixed(2),
   );
@@ -168,3 +180,6 @@ class ProductState extends Equatable {
     message,
   ];
 }
+
+bool isPurchaseOverdue(PurchaseEntry entry, {DateTime? today}) =>
+    entry.isOverdue(today: today);

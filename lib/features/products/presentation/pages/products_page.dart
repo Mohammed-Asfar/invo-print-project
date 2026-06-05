@@ -764,6 +764,7 @@ class _PurchaseEntryTable extends StatelessWidget {
             Divider(height: 1, thickness: 1, color: AppColors.border),
         itemBuilder: (context, index) {
           final entry = entries[index];
+          final overdue = isPurchaseOverdue(entry);
           return ListTile(
             title: Text(entry.entryNumber),
             subtitle: Text(
@@ -772,6 +773,7 @@ class _PurchaseEntryTable extends StatelessWidget {
                 if (entry.billReference.isNotEmpty)
                   'Bill ${entry.billReference}',
                 '${entry.items.length} item${entry.items.length == 1 ? '' : 's'}',
+                if (overdue) 'Overdue by ${entry.daysOverdue()}d',
               ].join('  |  '),
             ),
             leading: Container(
@@ -780,15 +782,19 @@ class _PurchaseEntryTable extends StatelessWidget {
                 vertical: AppSpacing.sm,
               ),
               decoration: BoxDecoration(
-                color: _purchaseStatusColor(
-                  entry.status,
-                ).withValues(alpha: 0.12),
+                color:
+                    (overdue
+                            ? AppColors.error
+                            : _purchaseStatusColor(entry.status))
+                        .withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                entry.status.label,
+                overdue ? 'Overdue' : entry.status.label,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: _purchaseStatusColor(entry.status),
+                  color: overdue
+                      ? AppColors.error
+                      : _purchaseStatusColor(entry.status),
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -805,16 +811,17 @@ class _PurchaseEntryTable extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  _formatDateOnly(entry.purchaseDate),
+                  'Due ${_formatDateOnly(entry.effectiveDueDate)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
+                    color: overdue ? AppColors.error : AppColors.textSecondary,
+                    fontWeight: overdue ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),
                 Text(
                   'Due ${_formatMoney(entry.balanceDue)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: entry.balanceDue > 0
-                        ? AppColors.warning
+                        ? (overdue ? AppColors.error : AppColors.warning)
                         : AppColors.success,
                     fontWeight: FontWeight.w700,
                   ),
@@ -878,6 +885,14 @@ class _PurchasePayablesSummary extends StatelessWidget {
           value: state.partialPurchaseCount.toString(),
           valueColor: state.partialPurchaseCount > 0
               ? AppColors.primaryPurple
+              : AppColors.textPrimary,
+        ),
+        _InventoryMetricCard(
+          icon: Icons.error_outline,
+          label: 'Overdue Bills',
+          value: state.overduePurchaseCount.toString(),
+          valueColor: state.overduePurchaseCount > 0
+              ? AppColors.error
               : AppColors.textPrimary,
         ),
         _InventoryMetricCard(
@@ -1729,6 +1744,7 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
   final _notes = TextEditingController();
   final List<_PurchaseItemDraft> _items = [_PurchaseItemDraft()];
   DateTime _purchaseDate = DateTime.now();
+  DateTime _dueDate = DateTime.now().add(const Duration(days: 15));
   String _supplierId = '';
 
   @override
@@ -1840,6 +1856,24 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
                         ),
                       ),
                     ),
+                    InkWell(
+                      onTap: _pickDueDate,
+                      child: SizedBox(
+                        width: 330,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Due Date',
+                            prefixIcon: Icon(Icons.event_available_outlined),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(_formatDateOnly(_dueDate))),
+                              const Icon(Icons.edit_calendar_outlined),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -1905,7 +1939,23 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
       lastDate: DateTime(2100),
     );
     if (picked == null || !mounted) return;
-    setState(() => _purchaseDate = picked);
+    setState(() {
+      _purchaseDate = picked;
+      if (_dueDate.isBefore(_purchaseDate)) {
+        _dueDate = _purchaseDate;
+      }
+    });
+  }
+
+  Future<void> _pickDueDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate.isBefore(_purchaseDate) ? _purchaseDate : _dueDate,
+      firstDate: _purchaseDate,
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _dueDate = picked);
   }
 
   void _save() {
@@ -1938,6 +1988,7 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
         supplierName: _supplierName.text.trim(),
         billReference: _billReference.text.trim(),
         purchaseDate: _purchaseDate,
+        dueDate: _dueDate,
         items: items,
         notes: _notes.text.trim(),
         totalAmount: _roundCurrency(
@@ -2095,9 +2146,16 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
                     highlight: entry.balanceDue > 0,
                   ),
                   _PurchaseMetric(
+                    label: 'Due Date',
+                    value: _formatDateOnly(entry.effectiveDueDate),
+                    highlight: entry.isOverdue(),
+                  ),
+                  _PurchaseMetric(
                     label: 'Status',
-                    value: entry.status.label,
-                    highlight: entry.status != PurchasePaymentStatus.paid,
+                    value: entry.isOverdue() ? 'Overdue' : entry.status.label,
+                    highlight:
+                        entry.status != PurchasePaymentStatus.paid ||
+                        entry.isOverdue(),
                   ),
                 ],
               ),
@@ -2448,6 +2506,16 @@ class _SupplierLedgerDialog extends StatelessWidget {
                   ),
                   if (payablesRow != null) ...[
                     _PurchaseMetric(
+                      label: 'Overdue Bills',
+                      value: payablesRow!.overdueBillCount.toString(),
+                      highlight: payablesRow!.overdueBillCount > 0,
+                    ),
+                    _PurchaseMetric(
+                      label: 'Overdue Amount',
+                      value: _formatMoney(payablesRow!.overdueAmount),
+                      highlight: payablesRow!.overdueAmount > 0,
+                    ),
+                    _PurchaseMetric(
                       label: '0-30 Days',
                       value: _formatMoney(payablesRow!.currentBucketAmount),
                     ),
@@ -2490,8 +2558,11 @@ class _SupplierLedgerDialog extends StatelessWidget {
                     subtitle: Text(
                       [
                         _formatDateOnly(entry.purchaseDate),
+                        'Due ${_formatDateOnly(entry.effectiveDueDate)}',
                         if (entry.billReference.trim().isNotEmpty)
                           'Bill ${entry.billReference.trim()}',
+                        if (entry.isOverdue())
+                          'Overdue by ${entry.daysOverdue()}d',
                         entry.status.label,
                       ].join('  |  '),
                     ),
@@ -2509,7 +2580,9 @@ class _SupplierLedgerDialog extends StatelessWidget {
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: entry.balanceDue > 0
-                                    ? AppColors.warning
+                                    ? (entry.isOverdue()
+                                          ? AppColors.error
+                                          : AppColors.warning)
                                     : AppColors.success,
                               ),
                         ),
@@ -2585,6 +2658,7 @@ class _SupplierLedgerDialog extends StatelessWidget {
       supplier: ledger.supplier,
       ledger: ledger,
       payableRow: payablesRow,
+      asOfDate: DateTime.now(),
     );
     await File(path).writeAsBytes(bytes, flush: true);
     if (!context.mounted) return;

@@ -47,6 +47,47 @@ void main() {
       expect(state.partialPurchaseCount, 1);
       expect(state.totalPurchaseOutstanding, 3000);
     });
+
+    test('supports overdue filter and overdue totals', () {
+      final today = DateTime.now();
+      final state = ProductState(
+        purchaseEntries: [
+          _purchaseEntry(
+            id: 'pur_1',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            status: PurchasePaymentStatus.unpaid,
+            balanceDue: 2000,
+            productName: 'Thermal Printer',
+            purchaseDate: today.subtract(const Duration(days: 20)),
+            dueDate: today.subtract(const Duration(days: 3)),
+          ),
+          _purchaseEntry(
+            id: 'pur_2',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            status: PurchasePaymentStatus.partial,
+            balanceDue: 500,
+            productName: 'Barcode Scanner',
+            purchaseDate: today.subtract(const Duration(days: 10)),
+            dueDate: today.add(const Duration(days: 7)),
+          ),
+        ],
+        purchaseStatusFilter: PurchaseStatusFilter.overdue,
+      );
+
+      expect(state.filteredPurchaseEntries.map((entry) => entry.id), ['pur_1']);
+      expect(state.overduePurchaseCount, 1);
+      expect(state.overduePurchaseAmount, 2000);
+      expect(
+        isPurchaseOverdue(state.purchaseEntries.first, today: today),
+        isTrue,
+      );
+      expect(
+        isPurchaseOverdue(state.purchaseEntries.last, today: today),
+        isFalse,
+      );
+    });
   });
 }
 
@@ -73,10 +114,12 @@ PurchaseEntry _purchaseEntry({
   required PurchasePaymentStatus status,
   required double balanceDue,
   required String productName,
+  DateTime? purchaseDate,
+  DateTime? dueDate,
 }) {
   final totalAmount = balanceDue == 0 ? 1000.0 : 3000.0;
   final amountPaid = totalAmount - balanceDue;
-  final now = DateTime(2026, 6, 5);
+  final now = purchaseDate ?? DateTime(2026, 6, 5);
   return PurchaseEntry(
     id: id,
     entryNumber: 'PUR-${id.split('_').last}',
@@ -84,6 +127,7 @@ PurchaseEntry _purchaseEntry({
     supplierName: supplierName,
     billReference: '',
     purchaseDate: now,
+    dueDate: dueDate,
     items: [
       PurchaseEntryItem(
         productId: 'prod_$id',

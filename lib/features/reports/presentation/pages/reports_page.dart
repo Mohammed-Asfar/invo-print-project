@@ -438,11 +438,27 @@ class _SupplierPayablesMetrics extends StatelessWidget {
               : AppColors.textPrimary,
         ),
         _MetricCard(
+          icon: Icons.error_outline,
+          label: 'Overdue Bills',
+          value: report.overdueBillCount.toString(),
+          valueColor: report.overdueBillCount > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
           icon: Icons.money_off_csred_outlined,
           label: 'Outstanding',
           value: _money(report.totalOutstanding),
           valueColor: report.totalOutstanding > 0
               ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.notification_important_outlined,
+          label: 'Overdue Amount',
+          value: _money(report.totalOverdue),
+          valueColor: report.totalOverdue > 0
+              ? AppColors.error
               : AppColors.textPrimary,
         ),
         _MetricCard(
@@ -526,9 +542,11 @@ class _SupplierPayablesTable extends StatelessWidget {
                 DataColumn(label: Text('Last Purchase')),
                 DataColumn(numeric: true, label: Text('Bills')),
                 DataColumn(numeric: true, label: Text('Open Bills')),
+                DataColumn(numeric: true, label: Text('Overdue Bills')),
                 DataColumn(numeric: true, label: Text('Purchased')),
                 DataColumn(numeric: true, label: Text('Paid')),
                 DataColumn(numeric: true, label: Text('Outstanding')),
+                DataColumn(numeric: true, label: Text('Overdue Amount')),
                 DataColumn(numeric: true, label: Text('0-30')),
                 DataColumn(numeric: true, label: Text('31-60')),
                 DataColumn(numeric: true, label: Text('61-90')),
@@ -548,6 +566,19 @@ class _SupplierPayablesTable extends StatelessWidget {
                       ),
                       DataCell(Text(row.billCount.toString())),
                       DataCell(Text(row.openBillCount.toString())),
+                      DataCell(
+                        Text(
+                          row.overdueBillCount.toString(),
+                          style: TextStyle(
+                            color: row.overdueBillCount > 0
+                                ? AppColors.error
+                                : AppColors.textPrimary,
+                            fontWeight: row.overdueBillCount > 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
                       DataCell(Text(_money(row.totalPurchased))),
                       DataCell(Text(_money(row.totalPaid))),
                       DataCell(
@@ -558,6 +589,19 @@ class _SupplierPayablesTable extends StatelessWidget {
                                 ? AppColors.warning
                                 : AppColors.textPrimary,
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _money(row.overdueAmount),
+                          style: TextStyle(
+                            color: row.overdueAmount > 0
+                                ? AppColors.error
+                                : AppColors.textPrimary,
+                            fontWeight: row.overdueAmount > 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
                           ),
                         ),
                       ),

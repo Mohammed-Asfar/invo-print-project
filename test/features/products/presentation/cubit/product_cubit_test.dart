@@ -257,6 +257,7 @@ void main() {
             supplierName: 'Supply Hub',
             billReference: 'BILL-44',
             purchaseDate: DateTime(2026, 6, 5),
+            dueDate: DateTime(2026, 6, 20),
             items: const [
               PurchaseEntryItem(
                 productId: 'prod_1',
@@ -311,8 +312,69 @@ void main() {
           purchaseDoc.value,
         );
         expect(purchaseEntry.totalAmount, 6000);
+        expect(purchaseEntry.dueDate, DateTime(2026, 6, 20));
         expect(purchaseEntry.status, PurchasePaymentStatus.unpaid);
         expect(purchaseEntry.items.single.quantity, 3);
+      },
+    );
+
+    test(
+      'savePurchaseEntry rejects due dates earlier than purchase date',
+      () async {
+        final product = _product(stockQuantity: 5, costPrice: 1800);
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.savePurchaseEntry(
+          PurchaseEntry(
+            id: '',
+            entryNumber: 'PUR-202606-001',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            billReference: 'BILL-44',
+            purchaseDate: DateTime(2026, 6, 10),
+            dueDate: DateTime(2026, 6, 8),
+            items: const [
+              PurchaseEntryItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                sku: 'PRN-1',
+                unit: 'pcs',
+                quantity: 1,
+                unitCost: 2000,
+                lineTotal: 2000,
+              ),
+            ],
+            notes: '',
+            totalAmount: 2000,
+            amountPaid: 0,
+            paymentHistory: const [],
+            status: PurchasePaymentStatus.unpaid,
+            isActive: true,
+            createdAt: DateTime(2026, 6, 10),
+            updatedAt: DateTime(2026, 6, 10),
+          ),
+        );
+
+        expect(cubit.state.status, ProductStatus.failure);
+        expect(cubit.state.message, contains('due date'));
+        expect(
+          firestore.documents.keys.where(
+            (key) => key.startsWith('purchase_entries/'),
+          ),
+          isEmpty,
+        );
       },
     );
 
