@@ -41,6 +41,8 @@ class _ProductsViewState extends State<_ProductsView> {
   String _selectedInventoryProductId = '';
   ProductInventoryEntryType? _selectedInventoryType;
   String _purchaseSearchQuery = '';
+  PurchaseStatusFilter _purchaseStatusFilter = PurchaseStatusFilter.all;
+  String _selectedPurchaseSupplierId = '';
 
   Future<void> _exportInventoryCsv(ProductState state) async {
     final report = buildInventoryActivityReport(
@@ -157,6 +159,9 @@ class _ProductsViewState extends State<_ProductsView> {
                                     _PurchasesTab(
                                       state: state,
                                       searchQuery: _purchaseSearchQuery,
+                                      statusFilter: _purchaseStatusFilter,
+                                      selectedSupplierId:
+                                          _selectedPurchaseSupplierId,
                                       onSearchChanged: (value) {
                                         setState(
                                           () => _purchaseSearchQuery = value,
@@ -164,6 +169,23 @@ class _ProductsViewState extends State<_ProductsView> {
                                         context
                                             .read<ProductCubit>()
                                             .searchPurchases(value);
+                                      },
+                                      onStatusChanged: (value) {
+                                        setState(
+                                          () => _purchaseStatusFilter = value,
+                                        );
+                                        context
+                                            .read<ProductCubit>()
+                                            .setPurchaseStatusFilter(value);
+                                      },
+                                      onSupplierChanged: (value) {
+                                        setState(
+                                          () => _selectedPurchaseSupplierId =
+                                              value,
+                                        );
+                                        context
+                                            .read<ProductCubit>()
+                                            .setPurchaseSupplierFilter(value);
                                       },
                                     ),
                                   ],
@@ -376,20 +398,33 @@ class _PurchasesTab extends StatelessWidget {
   const _PurchasesTab({
     required this.state,
     required this.searchQuery,
+    required this.statusFilter,
+    required this.selectedSupplierId,
     required this.onSearchChanged,
+    required this.onStatusChanged,
+    required this.onSupplierChanged,
   });
 
   final ProductState state;
   final String searchQuery;
+  final PurchaseStatusFilter statusFilter;
+  final String selectedSupplierId;
   final ValueChanged<String> onSearchChanged;
+  final ValueChanged<PurchaseStatusFilter> onStatusChanged;
+  final ValueChanged<String> onSupplierChanged;
 
   @override
   Widget build(BuildContext context) {
+    final suppliers = [...state.suppliers]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return Column(
       children: [
-        Row(
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
           children: [
-            Expanded(
+            SizedBox(
+              width: 320,
               child: TextField(
                 onChanged: onSearchChanged,
                 decoration: const InputDecoration(
@@ -398,7 +433,45 @@ class _PurchasesTab extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
+            SizedBox(
+              width: 220,
+              child: DropdownButtonFormField<PurchaseStatusFilter>(
+                initialValue: statusFilter,
+                decoration: const InputDecoration(
+                  labelText: 'Bill Status',
+                  prefixIcon: Icon(Icons.filter_list_outlined),
+                ),
+                items: [
+                  for (final value in PurchaseStatusFilter.values)
+                    DropdownMenuItem(value: value, child: Text(value.label)),
+                ],
+                onChanged: (value) {
+                  if (value != null) onStatusChanged(value);
+                },
+              ),
+            ),
+            SizedBox(
+              width: 260,
+              child: DropdownButtonFormField<String>(
+                initialValue: selectedSupplierId,
+                decoration: const InputDecoration(
+                  labelText: 'Supplier',
+                  prefixIcon: Icon(Icons.storefront_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('All suppliers'),
+                  ),
+                  for (final supplier in suppliers)
+                    DropdownMenuItem<String>(
+                      value: supplier.id,
+                      child: Text(supplier.name),
+                    ),
+                ],
+                onChanged: (value) => onSupplierChanged(value ?? ''),
+              ),
+            ),
             ElevatedButton.icon(
               onPressed: state.isBusy
                   ? null
@@ -408,6 +481,8 @@ class _PurchasesTab extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _PurchasePayablesSummary(state: state),
         const SizedBox(height: AppSpacing.xl),
         Expanded(
           child: _PurchaseEntryTable(entries: state.filteredPurchaseEntries),
@@ -744,6 +819,60 @@ class _PurchaseEntryTable extends StatelessWidget {
         value: context.read<ProductCubit>(),
         child: _PurchaseEntryDetailDialog(entry: entry),
       ),
+    );
+  }
+}
+
+class _PurchasePayablesSummary extends StatelessWidget {
+  const _PurchasePayablesSummary({required this.state});
+
+  final ProductState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 240,
+        mainAxisExtent: 96,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _InventoryMetricCard(
+          icon: Icons.receipt_long_outlined,
+          label: 'Open Bills',
+          value: state.openPurchaseCount.toString(),
+          valueColor: state.openPurchaseCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _InventoryMetricCard(
+          icon: Icons.hourglass_empty_outlined,
+          label: 'Unpaid',
+          value: state.unpaidPurchaseCount.toString(),
+          valueColor: state.unpaidPurchaseCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _InventoryMetricCard(
+          icon: Icons.published_with_changes_outlined,
+          label: 'Partial',
+          value: state.partialPurchaseCount.toString(),
+          valueColor: state.partialPurchaseCount > 0
+              ? AppColors.primaryPurple
+              : AppColors.textPrimary,
+        ),
+        _InventoryMetricCard(
+          icon: Icons.account_balance_wallet_outlined,
+          label: 'Outstanding',
+          value: _formatMoney(state.totalPurchaseOutstanding),
+          valueColor: state.totalPurchaseOutstanding > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+      ],
     );
   }
 }

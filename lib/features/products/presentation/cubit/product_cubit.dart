@@ -129,6 +129,14 @@ class ProductCubit extends Cubit<ProductState> {
     emit(state.copyWith(purchaseSearchQuery: value));
   }
 
+  void setPurchaseStatusFilter(PurchaseStatusFilter value) {
+    emit(state.copyWith(purchaseStatusFilter: value));
+  }
+
+  void setPurchaseSupplierFilter(String supplierId) {
+    emit(state.copyWith(purchaseSupplierId: supplierId));
+  }
+
   Future<void> saveSupplier(Supplier supplier) async {
     emit(state.copyWith(status: ProductStatus.saving));
     try {

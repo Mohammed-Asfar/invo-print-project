@@ -2,6 +2,18 @@ part of 'product_cubit.dart';
 
 enum ProductStatus { initial, loading, loaded, saving, saved, failure }
 
+enum PurchaseStatusFilter { all, open, unpaid, partial, paid }
+
+extension PurchaseStatusFilterX on PurchaseStatusFilter {
+  String get label => switch (this) {
+    PurchaseStatusFilter.all => 'All bills',
+    PurchaseStatusFilter.open => 'Open bills',
+    PurchaseStatusFilter.unpaid => 'Unpaid',
+    PurchaseStatusFilter.partial => 'Partial',
+    PurchaseStatusFilter.paid => 'Paid',
+  };
+}
+
 class ProductState extends Equatable {
   const ProductState({
     this.status = ProductStatus.initial,
@@ -12,6 +24,8 @@ class ProductState extends Equatable {
     this.searchQuery = '',
     this.supplierSearchQuery = '',
     this.purchaseSearchQuery = '',
+    this.purchaseStatusFilter = PurchaseStatusFilter.all,
+    this.purchaseSupplierId = '',
     this.message,
   });
 
@@ -23,6 +37,8 @@ class ProductState extends Equatable {
   final String searchQuery;
   final String supplierSearchQuery;
   final String purchaseSearchQuery;
+  final PurchaseStatusFilter purchaseStatusFilter;
+  final String purchaseSupplierId;
   final String? message;
 
   bool get isBusy =>
@@ -56,9 +72,10 @@ class ProductState extends Equatable {
 
   List<PurchaseEntry> get filteredPurchaseEntries {
     final query = purchaseSearchQuery.trim().toLowerCase();
-    if (query.isEmpty) return purchaseEntries;
     return purchaseEntries.where((entry) {
-      return entry.entryNumber.toLowerCase().contains(query) ||
+      final matchesQuery =
+          query.isEmpty ||
+          entry.entryNumber.toLowerCase().contains(query) ||
           entry.supplierName.toLowerCase().contains(query) ||
           entry.billReference.toLowerCase().contains(query) ||
           entry.notes.toLowerCase().contains(query) ||
@@ -67,8 +84,45 @@ class ProductState extends Equatable {
                 item.productName.toLowerCase().contains(query) ||
                 item.sku.toLowerCase().contains(query),
           );
+      final matchesStatus = switch (purchaseStatusFilter) {
+        PurchaseStatusFilter.all => true,
+        PurchaseStatusFilter.open => entry.balanceDue > 0,
+        PurchaseStatusFilter.unpaid =>
+          entry.status == PurchasePaymentStatus.unpaid,
+        PurchaseStatusFilter.partial =>
+          entry.status == PurchasePaymentStatus.partial,
+        PurchaseStatusFilter.paid => entry.status == PurchasePaymentStatus.paid,
+      };
+      final matchesSupplier =
+          purchaseSupplierId.isEmpty ||
+          entry.supplierId == purchaseSupplierId ||
+          (entry.supplierId.isEmpty &&
+              suppliers.any(
+                (supplier) =>
+                    supplier.id == purchaseSupplierId &&
+                    supplier.name.trim().toLowerCase() ==
+                        entry.supplierName.trim().toLowerCase(),
+              ));
+      return matchesQuery && matchesStatus && matchesSupplier;
     }).toList();
   }
+
+  int get openPurchaseCount =>
+      purchaseEntries.where((entry) => entry.balanceDue > 0).length;
+
+  int get unpaidPurchaseCount => purchaseEntries
+      .where((entry) => entry.status == PurchasePaymentStatus.unpaid)
+      .length;
+
+  int get partialPurchaseCount => purchaseEntries
+      .where((entry) => entry.status == PurchasePaymentStatus.partial)
+      .length;
+
+  double get totalPurchaseOutstanding => double.parse(
+    purchaseEntries
+        .fold<double>(0, (sum, entry) => sum + entry.balanceDue)
+        .toStringAsFixed(2),
+  );
 
   ProductState copyWith({
     ProductStatus? status,
@@ -79,6 +133,8 @@ class ProductState extends Equatable {
     String? searchQuery,
     String? supplierSearchQuery,
     String? purchaseSearchQuery,
+    PurchaseStatusFilter? purchaseStatusFilter,
+    String? purchaseSupplierId,
     String? message,
     bool clearMessage = false,
   }) {
@@ -91,6 +147,8 @@ class ProductState extends Equatable {
       searchQuery: searchQuery ?? this.searchQuery,
       supplierSearchQuery: supplierSearchQuery ?? this.supplierSearchQuery,
       purchaseSearchQuery: purchaseSearchQuery ?? this.purchaseSearchQuery,
+      purchaseStatusFilter: purchaseStatusFilter ?? this.purchaseStatusFilter,
+      purchaseSupplierId: purchaseSupplierId ?? this.purchaseSupplierId,
       message: clearMessage ? null : message ?? this.message,
     );
   }
@@ -105,6 +163,8 @@ class ProductState extends Equatable {
     searchQuery,
     supplierSearchQuery,
     purchaseSearchQuery,
+    purchaseStatusFilter,
+    purchaseSupplierId,
     message,
   ];
 }

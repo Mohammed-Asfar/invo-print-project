@@ -7,7 +7,13 @@ import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../invoices/data/repositories/invoice_repository.dart';
+import '../../../invoices/domain/entities/invoice.dart';
+import '../../../products/domain/entities/purchase_entry.dart';
+import '../../../products/domain/entities/supplier.dart';
+import '../../../products/data/repositories/purchase_entry_repository.dart';
+import '../../../products/data/repositories/supplier_repository.dart';
 import '../../domain/services/sales_report.dart';
+import '../../domain/services/supplier_payables_report.dart';
 
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
@@ -20,11 +26,17 @@ class ReportsPage extends StatefulWidget {
 
 class _ReportsPageState extends State<ReportsPage> {
   final _repository = sl<InvoiceRepository>();
+  final _purchaseEntryRepository = sl<PurchaseEntryRepository>();
+  final _supplierRepository = sl<SupplierRepository>();
   var _range = _ReportDateRange.thisMonth;
   var _isLoading = true;
   var _isExporting = false;
   String? _message;
   SalesReport _report = buildSalesReport(invoices: const []);
+  SupplierPayablesReport _supplierPayablesReport = buildSupplierPayablesReport(
+    purchaseEntries: const [],
+    suppliers: const [],
+  );
 
   @override
   void initState() {
@@ -38,7 +50,14 @@ class _ReportsPageState extends State<ReportsPage> {
       _message = null;
     });
     try {
-      final invoices = await _repository.fetchInvoices();
+      final results = await Future.wait<Object>([
+        _repository.fetchInvoices(),
+        _purchaseEntryRepository.fetchPurchaseEntries(),
+        _supplierRepository.fetchSuppliers(),
+      ]);
+      final invoices = results[0] as List<Invoice>;
+      final purchaseEntries = results[1] as List<PurchaseEntry>;
+      final suppliers = results[2] as List<Supplier>;
       final bounds = _range.bounds(DateTime.now());
       if (!mounted) return;
       setState(() {
@@ -46,6 +65,10 @@ class _ReportsPageState extends State<ReportsPage> {
           invoices: invoices,
           from: bounds.$1,
           to: bounds.$2,
+        );
+        _supplierPayablesReport = buildSupplierPayablesReport(
+          purchaseEntries: purchaseEntries,
+          suppliers: suppliers,
         );
         _isLoading = false;
       });
@@ -74,7 +97,12 @@ class _ReportsPageState extends State<ReportsPage> {
         if (mounted) setState(() => _isExporting = false);
         return;
       }
-      await File(path).writeAsString(buildSalesReportCsv(_report), flush: true);
+      final buffer = StringBuffer()
+        ..writeln(buildSalesReportCsv(_report))
+        ..writeln()
+        ..writeln('Supplier Payables')
+        ..writeln(buildSupplierPayablesCsv(_supplierPayablesReport));
+      await File(path).writeAsString(buffer.toString(), flush: true);
       if (!mounted) return;
       setState(() {
         _isExporting = false;
@@ -141,7 +169,10 @@ class _ReportsPageState extends State<ReportsPage> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : _ReportContent(report: _report),
+                  : _ReportContent(
+                      report: _report,
+                      supplierPayablesReport: _supplierPayablesReport,
+                    ),
             ),
           ],
         ),
@@ -231,18 +262,31 @@ class _ReportsHeader extends StatelessWidget {
 }
 
 class _ReportContent extends StatelessWidget {
-  const _ReportContent({required this.report});
+  const _ReportContent({
+    required this.report,
+    required this.supplierPayablesReport,
+  });
 
   final SalesReport report;
+  final SupplierPayablesReport supplierPayablesReport;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _MetricsGrid(report: report),
-        const SizedBox(height: AppSpacing.lg),
-        Expanded(child: _ReportTable(report: report)),
-      ],
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _MetricsGrid(report: report),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(height: 320, child: _ReportTable(report: report)),
+          const SizedBox(height: AppSpacing.xl),
+          _SupplierPayablesMetrics(report: supplierPayablesReport),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 320,
+            child: _SupplierPayablesTable(report: supplierPayablesReport),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -304,11 +348,13 @@ class _MetricCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.valueColor,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -343,7 +389,7 @@ class _MetricCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AppColors.textPrimary,
+                    color: valueColor ?? AppColors.textPrimary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -351,6 +397,149 @@ class _MetricCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SupplierPayablesMetrics extends StatelessWidget {
+  const _SupplierPayablesMetrics({required this.report});
+
+  final SupplierPayablesReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.storefront_outlined,
+          label: 'Suppliers',
+          value: report.supplierCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.receipt_long_outlined,
+          label: 'Supplier Bills',
+          value: report.billCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.pending_actions_outlined,
+          label: 'Open Bills',
+          value: report.openBillCount.toString(),
+          valueColor: report.openBillCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.money_off_csred_outlined,
+          label: 'Outstanding',
+          value: _money(report.totalOutstanding),
+          valueColor: report.totalOutstanding > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.payments_outlined,
+          label: 'Paid to Suppliers',
+          value: _money(report.totalPaid),
+        ),
+        _MetricCard(
+          icon: Icons.shopping_bag_outlined,
+          label: 'Purchased',
+          value: _money(report.totalPurchased),
+        ),
+      ],
+    );
+  }
+}
+
+class _SupplierPayablesTable extends StatelessWidget {
+  const _SupplierPayablesTable({required this.report});
+
+  final SupplierPayablesReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.rows.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Center(
+          child: Text(
+            'No supplier payable activity yet.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+              columns: const [
+                DataColumn(label: Text('Supplier')),
+                DataColumn(label: Text('Last Purchase')),
+                DataColumn(numeric: true, label: Text('Bills')),
+                DataColumn(numeric: true, label: Text('Open Bills')),
+                DataColumn(numeric: true, label: Text('Purchased')),
+                DataColumn(numeric: true, label: Text('Paid')),
+                DataColumn(numeric: true, label: Text('Outstanding')),
+              ],
+              rows: [
+                for (final row in report.rows)
+                  DataRow(
+                    cells: [
+                      DataCell(Text(row.supplierName)),
+                      DataCell(
+                        Text(
+                          row.lastPurchaseDate == null
+                              ? '-'
+                              : _date(row.lastPurchaseDate!),
+                        ),
+                      ),
+                      DataCell(Text(row.billCount.toString())),
+                      DataCell(Text(row.openBillCount.toString())),
+                      DataCell(Text(_money(row.totalPurchased))),
+                      DataCell(Text(_money(row.totalPaid))),
+                      DataCell(
+                        Text(
+                          _money(row.outstandingBalance),
+                          style: TextStyle(
+                            color: row.outstandingBalance > 0
+                                ? AppColors.warning
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
