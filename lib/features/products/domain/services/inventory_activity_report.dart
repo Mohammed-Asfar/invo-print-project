@@ -82,6 +82,8 @@ InventoryActivityReport buildInventoryActivityReport({
               product?.sku ?? '',
               entry.type.label,
               entry.reference,
+              entry.secondaryReference,
+              entry.supplierName,
               entry.reason,
               entry.note,
             ].join(' ').toLowerCase();
@@ -151,7 +153,9 @@ InventoryActivityReport buildInventoryActivityReport({
 
 String buildInventoryActivityCsv(InventoryActivityReport report) {
   final buffer = StringBuffer()
-    ..writeln('Product,SKU,Type,Reference,Reason,Note,Date,Delta,Balance');
+    ..writeln(
+      'Product,SKU,Type,Reference,Bill Reference,Supplier,Reason,Note,Date,Delta,Unit Cost,Total Cost,Balance',
+    );
 
   for (final row in report.rows) {
     buffer.writeln(
@@ -160,10 +164,14 @@ String buildInventoryActivityCsv(InventoryActivityReport report) {
         row.sku,
         row.entry.type.label,
         row.entry.reference,
+        row.entry.secondaryReference,
+        row.entry.supplierName,
         row.entry.reason,
         row.entry.note,
         row.entry.createdAt.toIso8601String(),
         row.entry.quantityDelta.toStringAsFixed(2),
+        row.entry.unitCost.toStringAsFixed(2),
+        row.entry.totalCost.toStringAsFixed(2),
         row.entry.balanceAfter.toStringAsFixed(2),
       ].map(_csvCell).join(','),
     );

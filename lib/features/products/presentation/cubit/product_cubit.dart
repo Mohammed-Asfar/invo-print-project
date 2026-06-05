@@ -108,6 +108,12 @@ class ProductCubit extends Cubit<ProductState> {
     ProductService product, {
     required double quantityDelta,
     required String reason,
+    DateTime? effectiveAt,
+    String reference = '',
+    String secondaryReference = '',
+    String supplierName = '',
+    double unitCost = 0,
+    bool updateCostPriceFromUnitCost = false,
     String note = '',
   }) async {
     final normalizedDelta = _roundQuantity(quantityDelta);
@@ -141,16 +147,24 @@ class ProductCubit extends Cubit<ProductState> {
     }
 
     emit(state.copyWith(status: ProductStatus.saving));
-    final now = DateTime.now();
+    final now = effectiveAt ?? DateTime.now();
     final updatedProduct = product.copyWith(
+      costPrice:
+          updateCostPriceFromUnitCost && normalizedDelta > 0 && unitCost > 0
+          ? unitCost
+          : product.costPrice,
       stockQuantity: nextStock,
-      updatedAt: now,
+      updatedAt: DateTime.now(),
     );
     final entries = buildInventoryEntries(
       quantityDeltas: {product.id: normalizedDelta},
       products: [updatedProduct],
       type: ProductInventoryEntryType.manualAdjustment,
       createdAt: now,
+      reference: reference.trim(),
+      secondaryReference: secondaryReference.trim(),
+      supplierName: supplierName.trim(),
+      unitCost: unitCost > 0 ? unitCost : 0,
       reason: reason.trim(),
       note: note.trim(),
     );

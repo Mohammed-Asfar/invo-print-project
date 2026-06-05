@@ -9,6 +9,9 @@ class ProductInventoryEntryModel extends ProductInventoryEntry {
     required super.balanceAfter,
     required super.createdAt,
     super.reference,
+    super.secondaryReference,
+    super.supplierName,
+    super.unitCost,
     super.reason,
     super.note,
   });
@@ -22,6 +25,9 @@ class ProductInventoryEntryModel extends ProductInventoryEntry {
       balanceAfter: entry.balanceAfter,
       createdAt: entry.createdAt,
       reference: entry.reference,
+      secondaryReference: entry.secondaryReference,
+      supplierName: entry.supplierName,
+      unitCost: entry.unitCost,
       reason: entry.reason,
       note: entry.note,
     );
@@ -39,6 +45,9 @@ class ProductInventoryEntryModel extends ProductInventoryEntry {
       balanceAfter: _toDouble(map['balanceAfter']),
       createdAt: _toDateTime(map['createdAt']) ?? DateTime.now(),
       reference: map['reference'] as String? ?? '',
+      secondaryReference: map['secondaryReference'] as String? ?? '',
+      supplierName: map['supplierName'] as String? ?? '',
+      unitCost: _toDouble(map['unitCost']),
       reason: map['reason'] as String? ?? '',
       note: map['note'] as String? ?? '',
     );
@@ -54,6 +63,15 @@ class ProductInventoryEntryModel extends ProductInventoryEntry {
     };
     if (reference.trim().isNotEmpty) {
       map['reference'] = reference.trim();
+    }
+    if (secondaryReference.trim().isNotEmpty) {
+      map['secondaryReference'] = secondaryReference.trim();
+    }
+    if (supplierName.trim().isNotEmpty) {
+      map['supplierName'] = supplierName.trim();
+    }
+    if (unitCost > 0) {
+      map['unitCost'] = unitCost;
     }
     if (reason.trim().isNotEmpty) {
       map['reason'] = reason.trim();

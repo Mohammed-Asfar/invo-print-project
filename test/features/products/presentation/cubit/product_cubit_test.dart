@@ -57,6 +57,66 @@ void main() {
     });
 
     test(
+      'adjustStock stores restock metadata and updates cost price',
+      () async {
+        final product = _product(stockQuantity: 5);
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        final effectiveAt = DateTime(2026, 6, 5, 14, 30);
+
+        await cubit.load();
+        await cubit.adjustStock(
+          product,
+          quantityDelta: 4,
+          reason: 'Purchase',
+          effectiveAt: effectiveAt,
+          reference: 'RST-20260605',
+          secondaryReference: 'BILL-77',
+          supplierName: 'Supply Hub',
+          unitCost: 1700,
+          updateCostPriceFromUnitCost: true,
+          note: 'June restock',
+        );
+
+        expect(cubit.state.status, ProductStatus.saved);
+        final updatedProduct = cubit.state.products.single;
+        expect(updatedProduct.stockQuantity, 9);
+        expect(updatedProduct.costPrice, 1700);
+
+        final historyEntry = ProductInventoryEntryModel.fromMap(
+          firestore.documents.entries
+              .singleWhere(
+                (entry) => entry.key.startsWith('product_inventory_entries/'),
+              )
+              .key
+              .split('/')
+              .last,
+          firestore.documents.entries
+              .singleWhere(
+                (entry) => entry.key.startsWith('product_inventory_entries/'),
+              )
+              .value,
+        );
+        expect(historyEntry.reference, 'RST-20260605');
+        expect(historyEntry.secondaryReference, 'BILL-77');
+        expect(historyEntry.supplierName, 'Supply Hub');
+        expect(historyEntry.unitCost, 1700);
+        expect(historyEntry.totalCost, 6800);
+        expect(historyEntry.createdAt, effectiveAt);
+        expect(historyEntry.note, 'June restock');
+      },
+    );
+
+    test(
       'adjustStock rejects changes that would send stock below zero',
       () async {
         final product = _product(stockQuantity: 2);

@@ -14,6 +14,9 @@ void main() {
         balanceAfter: 8,
         createdAt: createdAt,
         reference: 'INV-001',
+        secondaryReference: 'BILL-001',
+        supplierName: 'Supply Hub',
+        unitCost: 17.5,
         reason: 'Invoice issued',
         note: 'First issue',
       );
@@ -36,6 +39,9 @@ void main() {
       ).toMap();
 
       expect(map.containsKey('reference'), isFalse);
+      expect(map.containsKey('secondaryReference'), isFalse);
+      expect(map.containsKey('supplierName'), isFalse);
+      expect(map.containsKey('unitCost'), isFalse);
       expect(map.containsKey('reason'), isFalse);
       expect(map.containsKey('note'), isFalse);
     });
@@ -54,6 +60,9 @@ void main() {
       expect(model.quantityDelta, 2);
       expect(model.balanceAfter, 10);
       expect(model.reference, isEmpty);
+      expect(model.secondaryReference, isEmpty);
+      expect(model.supplierName, isEmpty);
+      expect(model.unitCost, 0);
       expect(model.reason, isEmpty);
       expect(model.note, isEmpty);
     });

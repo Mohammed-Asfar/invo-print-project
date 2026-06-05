@@ -901,7 +901,10 @@ class _InventoryActivityTable extends StatelessWidget {
                 DataColumn(label: Text('Product')),
                 DataColumn(label: Text('Type')),
                 DataColumn(label: Text('Reference')),
+                DataColumn(label: Text('Supplier')),
                 DataColumn(label: Text('Reason')),
+                DataColumn(numeric: true, label: Text('Unit Cost')),
+                DataColumn(numeric: true, label: Text('Total Cost')),
                 DataColumn(numeric: true, label: Text('Delta')),
                 DataColumn(numeric: true, label: Text('Balance')),
               ],
@@ -930,7 +933,18 @@ class _InventoryActivityTable extends StatelessWidget {
                         Text(
                           row.entry.reference.isEmpty
                               ? '—'
-                              : row.entry.reference,
+                              : [
+                                  row.entry.reference,
+                                  if (row.entry.secondaryReference.isNotEmpty)
+                                    row.entry.secondaryReference,
+                                ].join('\n'),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.entry.supplierName.isEmpty
+                              ? '—'
+                              : row.entry.supplierName,
                         ),
                       ),
                       DataCell(
@@ -940,6 +954,20 @@ class _InventoryActivityTable extends StatelessWidget {
                               : (row.entry.note.isNotEmpty
                                     ? row.entry.note
                                     : '—'),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.entry.unitCost > 0
+                              ? _formatMoney(row.entry.unitCost)
+                              : '—',
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.entry.totalCost > 0
+                              ? _formatMoney(row.entry.totalCost)
+                              : '—',
                         ),
                       ),
                       DataCell(
@@ -1213,13 +1241,31 @@ class _StockAdjustmentDialog extends StatefulWidget {
 class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
   final _formKey = GlobalKey<FormState>();
   final _quantity = TextEditingController();
+  final _reference = TextEditingController();
+  final _secondaryReference = TextEditingController();
+  final _supplierName = TextEditingController();
+  final _unitCost = TextEditingController();
   final _note = TextEditingController();
   _StockAdjustmentMode _mode = _StockAdjustmentMode.add;
-  String _reason = _stockAdjustmentReasons.first;
+  String _reason = 'Purchase';
+  DateTime _effectiveAt = DateTime.now();
+  bool _updateCostPriceFromUnitCost = true;
+
+  bool get _showRestockDetails => _mode == _StockAdjustmentMode.add;
+
+  @override
+  void initState() {
+    super.initState();
+    _reference.text = _buildRestockReference(_effectiveAt);
+  }
 
   @override
   void dispose() {
     _quantity.dispose();
+    _reference.dispose();
+    _secondaryReference.dispose();
+    _supplierName.dispose();
+    _unitCost.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -1232,61 +1278,148 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
         width: 520,
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Current stock: ${_formatQuantity(widget.product.stockQuantity)} ${widget.product.unit}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Current stock: ${_formatQuantity(widget.product.stockQuantity)} ${widget.product.unit}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              DropdownButtonFormField<_StockAdjustmentMode>(
-                initialValue: _mode,
-                decoration: const InputDecoration(
-                  labelText: 'Adjustment Mode',
-                  prefixIcon: Icon(Icons.swap_horiz_outlined),
+                const SizedBox(height: AppSpacing.lg),
+                DropdownButtonFormField<_StockAdjustmentMode>(
+                  initialValue: _mode,
+                  decoration: const InputDecoration(
+                    labelText: 'Adjustment Mode',
+                    prefixIcon: Icon(Icons.swap_horiz_outlined),
+                  ),
+                  items: _StockAdjustmentMode.values
+                      .map(
+                        (mode) => DropdownMenuItem(
+                          value: mode,
+                          child: Text(mode.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _mode = value;
+                      if (value == _StockAdjustmentMode.add) {
+                        if (_reference.text.trim().isEmpty) {
+                          _reference.text = _buildRestockReference(
+                            _effectiveAt,
+                          );
+                        }
+                        if (_reason == 'Damage' ||
+                            _reason == 'Correction' ||
+                            _reason == 'Physical count') {
+                          _reason = 'Purchase';
+                        }
+                      } else if (value == _StockAdjustmentMode.remove) {
+                        if (_reason == 'Purchase' ||
+                            _reason == 'Opening stock') {
+                          _reason = 'Damage';
+                        }
+                      } else if (_reason == 'Purchase' ||
+                          _reason == 'Damage' ||
+                          _reason == 'Return') {
+                        _reason = 'Physical count';
+                      }
+                    });
+                  },
                 ),
-                items: _StockAdjustmentMode.values
-                    .map(
-                      (mode) => DropdownMenuItem(
-                        value: mode,
-                        child: Text(mode.label),
+                const SizedBox(height: AppSpacing.md),
+                _DialogField(
+                  _quantity,
+                  _mode.quantityLabel,
+                  numeric: true,
+                  required: true,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                DropdownButtonFormField<String>(
+                  initialValue: _reason,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason',
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: [
+                    for (final reason in _stockAdjustmentReasons)
+                      DropdownMenuItem(value: reason, child: Text(reason)),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _reason = value);
+                  },
+                ),
+                if (_showRestockDetails) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Restock Details',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _mode = value);
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _DialogField(
-                _quantity,
-                _mode.quantityLabel,
-                numeric: true,
-                required: true,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              DropdownButtonFormField<String>(
-                initialValue: _reason,
-                decoration: const InputDecoration(
-                  labelText: 'Reason',
-                  prefixIcon: Icon(Icons.category_outlined),
-                ),
-                items: [
-                  for (final reason in _stockAdjustmentReasons)
-                    DropdownMenuItem(value: reason, child: Text(reason)),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _DialogField(_reference, 'Restock Entry No.'),
+                  const SizedBox(height: AppSpacing.md),
+                  _DialogField(_secondaryReference, 'Bill / Invoice Ref.'),
+                  const SizedBox(height: AppSpacing.md),
+                  _DialogField(_supplierName, 'Supplier Name'),
+                  const SizedBox(height: AppSpacing.md),
+                  InkWell(
+                    onTap: _pickEffectiveDate,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Inward Stock Date',
+                        prefixIcon: Icon(Icons.calendar_today_outlined),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _formatDateOnly(_effectiveAt),
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                          const Icon(Icons.edit_calendar_outlined),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _DialogField(
+                    _unitCost,
+                    'Landed Cost / Unit Cost',
+                    numeric: true,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SwitchListTile(
+                    value: _updateCostPriceFromUnitCost,
+                    onChanged: (value) {
+                      setState(() => _updateCostPriceFromUnitCost = value);
+                    },
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Update current cost price from this restock',
+                    ),
+                    subtitle: Text(
+                      'Use the landed cost as the product cost for future stock valuation.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
                 ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _reason = value);
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _DialogField(_note, 'Note', maxLines: 3),
-            ],
+                const SizedBox(height: AppSpacing.md),
+                _DialogField(_note, 'Note', maxLines: 3),
+              ],
+            ),
           ),
         ),
       ),
@@ -1313,13 +1446,53 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
       _StockAdjustmentMode.setExact =>
         enteredQuantity - widget.product.stockQuantity,
     };
+    final unitCost = double.tryParse(_unitCost.text.trim()) ?? 0;
     context.read<ProductCubit>().adjustStock(
       widget.product,
       quantityDelta: quantityDelta,
       reason: _reason,
+      effectiveAt: _effectiveAt,
+      reference: _showRestockDetails ? _reference.text.trim() : '',
+      secondaryReference: _showRestockDetails
+          ? _secondaryReference.text.trim()
+          : '',
+      supplierName: _showRestockDetails ? _supplierName.text.trim() : '',
+      unitCost: _showRestockDetails ? unitCost : 0,
+      updateCostPriceFromUnitCost:
+          _showRestockDetails && _updateCostPriceFromUnitCost,
       note: _note.text.trim(),
     );
     Navigator.of(context).pop();
+  }
+
+  Future<void> _pickEffectiveDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _effectiveAt,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _effectiveAt = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        _effectiveAt.hour,
+        _effectiveAt.minute,
+      );
+      if (_reference.text.trim().isEmpty ||
+          _reference.text.trim().startsWith('RST-')) {
+        _reference.text = _buildRestockReference(_effectiveAt);
+      }
+    });
+  }
+
+  String _buildRestockReference(DateTime value) {
+    final year = value.year.toString().padLeft(4, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return 'RST-$year$month$day';
   }
 }
 
@@ -1395,6 +1568,10 @@ class _InventoryHistoryDialog extends StatelessWidget {
                     subtitle: Text(
                       [
                         if (entry.reference.isNotEmpty) entry.reference,
+                        if (entry.secondaryReference.isNotEmpty)
+                          'Bill ${entry.secondaryReference}',
+                        if (entry.supplierName.isNotEmpty)
+                          'Supplier ${entry.supplierName}',
                         if (entry.reason.isNotEmpty) entry.reason,
                         if (entry.note.isNotEmpty) entry.note,
                         _formatDateTime(entry.createdAt),
@@ -1420,6 +1597,12 @@ class _InventoryHistoryDialog extends StatelessWidget {
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: AppColors.textSecondary),
                           ),
+                          if (entry.unitCost > 0)
+                            Text(
+                              'Unit ${_formatMoney(entry.unitCost)}  •  Total ${_formatMoney(entry.totalCost)}',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
                         ],
                       ),
                     ),
@@ -1448,4 +1631,12 @@ String _formatQuantity(double value) {
 
 String _formatDateTime(DateTime value) {
   return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+}
+
+String _formatDateOnly(DateTime value) {
+  return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
+}
+
+String _formatMoney(double value) {
+  return value.toStringAsFixed(2);
 }

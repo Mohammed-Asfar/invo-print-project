@@ -9,6 +9,9 @@ class ProductInventoryEntry extends Equatable {
     required this.balanceAfter,
     required this.createdAt,
     this.reference = '',
+    this.secondaryReference = '',
+    this.supplierName = '',
+    this.unitCost = 0,
     this.reason = '',
     this.note = '',
   });
@@ -20,10 +23,14 @@ class ProductInventoryEntry extends Equatable {
   final double balanceAfter;
   final DateTime createdAt;
   final String reference;
+  final String secondaryReference;
+  final String supplierName;
+  final double unitCost;
   final String reason;
   final String note;
 
   bool get isIncrease => quantityDelta > 0;
+  double get totalCost => unitCost > 0 ? unitCost * quantityDelta.abs() : 0;
 
   ProductInventoryEntry copyWith({
     String? id,
@@ -33,6 +40,9 @@ class ProductInventoryEntry extends Equatable {
     double? balanceAfter,
     DateTime? createdAt,
     String? reference,
+    String? secondaryReference,
+    String? supplierName,
+    double? unitCost,
     String? reason,
     String? note,
   }) {
@@ -44,6 +54,9 @@ class ProductInventoryEntry extends Equatable {
       balanceAfter: balanceAfter ?? this.balanceAfter,
       createdAt: createdAt ?? this.createdAt,
       reference: reference ?? this.reference,
+      secondaryReference: secondaryReference ?? this.secondaryReference,
+      supplierName: supplierName ?? this.supplierName,
+      unitCost: unitCost ?? this.unitCost,
       reason: reason ?? this.reason,
       note: note ?? this.note,
     );
@@ -58,6 +71,9 @@ class ProductInventoryEntry extends Equatable {
     balanceAfter,
     createdAt,
     reference,
+    secondaryReference,
+    supplierName,
+    unitCost,
     reason,
     note,
   ];

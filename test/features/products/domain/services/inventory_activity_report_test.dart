@@ -60,6 +60,7 @@ void main() {
             productId: 'prod_1',
             createdAt: DateTime(2026, 6, 3),
             reason: 'Purchase',
+            supplierName: 'North Supplier',
           ),
           _entry(
             id: 'newer',
@@ -67,11 +68,12 @@ void main() {
             type: ProductInventoryEntryType.invoiceIssued,
             createdAt: DateTime(2026, 6, 4),
             reference: 'INV-001',
+            secondaryReference: 'BILL-19',
           ),
         ],
         productId: 'prod_2',
         type: ProductInventoryEntryType.invoiceIssued,
-        searchQuery: 'inv-001',
+        searchQuery: 'bill-19',
       );
 
       expect(report.rows, hasLength(1));
@@ -134,6 +136,9 @@ void main() {
             productId: 'prod_1',
             reason: 'Purchase',
             note: 'Batch\n1',
+            secondaryReference: 'BILL-007',
+            supplierName: 'Supply, "Hub"',
+            unitCost: 18.25,
           ),
         ],
       );
@@ -142,11 +147,20 @@ void main() {
 
       expect(csv, contains('"Printer, ""A"""'));
       expect(csv, contains('"Batch\n1"'));
+      expect(csv, contains('"Supply, ""Hub"""'));
       expect(csv, contains('Summary,Value'));
       expect(csv, contains('Inventory Value,25.00'));
       expect(csv, contains('Recommended Restock Qty,0.00'));
       expect(csv, contains('Reason,Count,Net Delta'));
+      expect(csv, contains('BILL-007'));
+      expect(csv, contains('18.25'));
       expect(csv, contains('Purchase,1,1.00'));
+      expect(
+        csv,
+        contains(
+          'Product,SKU,Type,Reference,Bill Reference,Supplier,Reason,Note,Date,Delta,Unit Cost,Total Cost,Balance',
+        ),
+      );
     });
   });
 }
@@ -188,8 +202,11 @@ ProductInventoryEntry _entry({
   ProductInventoryEntryType type = ProductInventoryEntryType.manualAdjustment,
   DateTime? createdAt,
   String reference = '',
+  String secondaryReference = '',
+  String supplierName = '',
   String reason = '',
   String note = '',
+  double unitCost = 0,
   double delta = 1,
 }) {
   return ProductInventoryEntry(
@@ -200,6 +217,9 @@ ProductInventoryEntry _entry({
     balanceAfter: 5,
     createdAt: createdAt ?? DateTime(2026, 6, 4),
     reference: reference,
+    secondaryReference: secondaryReference,
+    supplierName: supplierName,
+    unitCost: unitCost,
     reason: reason,
     note: note,
   );
