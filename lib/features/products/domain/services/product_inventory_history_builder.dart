@@ -22,7 +22,7 @@ List<ProductInventoryEntry> buildInventoryEntries({
     if (product == null) continue;
     entries.add(
       ProductInventoryEntry(
-        id: 'stock_${createdAt.microsecondsSinceEpoch}_${entry.key}',
+        id: 'stock_${type.firestoreValue}_${createdAt.microsecondsSinceEpoch}_${entry.key}',
         productId: entry.key,
         type: type,
         quantityDelta: entry.value,

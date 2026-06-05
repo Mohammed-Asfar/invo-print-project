@@ -81,6 +81,7 @@ class ProductInventoryEntry extends Equatable {
 
 enum ProductInventoryEntryType {
   manualAdjustment,
+  purchaseReceived,
   invoiceIssued,
   invoiceUpdated,
   invoiceCancelled,
@@ -88,6 +89,7 @@ enum ProductInventoryEntryType {
 
   String get firestoreValue => switch (this) {
     ProductInventoryEntryType.manualAdjustment => 'manual_adjustment',
+    ProductInventoryEntryType.purchaseReceived => 'purchase_received',
     ProductInventoryEntryType.invoiceIssued => 'invoice_issued',
     ProductInventoryEntryType.invoiceUpdated => 'invoice_updated',
     ProductInventoryEntryType.invoiceCancelled => 'invoice_cancelled',
@@ -96,6 +98,7 @@ enum ProductInventoryEntryType {
 
   String get label => switch (this) {
     ProductInventoryEntryType.manualAdjustment => 'Manual adjustment',
+    ProductInventoryEntryType.purchaseReceived => 'Purchase received',
     ProductInventoryEntryType.invoiceIssued => 'Invoice issued',
     ProductInventoryEntryType.invoiceUpdated => 'Invoice updated',
     ProductInventoryEntryType.invoiceCancelled => 'Invoice cancelled',
@@ -104,6 +107,7 @@ enum ProductInventoryEntryType {
 
   static ProductInventoryEntryType fromValue(String value) {
     return switch (value) {
+      'purchase_received' => ProductInventoryEntryType.purchaseReceived,
       'invoice_issued' => ProductInventoryEntryType.invoiceIssued,
       'invoice_updated' => ProductInventoryEntryType.invoiceUpdated,
       'invoice_cancelled' => ProductInventoryEntryType.invoiceCancelled,

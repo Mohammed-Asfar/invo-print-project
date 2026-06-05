@@ -1,10 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invo_print/features/products/data/models/product_inventory_entry_model.dart';
+import 'package:invo_print/features/products/data/models/purchase_entry_model.dart';
 import 'package:invo_print/features/products/data/models/product_service_model.dart';
 import 'package:invo_print/features/products/data/repositories/product_inventory_repository.dart';
 import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/data/repositories/purchase_entry_repository.dart';
 import 'package:invo_print/features/products/data/repositories/supplier_repository.dart';
 import 'package:invo_print/features/products/domain/entities/product_inventory_entry.dart';
+import 'package:invo_print/features/products/domain/entities/purchase_entry.dart';
 import 'package:invo_print/features/products/domain/entities/product_service.dart';
 import 'package:invo_print/features/products/domain/entities/supplier.dart';
 import 'package:invo_print/features/products/presentation/cubit/product_cubit.dart';
@@ -23,6 +26,7 @@ void main() {
       final cubit = ProductCubit(
         ProductRepository(firestore),
         ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
         SupplierRepository(firestore),
       );
       addTearDown(cubit.close);
@@ -71,6 +75,7 @@ void main() {
         final cubit = ProductCubit(
           ProductRepository(firestore),
           ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
           SupplierRepository(firestore),
         );
         addTearDown(cubit.close);
@@ -132,6 +137,7 @@ void main() {
         final cubit = ProductCubit(
           ProductRepository(firestore),
           ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
           SupplierRepository(firestore),
         );
         addTearDown(cubit.close);
@@ -180,6 +186,7 @@ void main() {
       final cubit = ProductCubit(
         ProductRepository(firestore),
         ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
         SupplierRepository(firestore),
       );
       addTearDown(cubit.close);
@@ -194,6 +201,7 @@ void main() {
       final cubit = ProductCubit(
         ProductRepository(firestore),
         ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
         SupplierRepository(firestore),
       );
       addTearDown(cubit.close);
@@ -222,10 +230,91 @@ void main() {
       expect(cubit.state.filteredSuppliers, hasLength(1));
       expect(cubit.state.filteredSuppliers.single.gstin, '33ABCDE1234F1Z5');
     });
+
+    test(
+      'savePurchaseEntry stores purchase, stock movement, and updated product cost',
+      () async {
+        final product = _product(stockQuantity: 5, costPrice: 1800);
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.savePurchaseEntry(
+          PurchaseEntry(
+            id: '',
+            entryNumber: 'PUR-202606-001',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            billReference: 'BILL-44',
+            purchaseDate: DateTime(2026, 6, 5),
+            items: const [
+              PurchaseEntryItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                sku: 'PRN-1',
+                unit: 'pcs',
+                quantity: 3,
+                unitCost: 2000,
+                lineTotal: 6000,
+              ),
+            ],
+            notes: 'Monthly restock',
+            totalAmount: 6000,
+            isActive: true,
+            createdAt: DateTime(2026, 6, 5),
+            updatedAt: DateTime(2026, 6, 5),
+          ),
+        );
+
+        expect(cubit.state.status, ProductStatus.saved);
+        expect(cubit.state.products.single.stockQuantity, 8);
+        expect(cubit.state.products.single.costPrice, 2000);
+        expect(cubit.state.purchaseEntries, hasLength(1));
+        expect(cubit.state.purchaseEntries.single.supplierName, 'Supply Hub');
+
+        final inventoryEntry = ProductInventoryEntryModel.fromMap(
+          firestore.documents.entries
+              .singleWhere(
+                (entry) => entry.key.startsWith('product_inventory_entries/'),
+              )
+              .key
+              .split('/')
+              .last,
+          firestore.documents.entries
+              .singleWhere(
+                (entry) => entry.key.startsWith('product_inventory_entries/'),
+              )
+              .value,
+        );
+        expect(inventoryEntry.type, ProductInventoryEntryType.purchaseReceived);
+        expect(inventoryEntry.reference, 'PUR-202606-001');
+        expect(inventoryEntry.secondaryReference, 'BILL-44');
+
+        final purchaseDoc = firestore.documents.entries.singleWhere(
+          (entry) => entry.key.startsWith('purchase_entries/'),
+        );
+        final purchaseEntry = PurchaseEntryModel.fromMap(
+          purchaseDoc.key.split('/').last,
+          purchaseDoc.value,
+        );
+        expect(purchaseEntry.totalAmount, 6000);
+        expect(purchaseEntry.items.single.quantity, 3);
+      },
+    );
   });
 }
 
-ProductService _product({double stockQuantity = 5}) {
+ProductService _product({double stockQuantity = 5, double costPrice = 1800}) {
   final now = DateTime(2026, 6, 4);
   return ProductService(
     id: 'prod_1',
@@ -238,7 +327,7 @@ ProductService _product({double stockQuantity = 5}) {
     hsnSac: '8443',
     gstRate: 18,
     trackInventory: true,
-    costPrice: 1800,
+    costPrice: costPrice,
     stockQuantity: stockQuantity,
     reorderLevel: 2,
     isActive: true,

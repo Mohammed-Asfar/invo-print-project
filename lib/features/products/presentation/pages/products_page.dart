@@ -8,6 +8,7 @@ import '../../../../app/di/service_locator.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../domain/entities/product_inventory_entry.dart';
+import '../../domain/entities/purchase_entry.dart';
 import '../../domain/entities/product_service.dart';
 import '../../domain/entities/supplier.dart';
 import '../../domain/services/inventory_activity_report.dart';
@@ -38,6 +39,7 @@ class _ProductsViewState extends State<_ProductsView> {
   String _inventorySearchQuery = '';
   String _selectedInventoryProductId = '';
   ProductInventoryEntryType? _selectedInventoryType;
+  String _purchaseSearchQuery = '';
 
   Future<void> _exportInventoryCsv(ProductState state) async {
     final report = buildInventoryActivityReport(
@@ -98,7 +100,7 @@ class _ProductsViewState extends State<_ProductsView> {
                 const SizedBox(height: AppSpacing.xl),
                 Expanded(
                   child: DefaultTabController(
-                    length: 3,
+                    length: 4,
                     child: Column(
                       children: [
                         Container(
@@ -113,6 +115,7 @@ class _ProductsViewState extends State<_ProductsView> {
                               Tab(text: 'Catalog'),
                               Tab(text: 'Inventory'),
                               Tab(text: 'Suppliers'),
+                              Tab(text: 'Purchases'),
                             ],
                           ),
                         ),
@@ -150,6 +153,18 @@ class _ProductsViewState extends State<_ProductsView> {
                                           : () => _exportInventoryCsv(state),
                                     ),
                                     _SuppliersTab(state: state),
+                                    _PurchasesTab(
+                                      state: state,
+                                      searchQuery: _purchaseSearchQuery,
+                                      onSearchChanged: (value) {
+                                        setState(
+                                          () => _purchaseSearchQuery = value,
+                                        );
+                                        context
+                                            .read<ProductCubit>()
+                                            .searchPurchases(value);
+                                      },
+                                    ),
                                   ],
                                 ),
                         ),
@@ -356,6 +371,67 @@ class _SuppliersTab extends StatelessWidget {
   }
 }
 
+class _PurchasesTab extends StatelessWidget {
+  const _PurchasesTab({
+    required this.state,
+    required this.searchQuery,
+    required this.onSearchChanged,
+  });
+
+  final ProductState state;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                onChanged: onSearchChanged,
+                decoration: const InputDecoration(
+                  labelText: 'Search purchase entries',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            ElevatedButton.icon(
+              onPressed: state.isBusy
+                  ? null
+                  : () => _showPurchaseDialog(context, state),
+              icon: const Icon(Icons.add_business_outlined),
+              label: const Text('New Purchase'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Expanded(
+          child: _PurchaseEntryTable(entries: state.filteredPurchaseEntries),
+        ),
+      ],
+    );
+  }
+
+  void _showPurchaseDialog(BuildContext context, ProductState state) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _PurchaseEntryDialog(
+          suppliers: state.suppliers,
+          products: state.products
+              .where((product) => product.trackInventory)
+              .toList(),
+          existingCount: state.purchaseEntries.length,
+        ),
+      ),
+    );
+  }
+}
+
 class _ProductsHeader extends StatelessWidget {
   const _ProductsHeader({required this.state});
 
@@ -545,6 +621,72 @@ class _SupplierTable extends StatelessWidget {
       builder: (_) => BlocProvider.value(
         value: context.read<ProductCubit>(),
         child: _SupplierDialog(supplier: supplier),
+      ),
+    );
+  }
+}
+
+class _PurchaseEntryTable extends StatelessWidget {
+  const _PurchaseEntryTable({required this.entries});
+
+  final List<PurchaseEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return Center(
+        child: Text(
+          'No purchase entries yet.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ListView.separated(
+        itemCount: entries.length,
+        separatorBuilder: (_, _) =>
+            Divider(height: 1, thickness: 1, color: AppColors.border),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          return ListTile(
+            title: Text(entry.entryNumber),
+            subtitle: Text(
+              [
+                entry.supplierName,
+                if (entry.billReference.isNotEmpty)
+                  'Bill ${entry.billReference}',
+                '${entry.items.length} item${entry.items.length == 1 ? '' : 's'}',
+              ].join('  |  '),
+            ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _formatMoney(entry.totalAmount),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  _formatDateOnly(entry.purchaseDate),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1331,6 +1473,7 @@ class _DialogField extends StatelessWidget {
     this.required = false,
     this.numeric = false,
     this.maxLines = 1,
+    this.width,
   });
 
   final TextEditingController controller;
@@ -1338,11 +1481,12 @@ class _DialogField extends StatelessWidget {
   final bool required;
   final bool numeric;
   final int maxLines;
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: maxLines > 1 ? 680 : 330,
+      width: width ?? (maxLines > 1 ? 680 : 330),
       child: TextFormField(
         controller: controller,
         maxLines: maxLines,
@@ -1356,6 +1500,358 @@ class _DialogField extends StatelessWidget {
           }
           return null;
         },
+      ),
+    );
+  }
+}
+
+class _PurchaseEntryDialog extends StatefulWidget {
+  const _PurchaseEntryDialog({
+    required this.suppliers,
+    required this.products,
+    required this.existingCount,
+  });
+
+  final List<Supplier> suppliers;
+  final List<ProductService> products;
+  final int existingCount;
+
+  @override
+  State<_PurchaseEntryDialog> createState() => _PurchaseEntryDialogState();
+}
+
+class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _entryNumber = TextEditingController();
+  final _billReference = TextEditingController();
+  final _supplierName = TextEditingController();
+  final _notes = TextEditingController();
+  final List<_PurchaseItemDraft> _items = [_PurchaseItemDraft()];
+  DateTime _purchaseDate = DateTime.now();
+  String _supplierId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    final seq = (widget.existingCount + 1).toString().padLeft(3, '0');
+    _entryNumber.text =
+        'PUR-${_purchaseDate.year}${_purchaseDate.month.toString().padLeft(2, '0')}-$seq';
+  }
+
+  @override
+  void dispose() {
+    _entryNumber.dispose();
+    _billReference.dispose();
+    _supplierName.dispose();
+    _notes.dispose();
+    for (final item in _items) {
+      item.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suppliers = [...widget.suppliers]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final products = [...widget.products]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return AlertDialog(
+      title: const Text('New Purchase Entry'),
+      content: SizedBox(
+        width: 920,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    _DialogField(
+                      _entryNumber,
+                      'Purchase Entry No.',
+                      required: true,
+                    ),
+                    _DialogField(_billReference, 'Supplier Bill Ref.'),
+                    SizedBox(
+                      width: 330,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _supplierId.isEmpty ? '' : _supplierId,
+                        decoration: const InputDecoration(
+                          labelText: 'Supplier',
+                          prefixIcon: Icon(Icons.local_shipping_outlined),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Text('Manual supplier entry'),
+                          ),
+                          ...suppliers.map(
+                            (supplier) => DropdownMenuItem<String>(
+                              value: supplier.id,
+                              child: Text(supplier.name),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          final supplierId = value ?? '';
+                          Supplier? supplier;
+                          for (final item in suppliers) {
+                            if (item.id == supplierId) {
+                              supplier = item;
+                              break;
+                            }
+                          }
+                          setState(() {
+                            _supplierId = supplierId;
+                            _supplierName.text = supplier?.name ?? '';
+                          });
+                        },
+                      ),
+                    ),
+                    _DialogField(
+                      _supplierName,
+                      'Supplier Name',
+                      required: true,
+                    ),
+                    InkWell(
+                      onTap: _pickPurchaseDate,
+                      child: SizedBox(
+                        width: 330,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Purchase Date',
+                            prefixIcon: Icon(Icons.calendar_today_outlined),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(_formatDateOnly(_purchaseDate)),
+                              ),
+                              const Icon(Icons.edit_calendar_outlined),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Text(
+                      'Items',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() => _items.add(_PurchaseItemDraft()));
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add Item'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                for (var index = 0; index < _items.length; index++) ...[
+                  _PurchaseItemEditor(
+                    key: ValueKey('purchase-item-$index'),
+                    draft: _items[index],
+                    products: products,
+                    canRemove: _items.length > 1,
+                    onRemove: () {
+                      setState(() {
+                        _items[index].dispose();
+                        _items.removeAt(index);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                _DialogField(_notes, 'Notes', maxLines: 3),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.save),
+          label: const Text('Save Purchase'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickPurchaseDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _purchaseDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _purchaseDate = picked);
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    final items = <PurchaseEntryItem>[];
+    for (final draft in _items) {
+      final product = draft.product;
+      final quantity = double.tryParse(draft.quantity.text.trim()) ?? 0;
+      final unitCost = double.tryParse(draft.unitCost.text.trim()) ?? 0;
+      if (product == null || quantity <= 0 || unitCost < 0) {
+        continue;
+      }
+      items.add(
+        PurchaseEntryItem(
+          productId: product.id,
+          productName: product.name,
+          sku: product.sku,
+          unit: product.unit,
+          quantity: quantity,
+          unitCost: unitCost,
+          lineTotal: _roundCurrency(quantity * unitCost),
+        ),
+      );
+    }
+    context.read<ProductCubit>().savePurchaseEntry(
+      PurchaseEntry(
+        id: '',
+        entryNumber: _entryNumber.text.trim(),
+        supplierId: _supplierId,
+        supplierName: _supplierName.text.trim(),
+        billReference: _billReference.text.trim(),
+        purchaseDate: _purchaseDate,
+        items: items,
+        notes: _notes.text.trim(),
+        totalAmount: _roundCurrency(
+          items.fold<double>(0, (sum, item) => sum + item.lineTotal),
+        ),
+        isActive: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    Navigator.of(context).pop();
+  }
+}
+
+class _PurchaseItemDraft {
+  ProductService? product;
+  final quantity = TextEditingController(text: '1');
+  final unitCost = TextEditingController(text: '0');
+
+  void dispose() {
+    quantity.dispose();
+    unitCost.dispose();
+  }
+}
+
+class _PurchaseItemEditor extends StatefulWidget {
+  const _PurchaseItemEditor({
+    super.key,
+    required this.draft,
+    required this.products,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final _PurchaseItemDraft draft;
+  final List<ProductService> products;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  State<_PurchaseItemEditor> createState() => _PurchaseItemEditorState();
+}
+
+class _PurchaseItemEditorState extends State<_PurchaseItemEditor> {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: DropdownButtonFormField<ProductService>(
+              initialValue: widget.draft.product,
+              decoration: const InputDecoration(
+                labelText: 'Product',
+                prefixIcon: Icon(Icons.inventory_2_outlined),
+              ),
+              items: widget.products
+                  .map(
+                    (product) => DropdownMenuItem<ProductService>(
+                      value: product,
+                      child: Text(product.name),
+                    ),
+                  )
+                  .toList(),
+              validator: (value) => value == null ? 'Select product' : null,
+              onChanged: (value) {
+                setState(() {
+                  widget.draft.product = value;
+                  if (value != null &&
+                      widget.draft.unitCost.text.trim() == '0') {
+                    widget.draft.unitCost.text = value.costPrice
+                        .toStringAsFixed(2);
+                  }
+                });
+              },
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: _DialogField(
+              widget.draft.quantity,
+              'Qty',
+              numeric: true,
+              required: true,
+              width: double.infinity,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: _DialogField(
+              widget.draft.unitCost,
+              'Unit Cost',
+              numeric: true,
+              required: true,
+              width: double.infinity,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: IconButton(
+              tooltip: 'Remove item',
+              onPressed: widget.canRemove ? widget.onRemove : null,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1921,4 +2417,8 @@ String _formatDateOnly(DateTime value) {
 
 String _formatMoney(double value) {
   return value.toStringAsFixed(2);
+}
+
+double _roundCurrency(double value) {
+  return double.parse(value.toStringAsFixed(2));
 }

@@ -21,6 +21,7 @@ import '../../features/invoices/domain/services/invoice_pdf_service.dart';
 import '../../features/invoices/presentation/cubit/invoice_cubit.dart';
 import '../../features/products/data/repositories/product_repository.dart';
 import '../../features/products/data/repositories/product_inventory_repository.dart';
+import '../../features/products/data/repositories/purchase_entry_repository.dart';
 import '../../features/products/data/repositories/supplier_repository.dart';
 import '../../features/products/domain/services/inventory_transition_service.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
@@ -58,6 +59,9 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<ProductInventoryRepository>(
       () => ProductInventoryRepository(sl<CustomerFirestoreRestClient>()),
+    )
+    ..registerLazySingleton<PurchaseEntryRepository>(
+      () => PurchaseEntryRepository(sl<CustomerFirestoreRestClient>()),
     )
     ..registerLazySingleton<SupplierRepository>(
       () => SupplierRepository(sl<CustomerFirestoreRestClient>()),
@@ -101,6 +105,7 @@ void setupServiceLocator() {
       () => ProductCubit(
         sl<ProductRepository>(),
         sl<ProductInventoryRepository>(),
+        sl<PurchaseEntryRepository>(),
         sl<SupplierRepository>(),
       ),
     )
