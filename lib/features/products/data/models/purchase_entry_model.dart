@@ -14,6 +14,7 @@ class PurchaseEntryModel extends PurchaseEntry {
     required super.totalAmount,
     required super.amountPaid,
     required super.paymentHistory,
+    required super.returnHistory,
     required super.status,
     required super.isActive,
     required super.createdAt,
@@ -34,6 +35,7 @@ class PurchaseEntryModel extends PurchaseEntry {
       totalAmount: entry.totalAmount,
       amountPaid: entry.amountPaid,
       paymentHistory: entry.paymentHistory,
+      returnHistory: entry.returnHistory,
       status: entry.status,
       isActive: entry.isActive,
       createdAt: entry.createdAt,
@@ -62,6 +64,7 @@ class PurchaseEntryModel extends PurchaseEntry {
       totalAmount: _toDouble(map['totalAmount']),
       amountPaid: _toDouble(map['amountPaid']),
       paymentHistory: _paymentsFromMap(map['paymentHistory']),
+      returnHistory: _returnsFromMap(map['returnHistory']),
       status: PurchasePaymentStatus.fromValue(map['status'] as String? ?? ''),
       isActive: map['isActive'] as bool? ?? true,
       createdAt: _toDateTime(map['createdAt']) ?? now,
@@ -78,6 +81,7 @@ class PurchaseEntryModel extends PurchaseEntry {
       'totalAmount': totalAmount,
       'amountPaid': amountPaid,
       'paymentHistory': paymentHistory.map(_paymentToMap).toList(),
+      'returnHistory': returnHistory.map(_returnToMap).toList(),
       'status': status.firestoreValue,
       'isActive': isActive,
       'createdAt': createdAt,
@@ -139,6 +143,40 @@ class PurchaseEntryModel extends PurchaseEntry {
         .toList();
   }
 
+  static List<PurchaseReturn> _returnsFromMap(dynamic rawReturns) {
+    if (rawReturns is! List) return const [];
+    return rawReturns
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .map(
+          (map) => PurchaseReturn(
+            returnedAt: _toDateTime(map['returnedAt']) ?? DateTime.now(),
+            items: _returnItemsFromMap(map['items']),
+            reference: map['reference'] as String? ?? '',
+            notes: map['notes'] as String? ?? '',
+            reducesPayable: map['reducesPayable'] as bool? ?? true,
+          ),
+        )
+        .toList();
+  }
+
+  static List<PurchaseReturnItem> _returnItemsFromMap(dynamic rawItems) {
+    if (rawItems is! List) return const [];
+    return rawItems
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .map(
+          (map) => PurchaseReturnItem(
+            productId: map['productId'] as String? ?? '',
+            productName: map['productName'] as String? ?? '',
+            quantity: _toDouble(map['quantity']),
+            unitCost: _toDouble(map['unitCost']),
+            lineTotal: _toDouble(map['lineTotal']),
+          ),
+        )
+        .toList();
+  }
+
   static Map<String, dynamic> _paymentToMap(PurchasePayment payment) {
     final map = <String, dynamic>{
       'amount': payment.amount,
@@ -152,6 +190,31 @@ class PurchaseEntryModel extends PurchaseEntry {
     }
     if (payment.notes.trim().isNotEmpty) {
       map['notes'] = payment.notes.trim();
+    }
+    return map;
+  }
+
+  static Map<String, dynamic> _returnToMap(PurchaseReturn purchaseReturn) {
+    final map = <String, dynamic>{
+      'returnedAt': purchaseReturn.returnedAt,
+      'items': purchaseReturn.items
+          .map(
+            (item) => {
+              'productId': item.productId,
+              'productName': item.productName,
+              'quantity': item.quantity,
+              'unitCost': item.unitCost,
+              'lineTotal': item.lineTotal,
+            },
+          )
+          .toList(),
+      'reducesPayable': purchaseReturn.reducesPayable,
+    };
+    if (purchaseReturn.reference.trim().isNotEmpty) {
+      map['reference'] = purchaseReturn.reference.trim();
+    }
+    if (purchaseReturn.notes.trim().isNotEmpty) {
+      map['notes'] = purchaseReturn.notes.trim();
     }
     return map;
   }

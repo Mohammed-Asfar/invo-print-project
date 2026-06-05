@@ -2206,6 +2206,11 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
                     value: _formatMoney(entry.amountPaid),
                   ),
                   _PurchaseMetric(
+                    label: 'Returned',
+                    value: _formatMoney(entry.returnedAmount),
+                    highlight: entry.returnedAmount > 0,
+                  ),
+                  _PurchaseMetric(
                     label: 'Balance',
                     value: _formatMoney(entry.balanceDue),
                     highlight: entry.balanceDue > 0,
@@ -2246,6 +2251,38 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
                     ),
                   ),
                 ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Returns',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (entry.returnHistory.isEmpty)
+                Text(
+                  'No supplier returns recorded yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                for (final supplierReturn
+                    in entry.returnHistory.toList().reversed)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(_formatMoney(supplierReturn.totalAmount)),
+                    subtitle: Text(
+                      [
+                        _formatDateOnly(supplierReturn.returnedAt),
+                        supplierReturn.reducesPayable
+                            ? 'Reduces payable'
+                            : 'Replacement only',
+                        if (supplierReturn.reference.trim().isNotEmpty)
+                          supplierReturn.reference.trim(),
+                      ].join('  |  '),
+                    ),
+                  ),
               const SizedBox(height: AppSpacing.lg),
               Text(
                 'Payment History',
@@ -2320,6 +2357,14 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: () {
             Navigator.of(context).pop();
+            _showPurchaseReturnDialog(context, entry);
+          },
+          icon: const Icon(Icons.assignment_return_outlined),
+          label: const Text('Record Return'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).pop();
             _showEditPurchaseDialog(context, entry);
           },
           icon: const Icon(Icons.edit_outlined),
@@ -2380,6 +2425,278 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
           existingCount: state.purchaseEntries.length,
           existingEntry: entry,
         ),
+      ),
+    );
+  }
+
+  void _showPurchaseReturnDialog(BuildContext context, PurchaseEntry entry) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _PurchaseReturnDialog(entry: entry),
+      ),
+    );
+  }
+}
+
+class _PurchaseReturnDialog extends StatefulWidget {
+  const _PurchaseReturnDialog({required this.entry});
+
+  final PurchaseEntry entry;
+
+  @override
+  State<_PurchaseReturnDialog> createState() => _PurchaseReturnDialogState();
+}
+
+class _PurchaseReturnDialogState extends State<_PurchaseReturnDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _reference = TextEditingController();
+  final _notes = TextEditingController();
+  late DateTime _returnedAt;
+  bool _reducesPayable = true;
+  late final List<_PurchaseReturnItemDraft> _drafts;
+
+  @override
+  void initState() {
+    super.initState();
+    _returnedAt = DateTime.now();
+    final returnedByProduct = <String, double>{};
+    for (final supplierReturn in widget.entry.returnHistory) {
+      for (final item in supplierReturn.items) {
+        returnedByProduct[item.productId] =
+            (returnedByProduct[item.productId] ?? 0) + item.quantity;
+      }
+    }
+    _drafts = widget.entry.items
+        .map(
+          (item) => _PurchaseReturnItemDraft(
+            item: item,
+            maxQuantity:
+                (item.quantity - (returnedByProduct[item.productId] ?? 0))
+                    .clamp(0, double.infinity)
+                    .toDouble(),
+          ),
+        )
+        .where((draft) => draft.maxQuantity > 0)
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    _notes.dispose();
+    for (final draft in _drafts) {
+      draft.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Record Return - ${widget.entry.entryNumber}'),
+      content: SizedBox(
+        width: 760,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    InkWell(
+                      onTap: _pickReturnedDate,
+                      child: SizedBox(
+                        width: 330,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Return Date',
+                            prefixIcon: Icon(Icons.event_repeat_outlined),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(_formatDateOnly(_returnedAt)),
+                              ),
+                              const Icon(Icons.edit_calendar_outlined),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    _DialogField(_reference, 'Return Ref.'),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SwitchListTile(
+                  value: _reducesPayable,
+                  onChanged: (value) => setState(() => _reducesPayable = value),
+                  title: const Text('Reduce supplier payable'),
+                  subtitle: Text(
+                    _reducesPayable
+                        ? 'Returned amount will reduce the outstanding bill.'
+                        : 'Use this for replacement-only returns.',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (_drafts.isEmpty)
+                  Text(
+                    'All purchased quantities have already been returned.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                else
+                  for (final draft in _drafts) ...[
+                    _PurchaseReturnItemEditor(draft: draft),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                _DialogField(_notes, 'Notes', maxLines: 3),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _drafts.isEmpty ? null : _save,
+          icon: const Icon(Icons.assignment_return_outlined),
+          label: const Text('Save Return'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickReturnedDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _returnedAt,
+      firstDate: widget.entry.purchaseDate,
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _returnedAt = picked);
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    final items = <PurchaseReturnItem>[];
+    for (final draft in _drafts) {
+      final quantity = double.tryParse(draft.quantity.text.trim()) ?? 0;
+      if (quantity <= 0) continue;
+      items.add(
+        PurchaseReturnItem(
+          productId: draft.item.productId,
+          productName: draft.item.productName,
+          quantity: quantity,
+          unitCost: draft.item.unitCost,
+          lineTotal: _roundCurrency(quantity * draft.item.unitCost),
+        ),
+      );
+    }
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Enter at least one return quantity.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      return;
+    }
+    context.read<ProductCubit>().recordPurchaseReturn(
+      widget.entry,
+      items: items,
+      returnedAt: _returnedAt,
+      reference: _reference.text.trim(),
+      notes: _notes.text.trim(),
+      reducesPayable: _reducesPayable,
+    );
+    Navigator.of(context).pop();
+  }
+}
+
+class _PurchaseReturnItemDraft {
+  _PurchaseReturnItemDraft({required this.item, required this.maxQuantity})
+    : quantity = TextEditingController();
+
+  final PurchaseEntryItem item;
+  final double maxQuantity;
+  final TextEditingController quantity;
+
+  void dispose() {
+    quantity.dispose();
+  }
+}
+
+class _PurchaseReturnItemEditor extends StatelessWidget {
+  const _PurchaseReturnItemEditor({required this.draft});
+
+  final _PurchaseReturnItemDraft draft;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  draft.item.productName,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Purchased ${_formatQuantity(draft.item.quantity)} ${draft.item.unit}  •  Returnable ${_formatQuantity(draft.maxQuantity)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: TextFormField(
+              controller: draft.quantity,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Return Qty'),
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) return null;
+                final parsed = double.tryParse(text);
+                if (parsed == null || parsed < 0) {
+                  return 'Enter a valid quantity';
+                }
+                if (parsed > draft.maxQuantity) {
+                  return 'Max ${_formatQuantity(draft.maxQuantity)}';
+                }
+                return null;
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

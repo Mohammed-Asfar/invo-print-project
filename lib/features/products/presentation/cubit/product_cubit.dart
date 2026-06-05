@@ -243,7 +243,10 @@ class ProductCubit extends Cubit<ProductState> {
       purchaseEntry.items.fold<double>(0, (sum, item) => sum + item.lineTotal),
     );
     if (existingEntry != null &&
-        existingEntry.amountPaid > normalizedTotalAmount) {
+        existingEntry.amountPaid >
+            _roundQuantity(
+              normalizedTotalAmount - existingEntry.returnedAmount,
+            )) {
       emit(
         state.copyWith(
           status: ProductStatus.failure,
@@ -311,6 +314,20 @@ class ProductCubit extends Cubit<ProductState> {
         );
         if (item.unitCost > 0) {
           existingUnitCostByProductId[item.productId] = item.unitCost;
+        }
+      }
+      final returnedQuantities = _returnedQuantitiesByProduct(existingEntry);
+      for (final entry in returnedQuantities.entries) {
+        final nextPurchasedQty = newQuantityTotals[entry.key] ?? 0;
+        if (nextPurchasedQty < entry.value) {
+          emit(
+            state.copyWith(
+              status: ProductStatus.failure,
+              message:
+                  'Edited quantity for a returned item cannot be less than the quantity already returned.',
+            ),
+          );
+          return;
         }
       }
     }
@@ -404,6 +421,7 @@ class ProductCubit extends Cubit<ProductState> {
                   totalAmount: normalizedTotalAmount,
                   amountPaid: existingEntry.amountPaid,
                   paymentHistory: existingEntry.paymentHistory,
+                  returnHistory: existingEntry.returnHistory,
                   status: existingEntry.status,
                   createdAt: existingEntry.createdAt,
                 ),
@@ -748,7 +766,7 @@ class ProductCubit extends Cubit<ProductState> {
       purchaseEntry,
       paymentHistory,
     );
-    if (updatedEntry.amountPaid > purchaseEntry.totalAmount) {
+    if (updatedEntry.amountPaid > updatedEntry.payableAmount) {
       emit(
         state.copyWith(
           status: ProductStatus.failure,
@@ -790,6 +808,181 @@ class ProductCubit extends Cubit<ProductState> {
     );
   }
 
+  Future<void> recordPurchaseReturn(
+    PurchaseEntry purchaseEntry, {
+    required List<PurchaseReturnItem> items,
+    required DateTime returnedAt,
+    String reference = '',
+    String notes = '',
+    bool reducesPayable = true,
+  }) async {
+    if (items.isEmpty) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Add at least one returned item.',
+        ),
+      );
+      return;
+    }
+
+    final productsById = {
+      for (final product in state.products) product.id: product,
+    };
+    final purchasedQuantities = <String, double>{};
+    for (final item in purchaseEntry.items) {
+      purchasedQuantities[item.productId] = _roundQuantity(
+        (purchasedQuantities[item.productId] ?? 0) + item.quantity,
+      );
+    }
+    final returnedQuantities = _returnedQuantitiesByProduct(purchaseEntry);
+    final returnQuantities = <String, double>{};
+    final originalProductsById = <String, ProductService>{};
+    final updatedProductsById = <String, ProductService>{};
+    final unitCostByProductId = <String, double>{};
+
+    for (final item in items) {
+      final product = productsById[item.productId];
+      if (product == null || !product.trackInventory) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Returned items must reference tracked inventory products.',
+          ),
+        );
+        return;
+      }
+      if (item.quantity <= 0) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message: 'Return quantity must be greater than zero.',
+          ),
+        );
+        return;
+      }
+      final purchased = purchasedQuantities[item.productId] ?? 0;
+      final alreadyReturned = returnedQuantities[item.productId] ?? 0;
+      final nextReturned = _roundQuantity(alreadyReturned + item.quantity);
+      if (nextReturned > purchased) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Return quantity cannot exceed purchased quantity for ${item.productName}.',
+          ),
+        );
+        return;
+      }
+      final nextStock = _roundQuantity(product.stockQuantity - item.quantity);
+      if (nextStock < 0) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Return would make ${item.productName} stock go below zero.',
+          ),
+        );
+        return;
+      }
+      returnQuantities[item.productId] = _roundQuantity(
+        (returnQuantities[item.productId] ?? 0) + item.quantity,
+      );
+      originalProductsById[item.productId] = product;
+      unitCostByProductId[item.productId] = item.unitCost;
+    }
+
+    for (final entry in returnQuantities.entries) {
+      final product = productsById[entry.key]!;
+      final nextStock = _roundQuantity(product.stockQuantity - entry.value);
+      updatedProductsById[entry.key] = product.copyWith(
+        stockQuantity: nextStock,
+        updatedAt: DateTime.now(),
+      );
+    }
+
+    final purchaseReturn = PurchaseReturn(
+      returnedAt: returnedAt,
+      items: items,
+      reference: reference.trim(),
+      notes: notes.trim(),
+      reducesPayable: reducesPayable,
+    );
+
+    final updatedEntry = _rebuildPurchasePaymentState(
+      purchaseEntry.copyWith(
+        returnHistory: [...purchaseEntry.returnHistory, purchaseReturn],
+      ),
+      [...purchaseEntry.paymentHistory],
+    );
+
+    if (updatedEntry.amountPaid > updatedEntry.payableAmount) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message:
+              'This return would reduce the payable below the payments already recorded.',
+        ),
+      );
+      return;
+    }
+
+    final historyEntries = <ProductInventoryEntry>[
+      for (final entry in returnQuantities.entries)
+        buildInventoryEntries(
+          quantityDeltas: {entry.key: -entry.value},
+          products: [updatedProductsById[entry.key]!],
+          type: ProductInventoryEntryType.manualAdjustment,
+          createdAt: returnedAt,
+          reference: purchaseEntry.entryNumber,
+          secondaryReference: reference.trim().isNotEmpty
+              ? reference.trim()
+              : purchaseEntry.billReference.trim(),
+          supplierName: purchaseEntry.supplierName.trim(),
+          unitCost: unitCostByProductId[entry.key] ?? 0,
+          reason: reducesPayable
+              ? 'Supplier return'
+              : 'Supplier return replacement',
+          note: notes.trim(),
+        ).single,
+    ];
+
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      final updatedProducts = updatedProductsById.values.toList();
+      final originalProducts = originalProductsById.values.toList();
+      await _repository.saveProducts(updatedProducts);
+      try {
+        await _inventoryRepository.saveEntries(historyEntries);
+      } catch (_) {
+        await _repository.saveProducts(originalProducts);
+        rethrow;
+      }
+      try {
+        await _purchaseEntryRepository.savePurchaseEntry(updatedEntry);
+      } catch (_) {
+        await _inventoryRepository.deleteEntries(
+          historyEntries.map((entry) => entry.id),
+        );
+        await _repository.saveProducts(originalProducts);
+        rethrow;
+      }
+      await _reloadState(message: 'Supplier return recorded.');
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(status: ProductStatus.failure, message: error.message),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Unable to record supplier return: $error',
+        ),
+      );
+    }
+  }
+
   Future<void> _savePurchasePaymentState(
     PurchaseEntry purchaseEntry, {
     required String successMessage,
@@ -823,7 +1016,7 @@ class ProductCubit extends Cubit<ProductState> {
     );
     final status = amountPaid <= 0
         ? PurchasePaymentStatus.unpaid
-        : amountPaid >= purchaseEntry.totalAmount
+        : amountPaid >= purchaseEntry.payableAmount
         ? PurchasePaymentStatus.paid
         : PurchasePaymentStatus.partial;
     return purchaseEntry.copyWith(
@@ -854,5 +1047,19 @@ class ProductCubit extends Cubit<ProductState> {
 
   double _roundQuantity(double value) {
     return double.parse(value.toStringAsFixed(4));
+  }
+
+  Map<String, double> _returnedQuantitiesByProduct(
+    PurchaseEntry purchaseEntry,
+  ) {
+    final totals = <String, double>{};
+    for (final supplierReturn in purchaseEntry.returnHistory) {
+      for (final item in supplierReturn.items) {
+        totals[item.productId] = _roundQuantity(
+          (totals[item.productId] ?? 0) + item.quantity,
+        );
+      }
+    }
+    return totals;
   }
 }

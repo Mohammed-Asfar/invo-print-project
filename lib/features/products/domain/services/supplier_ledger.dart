@@ -37,10 +37,12 @@ class SupplierLedgerEntry {
 
 enum SupplierLedgerEntryType {
   purchase,
+  returnEntry,
   payment;
 
   String get label => switch (this) {
     SupplierLedgerEntryType.purchase => 'Purchase',
+    SupplierLedgerEntryType.returnEntry => 'Return',
     SupplierLedgerEntryType.payment => 'Payment',
   };
 }
@@ -75,6 +77,24 @@ SupplierLedger buildSupplierLedger({
         description: entry.billReference.trim(),
       ),
     );
+
+    for (final supplierReturn in entry.returnHistory) {
+      ledgerEntries.add(
+        SupplierLedgerEntry(
+          date: supplierReturn.returnedAt,
+          type: SupplierLedgerEntryType.returnEntry,
+          reference: supplierReturn.reference.trim().isNotEmpty
+              ? supplierReturn.reference.trim()
+              : entry.entryNumber,
+          amount: -supplierReturn.totalAmount,
+          description: supplierReturn.notes.trim().isNotEmpty
+              ? supplierReturn.notes.trim()
+              : supplierReturn.reducesPayable
+              ? 'Supplier return'
+              : 'Supplier return without payable reduction',
+        ),
+      );
+    }
 
     for (final payment in entry.paymentHistory) {
       ledgerEntries.add(

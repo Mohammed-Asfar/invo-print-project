@@ -37,6 +37,22 @@ void main() {
             notes: 'First instalment',
           ),
         ],
+        returnHistory: [
+          PurchaseReturn(
+            returnedAt: date.add(const Duration(days: 2)),
+            items: const [
+              PurchaseReturnItem(
+                productId: 'prod_1',
+                productName: 'Thermal Printer',
+                quantity: 1,
+                unitCost: 2000,
+                lineTotal: 2000,
+              ),
+            ],
+            reference: 'RET-1',
+            notes: 'Damaged piece',
+          ),
+        ],
         status: PurchasePaymentStatus.partial,
         isActive: true,
         createdAt: date,
@@ -49,6 +65,7 @@ void main() {
       expect(restored, model);
       expect((map['items'] as List).single['productId'], 'prod_1');
       expect((map['paymentHistory'] as List).single['reference'], 'PAY-1');
+      expect((map['returnHistory'] as List).single['reference'], 'RET-1');
       expect(map['dueDate'], model.dueDate);
     });
 

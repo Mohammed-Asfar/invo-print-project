@@ -14,6 +14,7 @@ class PurchaseEntry extends Equatable {
     required this.totalAmount,
     required this.amountPaid,
     required this.paymentHistory,
+    this.returnHistory = const [],
     required this.status,
     required this.isActive,
     required this.createdAt,
@@ -32,13 +33,26 @@ class PurchaseEntry extends Equatable {
   final double totalAmount;
   final double amountPaid;
   final List<PurchasePayment> paymentHistory;
+  final List<PurchaseReturn> returnHistory;
   final PurchasePaymentStatus status;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  double get returnedAmount {
+    final amount = returnHistory
+        .where((entry) => entry.reducesPayable)
+        .fold<double>(0, (sum, entry) => sum + entry.totalAmount);
+    return double.parse(amount.toStringAsFixed(2));
+  }
+
+  double get payableAmount {
+    final payable = totalAmount - returnedAmount;
+    return payable < 0 ? 0 : double.parse(payable.toStringAsFixed(2));
+  }
+
   double get balanceDue {
-    final balance = totalAmount - amountPaid;
+    final balance = payableAmount - amountPaid;
     return balance < 0 ? 0 : double.parse(balance.toStringAsFixed(2));
   }
 
@@ -70,6 +84,7 @@ class PurchaseEntry extends Equatable {
     double? totalAmount,
     double? amountPaid,
     List<PurchasePayment>? paymentHistory,
+    List<PurchaseReturn>? returnHistory,
     PurchasePaymentStatus? status,
     bool? isActive,
     DateTime? createdAt,
@@ -88,6 +103,7 @@ class PurchaseEntry extends Equatable {
       totalAmount: totalAmount ?? this.totalAmount,
       amountPaid: amountPaid ?? this.amountPaid,
       paymentHistory: paymentHistory ?? this.paymentHistory,
+      returnHistory: returnHistory ?? this.returnHistory,
       status: status ?? this.status,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
@@ -109,6 +125,7 @@ class PurchaseEntry extends Equatable {
     totalAmount,
     amountPaid,
     paymentHistory,
+    returnHistory,
     status,
     isActive,
     createdAt,
@@ -152,6 +169,80 @@ class PurchasePayment extends Equatable {
 
   @override
   List<Object?> get props => [amount, paidAt, method, reference, notes];
+}
+
+class PurchaseReturn extends Equatable {
+  const PurchaseReturn({
+    required this.returnedAt,
+    required this.items,
+    this.reference = '',
+    this.notes = '',
+    this.reducesPayable = true,
+  });
+
+  final DateTime returnedAt;
+  final List<PurchaseReturnItem> items;
+  final String reference;
+  final String notes;
+  final bool reducesPayable;
+
+  double get totalAmount => double.parse(
+    items.fold<double>(0, (sum, item) => sum + item.lineTotal).toStringAsFixed(2),
+  );
+
+  PurchaseReturn copyWith({
+    DateTime? returnedAt,
+    List<PurchaseReturnItem>? items,
+    String? reference,
+    String? notes,
+    bool? reducesPayable,
+  }) {
+    return PurchaseReturn(
+      returnedAt: returnedAt ?? this.returnedAt,
+      items: items ?? this.items,
+      reference: reference ?? this.reference,
+      notes: notes ?? this.notes,
+      reducesPayable: reducesPayable ?? this.reducesPayable,
+    );
+  }
+
+  @override
+  List<Object?> get props => [returnedAt, items, reference, notes, reducesPayable];
+}
+
+class PurchaseReturnItem extends Equatable {
+  const PurchaseReturnItem({
+    required this.productId,
+    required this.productName,
+    required this.quantity,
+    required this.unitCost,
+    required this.lineTotal,
+  });
+
+  final String productId;
+  final String productName;
+  final double quantity;
+  final double unitCost;
+  final double lineTotal;
+
+  PurchaseReturnItem copyWith({
+    String? productId,
+    String? productName,
+    double? quantity,
+    double? unitCost,
+    double? lineTotal,
+  }) {
+    return PurchaseReturnItem(
+      productId: productId ?? this.productId,
+      productName: productName ?? this.productName,
+      quantity: quantity ?? this.quantity,
+      unitCost: unitCost ?? this.unitCost,
+      lineTotal: lineTotal ?? this.lineTotal,
+    );
+  }
+
+  @override
+  List<Object?> get props => [productId, productName, quantity, unitCost, lineTotal];
 }
 
 enum PurchasePaymentStatus {

@@ -621,6 +621,277 @@ void main() {
       },
     );
 
+    test(
+      'recordPurchaseReturn reduces stock and payable when return affects bill',
+      () async {
+        final product = _product(stockQuantity: 8, costPrice: 1800);
+        final entry = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 3,
+              unitCost: 2000,
+              lineTotal: 6000,
+            ),
+          ],
+          notes: 'Monthly restock',
+          totalAmount: 6000,
+          amountPaid: 1000,
+          paymentHistory: [
+            PurchasePayment(amount: 1000, paidAt: DateTime(2026, 6, 6)),
+          ],
+          status: PurchasePaymentStatus.partial,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+            entry,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.recordPurchaseReturn(
+          entry,
+          items: const [
+            PurchaseReturnItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              quantity: 1,
+              unitCost: 2000,
+              lineTotal: 2000,
+            ),
+          ],
+          returnedAt: DateTime(2026, 6, 7),
+          reference: 'RET-1',
+          notes: 'Damaged piece',
+        );
+
+        expect(cubit.state.status, ProductStatus.saved);
+        expect(cubit.state.products.single.stockQuantity, 7);
+        final updatedEntry = cubit.state.purchaseEntries.single;
+        expect(updatedEntry.returnHistory, hasLength(1));
+        expect(updatedEntry.returnedAmount, 2000);
+        expect(updatedEntry.payableAmount, 4000);
+        expect(updatedEntry.balanceDue, 3000);
+        expect(updatedEntry.status, PurchasePaymentStatus.partial);
+
+        final historyEntry = ProductInventoryEntryModel.fromMap(
+          firestore.documents.entries
+              .singleWhere(
+                (doc) => doc.key.startsWith('product_inventory_entries/'),
+              )
+              .key
+              .split('/')
+              .last,
+          firestore.documents.entries
+              .singleWhere(
+                (doc) => doc.key.startsWith('product_inventory_entries/'),
+              )
+              .value,
+        );
+        expect(historyEntry.quantityDelta, -1);
+        expect(historyEntry.reason, 'Supplier return');
+        expect(historyEntry.secondaryReference, 'RET-1');
+      },
+    );
+
+    test(
+      'recordPurchaseReturn can log replacement-only return without reducing payable',
+      () async {
+        final product = _product(stockQuantity: 8, costPrice: 1800);
+        final entry = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 3,
+              unitCost: 2000,
+              lineTotal: 6000,
+            ),
+          ],
+          notes: 'Monthly restock',
+          totalAmount: 6000,
+          amountPaid: 1000,
+          paymentHistory: [
+            PurchasePayment(amount: 1000, paidAt: DateTime(2026, 6, 6)),
+          ],
+          status: PurchasePaymentStatus.partial,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+            entry,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.recordPurchaseReturn(
+          entry,
+          items: const [
+            PurchaseReturnItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              quantity: 1,
+              unitCost: 2000,
+              lineTotal: 2000,
+            ),
+          ],
+          returnedAt: DateTime(2026, 6, 7),
+          reducesPayable: false,
+          notes: 'Supplier sending replacement',
+        );
+
+        expect(cubit.state.status, ProductStatus.saved);
+        expect(cubit.state.products.single.stockQuantity, 7);
+        final updatedEntry = cubit.state.purchaseEntries.single;
+        expect(updatedEntry.returnHistory, hasLength(1));
+        expect(updatedEntry.returnedAmount, 0);
+        expect(updatedEntry.payableAmount, 6000);
+        expect(updatedEntry.balanceDue, 5000);
+
+        final historyEntry = ProductInventoryEntryModel.fromMap(
+          firestore.documents.entries
+              .singleWhere(
+                (doc) => doc.key.startsWith('product_inventory_entries/'),
+              )
+              .key
+              .split('/')
+              .last,
+          firestore.documents.entries
+              .singleWhere(
+                (doc) => doc.key.startsWith('product_inventory_entries/'),
+              )
+              .value,
+        );
+        expect(historyEntry.reason, 'Supplier return replacement');
+      },
+    );
+
+    test(
+      'recordPurchaseReturn rejects quantity above remaining returnable amount',
+      () async {
+        final product = _product(stockQuantity: 8, costPrice: 1800);
+        final entry = PurchaseEntry(
+          id: 'pur_1',
+          entryNumber: 'PUR-202606-001',
+          supplierId: 'sup_1',
+          supplierName: 'Supply Hub',
+          billReference: 'BILL-44',
+          purchaseDate: DateTime(2026, 6, 5),
+          items: const [
+            PurchaseEntryItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              sku: 'PRN-1',
+              unit: 'pcs',
+              quantity: 3,
+              unitCost: 2000,
+              lineTotal: 6000,
+            ),
+          ],
+          notes: 'Monthly restock',
+          totalAmount: 6000,
+          amountPaid: 0,
+          paymentHistory: const [],
+          returnHistory: [
+            PurchaseReturn(
+              returnedAt: DateTime(2026, 6, 6),
+              items: const [
+                PurchaseReturnItem(
+                  productId: 'prod_1',
+                  productName: 'Thermal Printer',
+                  quantity: 2,
+                  unitCost: 2000,
+                  lineTotal: 4000,
+                ),
+              ],
+            ),
+          ],
+          status: PurchasePaymentStatus.unpaid,
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'products/${product.id}': ProductServiceModel.fromEntity(
+            product,
+          ).toMap(),
+          'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+            entry,
+          ).toMap(),
+        });
+        final cubit = ProductCubit(
+          ProductRepository(firestore),
+          ProductInventoryRepository(firestore),
+          PurchaseEntryRepository(firestore),
+          SupplierRepository(firestore),
+        );
+        addTearDown(cubit.close);
+
+        await cubit.load();
+        await cubit.recordPurchaseReturn(
+          entry,
+          items: const [
+            PurchaseReturnItem(
+              productId: 'prod_1',
+              productName: 'Thermal Printer',
+              quantity: 2,
+              unitCost: 2000,
+              lineTotal: 4000,
+            ),
+          ],
+          returnedAt: DateTime(2026, 6, 7),
+        );
+
+        expect(cubit.state.status, ProductStatus.failure);
+        expect(
+          cubit.state.message,
+          contains('cannot exceed purchased quantity'),
+        );
+      },
+    );
+
     test('recordPurchasePayment updates paid amount and status', () async {
       final purchaseDate = DateTime(2026, 6, 5);
       final entry = PurchaseEntry(
