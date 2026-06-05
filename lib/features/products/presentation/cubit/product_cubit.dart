@@ -468,6 +468,107 @@ class ProductCubit extends Cubit<ProductState> {
     );
   }
 
+  Future<void> voidPurchaseEntry(PurchaseEntry purchaseEntry) async {
+    if (purchaseEntry.amountPaid > 0 ||
+        purchaseEntry.paymentHistory.isNotEmpty) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Remove supplier payments before voiding this bill.',
+        ),
+      );
+      return;
+    }
+    final quantityTotals = <String, double>{};
+    final currentProductsById = {
+      for (final product in state.products) product.id: product,
+    };
+    final originalProducts = <ProductService>[];
+    final updatedProducts = <ProductService>[];
+
+    for (final item in purchaseEntry.items) {
+      final product = currentProductsById[item.productId];
+      if (product == null || !product.trackInventory) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Unable to void this bill because an inventory item is missing.',
+          ),
+        );
+        return;
+      }
+      quantityTotals[item.productId] = _roundQuantity(
+        (quantityTotals[item.productId] ?? 0) + item.quantity,
+      );
+    }
+
+    for (final item in quantityTotals.entries) {
+      final product = currentProductsById[item.key]!;
+      final nextStock = _roundQuantity(product.stockQuantity - item.value);
+      if (nextStock < 0) {
+        emit(
+          state.copyWith(
+            status: ProductStatus.failure,
+            message:
+                'Cannot void ${purchaseEntry.entryNumber} because ${product.name} stock would go below zero.',
+          ),
+        );
+        return;
+      }
+      originalProducts.add(product);
+      updatedProducts.add(
+        product.copyWith(stockQuantity: nextStock, updatedAt: DateTime.now()),
+      );
+    }
+
+    final historyEntries = buildInventoryEntries(
+      quantityDeltas: {
+        for (final item in quantityTotals.entries) item.key: -item.value,
+      },
+      products: updatedProducts,
+      type: ProductInventoryEntryType.manualAdjustment,
+      createdAt: DateTime.now(),
+      reference: purchaseEntry.entryNumber,
+      secondaryReference: purchaseEntry.billReference.trim(),
+      supplierName: purchaseEntry.supplierName.trim(),
+      reason: 'Purchase voided',
+      note: purchaseEntry.notes.trim(),
+    );
+
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      await _repository.saveProducts(updatedProducts);
+      try {
+        await _inventoryRepository.saveEntries(historyEntries);
+      } catch (_) {
+        await _repository.saveProducts(originalProducts);
+        rethrow;
+      }
+      try {
+        await _purchaseEntryRepository.archivePurchaseEntry(purchaseEntry);
+      } catch (_) {
+        await _inventoryRepository.deleteEntries(
+          historyEntries.map((entry) => entry.id),
+        );
+        await _repository.saveProducts(originalProducts);
+        rethrow;
+      }
+      await _reloadState(message: 'Purchase bill voided.');
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(status: ProductStatus.failure, message: error.message),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Unable to void purchase bill: $error',
+        ),
+      );
+    }
+  }
+
   Future<void> recordPurchasePayment(
     PurchaseEntry purchaseEntry, {
     required double amount,
@@ -498,7 +599,7 @@ class ProductCubit extends Cubit<ProductState> {
     final appliedAmount = amount > purchaseEntry.balanceDue
         ? purchaseEntry.balanceDue
         : amount;
-    final paymentHistory = [
+    final updatedEntry = _rebuildPurchasePaymentState(purchaseEntry, [
       ...purchaseEntry.paymentHistory,
       PurchasePayment(
         amount: _roundQuantity(appliedAmount),
@@ -507,32 +608,105 @@ class ProductCubit extends Cubit<ProductState> {
         reference: reference.trim(),
         notes: notes.trim(),
       ),
-    ]..sort((a, b) => a.paidAt.compareTo(b.paidAt));
-    final amountPaid = _roundQuantity(
-      paymentHistory.fold<double>(0, (sum, payment) => sum + payment.amount),
-    );
-    final status = amountPaid >= purchaseEntry.totalAmount
-        ? PurchasePaymentStatus.paid
-        : PurchasePaymentStatus.partial;
+    ]);
 
-    emit(state.copyWith(status: ProductStatus.saving));
-    try {
-      await _purchaseEntryRepository.savePurchaseEntry(
-        purchaseEntry.copyWith(
-          amountPaid: amountPaid,
-          paymentHistory: paymentHistory,
-          status: status,
-        ),
-      );
-      final purchaseEntries = await _purchaseEntryRepository
-          .fetchPurchaseEntries();
+    await _savePurchasePaymentState(
+      updatedEntry,
+      successMessage: 'Supplier payment recorded.',
+      failurePrefix: 'Unable to record supplier payment',
+    );
+  }
+
+  Future<void> updatePurchasePayment(
+    PurchaseEntry purchaseEntry, {
+    required int index,
+    required double amount,
+    required DateTime paidAt,
+    String method = '',
+    String reference = '',
+    String notes = '',
+  }) async {
+    if (index < 0 || index >= purchaseEntry.paymentHistory.length) {
       emit(
         state.copyWith(
-          status: ProductStatus.saved,
-          purchaseEntries: purchaseEntries,
-          message: 'Supplier payment recorded.',
+          status: ProductStatus.failure,
+          message: 'That payment entry could not be found.',
         ),
       );
+      return;
+    }
+    if (amount <= 0) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Enter a payment amount greater than zero.',
+        ),
+      );
+      return;
+    }
+    final paymentHistory = [...purchaseEntry.paymentHistory];
+    paymentHistory[index] = PurchasePayment(
+      amount: _roundQuantity(amount),
+      paidAt: paidAt,
+      method: method.trim(),
+      reference: reference.trim(),
+      notes: notes.trim(),
+    );
+    final updatedEntry = _rebuildPurchasePaymentState(
+      purchaseEntry,
+      paymentHistory,
+    );
+    if (updatedEntry.amountPaid > purchaseEntry.totalAmount) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message:
+              'Edited payment total cannot exceed the supplier bill amount.',
+        ),
+      );
+      return;
+    }
+    await _savePurchasePaymentState(
+      updatedEntry,
+      successMessage: 'Supplier payment updated.',
+      failurePrefix: 'Unable to update supplier payment',
+    );
+  }
+
+  Future<void> deletePurchasePayment(
+    PurchaseEntry purchaseEntry, {
+    required int index,
+  }) async {
+    if (index < 0 || index >= purchaseEntry.paymentHistory.length) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'That payment entry could not be found.',
+        ),
+      );
+      return;
+    }
+    final paymentHistory = [...purchaseEntry.paymentHistory]..removeAt(index);
+    final updatedEntry = _rebuildPurchasePaymentState(
+      purchaseEntry,
+      paymentHistory,
+    );
+    await _savePurchasePaymentState(
+      updatedEntry,
+      successMessage: 'Supplier payment removed.',
+      failurePrefix: 'Unable to remove supplier payment',
+    );
+  }
+
+  Future<void> _savePurchasePaymentState(
+    PurchaseEntry purchaseEntry, {
+    required String successMessage,
+    required String failurePrefix,
+  }) async {
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      await _purchaseEntryRepository.savePurchaseEntry(purchaseEntry);
+      await _reloadState(message: successMessage);
     } on AppException catch (error) {
       emit(
         state.copyWith(status: ProductStatus.failure, message: error.message),
@@ -541,10 +715,49 @@ class ProductCubit extends Cubit<ProductState> {
       emit(
         state.copyWith(
           status: ProductStatus.failure,
-          message: 'Unable to record supplier payment: $error',
+          message: '$failurePrefix: $error',
         ),
       );
     }
+  }
+
+  PurchaseEntry _rebuildPurchasePaymentState(
+    PurchaseEntry purchaseEntry,
+    List<PurchasePayment> paymentHistory,
+  ) {
+    paymentHistory.sort((a, b) => a.paidAt.compareTo(b.paidAt));
+    final amountPaid = _roundQuantity(
+      paymentHistory.fold<double>(0, (sum, payment) => sum + payment.amount),
+    );
+    final status = amountPaid <= 0
+        ? PurchasePaymentStatus.unpaid
+        : amountPaid >= purchaseEntry.totalAmount
+        ? PurchasePaymentStatus.paid
+        : PurchasePaymentStatus.partial;
+    return purchaseEntry.copyWith(
+      amountPaid: amountPaid,
+      paymentHistory: paymentHistory,
+      status: status,
+    );
+  }
+
+  Future<void> _reloadState({required String message}) async {
+    final results = await Future.wait<Object>([
+      _repository.fetchProducts(),
+      _inventoryRepository.fetchAllEntries(),
+      _purchaseEntryRepository.fetchPurchaseEntries(),
+      _supplierRepository.fetchSuppliers(),
+    ]);
+    emit(
+      state.copyWith(
+        status: ProductStatus.saved,
+        products: results[0] as List<ProductService>,
+        inventoryEntries: results[1] as List<ProductInventoryEntry>,
+        purchaseEntries: results[2] as List<PurchaseEntry>,
+        suppliers: results[3] as List<Supplier>,
+        message: message,
+      ),
+    );
   }
 
   double _roundQuantity(double value) {

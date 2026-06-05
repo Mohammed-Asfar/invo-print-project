@@ -12,6 +12,7 @@ void main() {
       ];
       final report = buildSupplierPayablesReport(
         suppliers: suppliers,
+        asOfDate: DateTime(2026, 10, 15),
         purchaseEntries: [
           _entry(
             id: 'pur_1',
@@ -51,8 +52,63 @@ void main() {
       expect(report.totalPurchased, 8500);
       expect(report.totalPaid, 3500);
       expect(report.totalOutstanding, 5000);
+      expect(report.currentBucketTotal, 0);
+      expect(report.days31To60BucketTotal, 0);
+      expect(report.days61To90BucketTotal, 0);
+      expect(report.days90PlusBucketTotal, 5000);
       expect(report.rows.first.supplierName, 'Supply Hub');
       expect(report.rows.first.outstandingBalance, 5000);
+    });
+
+    test('calculates aging buckets from purchase date', () {
+      final report = buildSupplierPayablesReport(
+        suppliers: [_supplier(id: 'sup_1', name: 'Supply Hub')],
+        asOfDate: DateTime(2026, 6, 30),
+        purchaseEntries: [
+          _entry(
+            id: 'pur_1',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            purchaseDate: DateTime(2026, 6, 20),
+            totalAmount: 1000,
+            amountPaid: 0,
+            status: PurchasePaymentStatus.unpaid,
+          ),
+          _entry(
+            id: 'pur_2',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            purchaseDate: DateTime(2026, 5, 20),
+            totalAmount: 2000,
+            amountPaid: 0,
+            status: PurchasePaymentStatus.unpaid,
+          ),
+          _entry(
+            id: 'pur_3',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            purchaseDate: DateTime(2026, 4, 20),
+            totalAmount: 3000,
+            amountPaid: 0,
+            status: PurchasePaymentStatus.unpaid,
+          ),
+          _entry(
+            id: 'pur_4',
+            supplierId: 'sup_1',
+            supplierName: 'Supply Hub',
+            purchaseDate: DateTime(2026, 3, 20),
+            totalAmount: 4000,
+            amountPaid: 0,
+            status: PurchasePaymentStatus.unpaid,
+          ),
+        ],
+      );
+
+      final row = report.rows.single;
+      expect(row.currentBucketAmount, 1000);
+      expect(row.days31To60BucketAmount, 2000);
+      expect(row.days61To90BucketAmount, 3000);
+      expect(row.days90PlusBucketAmount, 4000);
     });
   });
 

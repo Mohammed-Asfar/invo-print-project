@@ -13,6 +13,8 @@ import '../../domain/entities/product_service.dart';
 import '../../domain/entities/supplier.dart';
 import '../../domain/services/inventory_activity_report.dart';
 import '../../domain/services/supplier_ledger.dart';
+import '../../domain/services/supplier_statement_pdf_service.dart';
+import '../../../reports/domain/services/supplier_payables_report.dart';
 import '../cubit/product_cubit.dart';
 
 class ProductsPage extends StatelessWidget {
@@ -707,12 +709,26 @@ class _SupplierTable extends StatelessWidget {
   }
 
   void _showSupplierLedger(BuildContext context, Supplier supplier) {
-    final ledger = context.read<ProductCubit>().supplierLedgerFor(supplier);
+    final cubit = context.read<ProductCubit>();
+    final ledger = cubit.supplierLedgerFor(supplier);
+    final payablesRows = buildSupplierPayablesReport(
+      purchaseEntries: cubit.state.purchaseEntries,
+      suppliers: cubit.state.suppliers,
+    ).rows;
+    SupplierPayablesRow? payablesRow;
+    for (final row in payablesRows) {
+      if (row.supplierId == supplier.id ||
+          row.supplierName.trim().toLowerCase() ==
+              supplier.name.trim().toLowerCase()) {
+        payablesRow = row;
+        break;
+      }
+    }
     showDialog<void>(
       context: context,
       builder: (_) => BlocProvider.value(
-        value: context.read<ProductCubit>(),
-        child: _SupplierLedgerDialog(ledger: ledger),
+        value: cubit,
+        child: _SupplierLedgerDialog(ledger: ledger, payablesRow: payablesRow),
       ),
     );
   }
@@ -2123,18 +2139,50 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
                   ),
                 )
               else
-                for (final payment in entry.paymentHistory.reversed)
+                for (final indexedPayment
+                    in entry.paymentHistory.indexed.toList().reversed)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(_formatMoney(payment.amount)),
+                    title: Text(_formatMoney(indexedPayment.$2.amount)),
                     subtitle: Text(
                       [
-                        _formatDateOnly(payment.paidAt),
-                        if (payment.method.trim().isNotEmpty)
-                          payment.method.trim(),
-                        if (payment.reference.trim().isNotEmpty)
-                          payment.reference.trim(),
+                        _formatDateOnly(indexedPayment.$2.paidAt),
+                        if (indexedPayment.$2.method.trim().isNotEmpty)
+                          indexedPayment.$2.method.trim(),
+                        if (indexedPayment.$2.reference.trim().isNotEmpty)
+                          indexedPayment.$2.reference.trim(),
                       ].join('  |  '),
+                    ),
+                    trailing: Wrap(
+                      spacing: AppSpacing.xs,
+                      children: [
+                        IconButton(
+                          tooltip: 'Edit payment',
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _showPurchasePaymentDialog(
+                              context,
+                              entry,
+                              paymentIndex: indexedPayment.$1,
+                              payment: indexedPayment.$2,
+                            );
+                          },
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove payment',
+                          onPressed: () async {
+                            Navigator.of(context).pop();
+                            await context
+                                .read<ProductCubit>()
+                                .deletePurchasePayment(
+                                  entry,
+                                  index: indexedPayment.$1,
+                                );
+                          },
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
                     ),
                   ),
             ],
@@ -2145,6 +2193,14 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () async {
+            Navigator.of(context).pop();
+            await context.read<ProductCubit>().voidPurchaseEntry(entry);
+          },
+          icon: const Icon(Icons.block_outlined),
+          label: const Text('Void Bill'),
         ),
         if (entry.balanceDue > 0)
           ElevatedButton.icon(
@@ -2159,21 +2215,36 @@ class _PurchaseEntryDetailDialog extends StatelessWidget {
     );
   }
 
-  void _showPurchasePaymentDialog(BuildContext context, PurchaseEntry entry) {
+  void _showPurchasePaymentDialog(
+    BuildContext context,
+    PurchaseEntry entry, {
+    int? paymentIndex,
+    PurchasePayment? payment,
+  }) {
     showDialog<void>(
       context: context,
       builder: (_) => BlocProvider.value(
         value: context.read<ProductCubit>(),
-        child: _PurchasePaymentDialog(entry: entry),
+        child: _PurchasePaymentDialog(
+          entry: entry,
+          paymentIndex: paymentIndex,
+          payment: payment,
+        ),
       ),
     );
   }
 }
 
 class _PurchasePaymentDialog extends StatefulWidget {
-  const _PurchasePaymentDialog({required this.entry});
+  const _PurchasePaymentDialog({
+    required this.entry,
+    this.paymentIndex,
+    this.payment,
+  });
 
   final PurchaseEntry entry;
+  final int? paymentIndex;
+  final PurchasePayment? payment;
 
   @override
   State<_PurchasePaymentDialog> createState() => _PurchasePaymentDialogState();
@@ -2190,8 +2261,13 @@ class _PurchasePaymentDialogState extends State<_PurchasePaymentDialog> {
   @override
   void initState() {
     super.initState();
-    _paidAt = DateTime.now();
-    _amount.text = widget.entry.balanceDue.toStringAsFixed(2);
+    final existingPayment = widget.payment;
+    _paidAt = existingPayment?.paidAt ?? DateTime.now();
+    _amount.text = (existingPayment?.amount ?? widget.entry.balanceDue)
+        .toStringAsFixed(2);
+    _method.text = existingPayment?.method ?? '';
+    _reference.text = existingPayment?.reference ?? '';
+    _notes.text = existingPayment?.notes ?? '';
   }
 
   @override
@@ -2206,7 +2282,9 @@ class _PurchasePaymentDialogState extends State<_PurchasePaymentDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Record Payment - ${widget.entry.entryNumber}'),
+      title: Text(
+        '${widget.payment == null ? 'Record Payment' : 'Edit Payment'} - ${widget.entry.entryNumber}',
+      ),
       content: SizedBox(
         width: 440,
         child: Form(
@@ -2299,18 +2377,32 @@ class _PurchasePaymentDialogState extends State<_PurchasePaymentDialog> {
         ElevatedButton.icon(
           onPressed: () async {
             if (!_formKey.currentState!.validate()) return;
-            await context.read<ProductCubit>().recordPurchasePayment(
-              widget.entry,
-              amount: double.tryParse(_amount.text.trim()) ?? 0,
-              paidAt: _paidAt,
-              method: _method.text.trim(),
-              reference: _reference.text.trim(),
-              notes: _notes.text.trim(),
-            );
+            if (widget.paymentIndex == null) {
+              await context.read<ProductCubit>().recordPurchasePayment(
+                widget.entry,
+                amount: double.tryParse(_amount.text.trim()) ?? 0,
+                paidAt: _paidAt,
+                method: _method.text.trim(),
+                reference: _reference.text.trim(),
+                notes: _notes.text.trim(),
+              );
+            } else {
+              await context.read<ProductCubit>().updatePurchasePayment(
+                widget.entry,
+                index: widget.paymentIndex!,
+                amount: double.tryParse(_amount.text.trim()) ?? 0,
+                paidAt: _paidAt,
+                method: _method.text.trim(),
+                reference: _reference.text.trim(),
+                notes: _notes.text.trim(),
+              );
+            }
             if (context.mounted) Navigator.of(context).pop();
           },
           icon: const Icon(Icons.payments_outlined),
-          label: const Text('Save Payment'),
+          label: Text(
+            widget.payment == null ? 'Save Payment' : 'Update Payment',
+          ),
         ),
       ],
     );
@@ -2318,9 +2410,10 @@ class _PurchasePaymentDialogState extends State<_PurchasePaymentDialog> {
 }
 
 class _SupplierLedgerDialog extends StatelessWidget {
-  const _SupplierLedgerDialog({required this.ledger});
+  const _SupplierLedgerDialog({required this.ledger, this.payablesRow});
 
   final SupplierLedger ledger;
+  final SupplierPayablesRow? payablesRow;
 
   @override
   Widget build(BuildContext context) {
@@ -2353,6 +2446,25 @@ class _SupplierLedgerDialog extends StatelessWidget {
                     label: 'Bills',
                     value: ledger.purchaseEntries.length.toString(),
                   ),
+                  if (payablesRow != null) ...[
+                    _PurchaseMetric(
+                      label: '0-30 Days',
+                      value: _formatMoney(payablesRow!.currentBucketAmount),
+                    ),
+                    _PurchaseMetric(
+                      label: '31-60 Days',
+                      value: _formatMoney(payablesRow!.days31To60BucketAmount),
+                    ),
+                    _PurchaseMetric(
+                      label: '61-90 Days',
+                      value: _formatMoney(payablesRow!.days61To90BucketAmount),
+                    ),
+                    _PurchaseMetric(
+                      label: '90+ Days',
+                      value: _formatMoney(payablesRow!.days90PlusBucketAmount),
+                      highlight: payablesRow!.days90PlusBucketAmount > 0,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -2451,8 +2563,39 @@ class _SupplierLedgerDialog extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
         ),
+        ElevatedButton.icon(
+          onPressed: () => _exportStatement(context),
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          label: const Text('Export Statement'),
+        ),
       ],
     );
+  }
+
+  Future<void> _exportStatement(BuildContext context) async {
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'Save supplier statement PDF',
+      fileName:
+          '${ledger.supplier.name.trim().replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-').toLowerCase()}-statement.pdf',
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+    );
+    if (path == null || !context.mounted) return;
+    final bytes = await sl<SupplierStatementPdfService>().buildStatementPdf(
+      supplier: ledger.supplier,
+      ledger: ledger,
+      payableRow: payablesRow,
+    );
+    await File(path).writeAsBytes(bytes, flush: true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Supplier statement exported.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
   }
 }
 

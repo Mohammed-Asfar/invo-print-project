@@ -12,6 +12,11 @@ class SupplierPayablesReport {
     required this.totalPurchased,
     required this.totalPaid,
     required this.totalOutstanding,
+    required this.currentBucketTotal,
+    required this.days31To60BucketTotal,
+    required this.days61To90BucketTotal,
+    required this.days90PlusBucketTotal,
+    required this.asOfDate,
   });
 
   final List<SupplierPayablesRow> rows;
@@ -23,6 +28,11 @@ class SupplierPayablesReport {
   final double totalPurchased;
   final double totalPaid;
   final double totalOutstanding;
+  final double currentBucketTotal;
+  final double days31To60BucketTotal;
+  final double days61To90BucketTotal;
+  final double days90PlusBucketTotal;
+  final DateTime asOfDate;
 }
 
 class SupplierPayablesRow {
@@ -35,6 +45,10 @@ class SupplierPayablesRow {
     required this.totalPaid,
     required this.outstandingBalance,
     required this.lastPurchaseDate,
+    required this.currentBucketAmount,
+    required this.days31To60BucketAmount,
+    required this.days61To90BucketAmount,
+    required this.days90PlusBucketAmount,
   });
 
   final String supplierId;
@@ -45,12 +59,18 @@ class SupplierPayablesRow {
   final double totalPaid;
   final double outstandingBalance;
   final DateTime? lastPurchaseDate;
+  final double currentBucketAmount;
+  final double days31To60BucketAmount;
+  final double days61To90BucketAmount;
+  final double days90PlusBucketAmount;
 }
 
 SupplierPayablesReport buildSupplierPayablesReport({
   required Iterable<PurchaseEntry> purchaseEntries,
   required Iterable<Supplier> suppliers,
+  DateTime? asOfDate,
 }) {
+  final effectiveAsOfDate = _dateOnly(asOfDate ?? DateTime.now());
   final supplierNamesById = {
     for (final supplier in suppliers.where((supplier) => supplier.isActive))
       supplier.id: supplier.name.trim(),
@@ -94,6 +114,24 @@ SupplierPayablesReport buildSupplierPayablesReport({
         final outstanding = _money(
           entries.fold<double>(0, (sum, entry) => sum + entry.balanceDue),
         );
+        var currentBucketAmount = 0.0;
+        var days31To60BucketAmount = 0.0;
+        var days61To90BucketAmount = 0.0;
+        var days90PlusBucketAmount = 0.0;
+        for (final entry in entries.where((entry) => entry.balanceDue > 0)) {
+          final age = effectiveAsOfDate
+              .difference(_dateOnly(entry.purchaseDate))
+              .inDays;
+          if (age <= 30) {
+            currentBucketAmount += entry.balanceDue;
+          } else if (age <= 60) {
+            days31To60BucketAmount += entry.balanceDue;
+          } else if (age <= 90) {
+            days61To90BucketAmount += entry.balanceDue;
+          } else {
+            days90PlusBucketAmount += entry.balanceDue;
+          }
+        }
         final openBillCount = entries
             .where((entry) => entry.balanceDue > 0)
             .length;
@@ -106,6 +144,10 @@ SupplierPayablesReport buildSupplierPayablesReport({
           totalPaid: totalPaid,
           outstandingBalance: outstanding,
           lastPurchaseDate: entries.first.purchaseDate,
+          currentBucketAmount: _money(currentBucketAmount),
+          days31To60BucketAmount: _money(days31To60BucketAmount),
+          days61To90BucketAmount: _money(days61To90BucketAmount),
+          days90PlusBucketAmount: _money(days90PlusBucketAmount),
         );
       }).toList()..sort((a, b) {
         final balanceCompare = b.outstandingBalance.compareTo(
@@ -137,6 +179,19 @@ SupplierPayablesReport buildSupplierPayablesReport({
     totalOutstanding: _money(
       activeEntries.fold<double>(0, (sum, entry) => sum + entry.balanceDue),
     ),
+    currentBucketTotal: _money(
+      rows.fold<double>(0, (sum, row) => sum + row.currentBucketAmount),
+    ),
+    days31To60BucketTotal: _money(
+      rows.fold<double>(0, (sum, row) => sum + row.days31To60BucketAmount),
+    ),
+    days61To90BucketTotal: _money(
+      rows.fold<double>(0, (sum, row) => sum + row.days61To90BucketAmount),
+    ),
+    days90PlusBucketTotal: _money(
+      rows.fold<double>(0, (sum, row) => sum + row.days90PlusBucketAmount),
+    ),
+    asOfDate: effectiveAsOfDate,
   );
 }
 
@@ -149,6 +204,10 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
       'Total Purchased',
       'Total Paid',
       'Outstanding',
+      '0-30 Days',
+      '31-60 Days',
+      '61-90 Days',
+      '90+ Days',
       'Last Purchase Date',
     ],
     for (final row in report.rows)
@@ -159,6 +218,10 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
         _formatMoney(row.totalPurchased),
         _formatMoney(row.totalPaid),
         _formatMoney(row.outstandingBalance),
+        _formatMoney(row.currentBucketAmount),
+        _formatMoney(row.days31To60BucketAmount),
+        _formatMoney(row.days61To90BucketAmount),
+        _formatMoney(row.days90PlusBucketAmount),
         row.lastPurchaseDate == null ? '' : _formatDate(row.lastPurchaseDate!),
       ],
     [],
@@ -171,6 +234,10 @@ String buildSupplierPayablesCsv(SupplierPayablesReport report) {
     ['Total Purchased', _formatMoney(report.totalPurchased)],
     ['Total Paid', _formatMoney(report.totalPaid)],
     ['Total Outstanding', _formatMoney(report.totalOutstanding)],
+    ['0-30 Days', _formatMoney(report.currentBucketTotal)],
+    ['31-60 Days', _formatMoney(report.days31To60BucketTotal)],
+    ['61-90 Days', _formatMoney(report.days61To90BucketTotal)],
+    ['90+ Days', _formatMoney(report.days90PlusBucketTotal)],
   ];
 
   return rows
@@ -195,3 +262,6 @@ String _formatDate(DateTime date) {
 String _formatMoney(double value) => value.toStringAsFixed(2);
 
 double _money(double value) => double.parse(value.toStringAsFixed(2));
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);

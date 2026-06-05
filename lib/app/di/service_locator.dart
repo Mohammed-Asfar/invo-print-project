@@ -24,6 +24,7 @@ import '../../features/products/data/repositories/product_inventory_repository.d
 import '../../features/products/data/repositories/purchase_entry_repository.dart';
 import '../../features/products/data/repositories/supplier_repository.dart';
 import '../../features/products/domain/services/inventory_transition_service.dart';
+import '../../features/products/domain/services/supplier_statement_pdf_service.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
 import '../theme/theme_cubit.dart';
 
@@ -71,6 +72,9 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<InventoryTransitionService>(
       InventoryTransitionService.new,
+    )
+    ..registerLazySingleton<SupplierStatementPdfService>(
+      SupplierStatementPdfService.new,
     )
     ..registerLazySingleton<InvoiceOutputBuilder>(InvoiceOutputBuilder.new)
     ..registerLazySingleton<InvoiceCalculator>(InvoiceCalculator.new)

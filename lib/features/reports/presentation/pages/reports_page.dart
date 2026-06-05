@@ -455,6 +455,29 @@ class _SupplierPayablesMetrics extends StatelessWidget {
           label: 'Purchased',
           value: _money(report.totalPurchased),
         ),
+        _MetricCard(
+          icon: Icons.schedule_outlined,
+          label: '0-30 Days',
+          value: _money(report.currentBucketTotal),
+        ),
+        _MetricCard(
+          icon: Icons.timelapse_outlined,
+          label: '31-60 Days',
+          value: _money(report.days31To60BucketTotal),
+        ),
+        _MetricCard(
+          icon: Icons.history_toggle_off_outlined,
+          label: '61-90 Days',
+          value: _money(report.days61To90BucketTotal),
+        ),
+        _MetricCard(
+          icon: Icons.warning_amber_outlined,
+          label: '90+ Days',
+          value: _money(report.days90PlusBucketTotal),
+          valueColor: report.days90PlusBucketTotal > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
       ],
     );
   }
@@ -506,6 +529,10 @@ class _SupplierPayablesTable extends StatelessWidget {
                 DataColumn(numeric: true, label: Text('Purchased')),
                 DataColumn(numeric: true, label: Text('Paid')),
                 DataColumn(numeric: true, label: Text('Outstanding')),
+                DataColumn(numeric: true, label: Text('0-30')),
+                DataColumn(numeric: true, label: Text('31-60')),
+                DataColumn(numeric: true, label: Text('61-90')),
+                DataColumn(numeric: true, label: Text('90+')),
               ],
               rows: [
                 for (final row in report.rows)
@@ -528,6 +555,20 @@ class _SupplierPayablesTable extends StatelessWidget {
                           _money(row.outstandingBalance),
                           style: TextStyle(
                             color: row.outstandingBalance > 0
+                                ? AppColors.warning
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      DataCell(Text(_money(row.currentBucketAmount))),
+                      DataCell(Text(_money(row.days31To60BucketAmount))),
+                      DataCell(Text(_money(row.days61To90BucketAmount))),
+                      DataCell(
+                        Text(
+                          _money(row.days90PlusBucketAmount),
+                          style: TextStyle(
+                            color: row.days90PlusBucketAmount > 0
                                 ? AppColors.warning
                                 : AppColors.textPrimary,
                             fontWeight: FontWeight.w700,

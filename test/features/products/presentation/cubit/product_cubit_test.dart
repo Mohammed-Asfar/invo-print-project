@@ -424,6 +424,191 @@ void main() {
       expect(cubit.state.status, ProductStatus.failure);
       expect(cubit.state.message, contains('already fully paid'));
     });
+
+    test('updatePurchasePayment recalculates status and amount', () async {
+      final purchaseDate = DateTime(2026, 6, 5);
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: purchaseDate,
+        items: const [],
+        notes: '',
+        totalAmount: 3000,
+        amountPaid: 1000,
+        paymentHistory: [
+          PurchasePayment(amount: 1000, paidAt: DateTime(2026, 6, 5)),
+        ],
+        status: PurchasePaymentStatus.partial,
+        isActive: true,
+        createdAt: purchaseDate,
+        updatedAt: purchaseDate,
+      );
+      final firestore = FakeCustomerFirestoreRestClient({
+        'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+          entry,
+        ).toMap(),
+      });
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.updatePurchasePayment(
+        entry,
+        index: 0,
+        amount: 3000,
+        paidAt: DateTime(2026, 6, 5),
+        method: 'Bank',
+      );
+
+      final updated = cubit.state.purchaseEntries.single;
+      expect(updated.amountPaid, 3000);
+      expect(updated.balanceDue, 0);
+      expect(updated.status, PurchasePaymentStatus.paid);
+      expect(updated.paymentHistory.single.method, 'Bank');
+    });
+
+    test('deletePurchasePayment can bring bill back to unpaid', () async {
+      final purchaseDate = DateTime(2026, 6, 5);
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: purchaseDate,
+        items: const [],
+        notes: '',
+        totalAmount: 3000,
+        amountPaid: 1000,
+        paymentHistory: [
+          PurchasePayment(amount: 1000, paidAt: DateTime(2026, 6, 5)),
+        ],
+        status: PurchasePaymentStatus.partial,
+        isActive: true,
+        createdAt: purchaseDate,
+        updatedAt: purchaseDate,
+      );
+      final firestore = FakeCustomerFirestoreRestClient({
+        'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+          entry,
+        ).toMap(),
+      });
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.deletePurchasePayment(entry, index: 0);
+
+      final updated = cubit.state.purchaseEntries.single;
+      expect(updated.amountPaid, 0);
+      expect(updated.status, PurchasePaymentStatus.unpaid);
+      expect(updated.paymentHistory, isEmpty);
+    });
+
+    test('voidPurchaseEntry reverses stock and archives the bill', () async {
+      final product = _product(stockQuantity: 8, costPrice: 1800);
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: DateTime(2026, 6, 5),
+        items: const [
+          PurchaseEntryItem(
+            productId: 'prod_1',
+            productName: 'Thermal Printer',
+            sku: 'PRN-1',
+            unit: 'pcs',
+            quantity: 3,
+            unitCost: 2000,
+            lineTotal: 6000,
+          ),
+        ],
+        notes: 'Mistaken duplicate',
+        totalAmount: 6000,
+        amountPaid: 0,
+        paymentHistory: const [],
+        status: PurchasePaymentStatus.unpaid,
+        isActive: true,
+        createdAt: DateTime(2026, 6, 5),
+        updatedAt: DateTime(2026, 6, 5),
+      );
+      final firestore = FakeCustomerFirestoreRestClient({
+        'products/${product.id}': ProductServiceModel.fromEntity(
+          product,
+        ).toMap(),
+        'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+          entry,
+        ).toMap(),
+      });
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.voidPurchaseEntry(entry);
+
+      expect(cubit.state.status, ProductStatus.saved);
+      expect(cubit.state.products.single.stockQuantity, 5);
+      expect(cubit.state.purchaseEntries, isEmpty);
+      final archivedPurchase = PurchaseEntryModel.fromMap(
+        entry.id,
+        firestore.documents['purchase_entries/${entry.id}']!,
+      );
+      expect(archivedPurchase.isActive, isFalse);
+    });
+
+    test('voidPurchaseEntry rejects bills with payments', () async {
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: DateTime(2026, 6, 5),
+        items: const [],
+        notes: '',
+        totalAmount: 1000,
+        amountPaid: 1000,
+        paymentHistory: [
+          PurchasePayment(amount: 1000, paidAt: DateTime(2026, 6, 5)),
+        ],
+        status: PurchasePaymentStatus.paid,
+        isActive: true,
+        createdAt: DateTime(2026, 6, 5),
+        updatedAt: DateTime(2026, 6, 5),
+      );
+      final cubit = ProductCubit(
+        ProductRepository(FakeCustomerFirestoreRestClient()),
+        ProductInventoryRepository(FakeCustomerFirestoreRestClient()),
+        PurchaseEntryRepository(FakeCustomerFirestoreRestClient()),
+        SupplierRepository(FakeCustomerFirestoreRestClient()),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.voidPurchaseEntry(entry);
+
+      expect(cubit.state.status, ProductStatus.failure);
+      expect(cubit.state.message, contains('Remove supplier payments'));
+    });
   });
 }
 
