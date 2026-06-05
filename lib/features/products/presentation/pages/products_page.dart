@@ -12,6 +12,7 @@ import '../../domain/entities/purchase_entry.dart';
 import '../../domain/entities/product_service.dart';
 import '../../domain/entities/supplier.dart';
 import '../../domain/services/inventory_activity_report.dart';
+import '../../domain/services/supplier_ledger.dart';
 import '../cubit/product_cubit.dart';
 
 class ProductsPage extends StatelessWidget {
@@ -602,6 +603,11 @@ class _SupplierTable extends StatelessWidget {
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton(
+                  tooltip: 'Ledger',
+                  onPressed: () => _showSupplierLedger(context, supplier),
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                ),
+                IconButton(
                   tooltip: 'Archive',
                   onPressed: () =>
                       context.read<ProductCubit>().archiveSupplier(supplier),
@@ -621,6 +627,17 @@ class _SupplierTable extends StatelessWidget {
       builder: (_) => BlocProvider.value(
         value: context.read<ProductCubit>(),
         child: _SupplierDialog(supplier: supplier),
+      ),
+    );
+  }
+
+  void _showSupplierLedger(BuildContext context, Supplier supplier) {
+    final ledger = context.read<ProductCubit>().supplierLedgerFor(supplier);
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierLedgerDialog(ledger: ledger),
       ),
     );
   }
@@ -666,6 +683,25 @@ class _PurchaseEntryTable extends StatelessWidget {
                 '${entry.items.length} item${entry.items.length == 1 ? '' : 's'}',
               ].join('  |  '),
             ),
+            leading: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: _purchaseStatusColor(
+                  entry.status,
+                ).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                entry.status.label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: _purchaseStatusColor(entry.status),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
             trailing: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -683,10 +719,30 @@ class _PurchaseEntryTable extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
+                Text(
+                  'Due ${_formatMoney(entry.balanceDue)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: entry.balanceDue > 0
+                        ? AppColors.warning
+                        : AppColors.success,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
+            onTap: () => _showPurchaseDetailDialog(context, entry),
           );
         },
+      ),
+    );
+  }
+
+  void _showPurchaseDetailDialog(BuildContext context, PurchaseEntry entry) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _PurchaseEntryDetailDialog(entry: entry),
       ),
     );
   }
@@ -1742,6 +1798,9 @@ class _PurchaseEntryDialogState extends State<_PurchaseEntryDialog> {
         totalAmount: _roundCurrency(
           items.fold<double>(0, (sum, item) => sum + item.lineTotal),
         ),
+        amountPaid: 0,
+        paymentHistory: const [],
+        status: PurchasePaymentStatus.unpaid,
         isActive: true,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -1853,6 +1912,493 @@ class _PurchaseItemEditorState extends State<_PurchaseItemEditor> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PurchaseEntryDetailDialog extends StatelessWidget {
+  const _PurchaseEntryDetailDialog({required this.entry});
+
+  final PurchaseEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(entry.entryNumber),
+      content: SizedBox(
+        width: 760,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  _PurchaseMetric(label: 'Supplier', value: entry.supplierName),
+                  _PurchaseMetric(
+                    label: 'Total',
+                    value: _formatMoney(entry.totalAmount),
+                  ),
+                  _PurchaseMetric(
+                    label: 'Paid',
+                    value: _formatMoney(entry.amountPaid),
+                  ),
+                  _PurchaseMetric(
+                    label: 'Balance',
+                    value: _formatMoney(entry.balanceDue),
+                    highlight: entry.balanceDue > 0,
+                  ),
+                  _PurchaseMetric(
+                    label: 'Status',
+                    value: entry.status.label,
+                    highlight: entry.status != PurchasePaymentStatus.paid,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Items',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              for (final item in entry.items)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(item.productName),
+                  subtitle: Text(
+                    '${_formatQuantity(item.quantity)} ${item.unit}  •  ${_formatMoney(item.unitCost)} each',
+                  ),
+                  trailing: Text(
+                    _formatMoney(item.lineTotal),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Payment History',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (entry.paymentHistory.isEmpty)
+                Text(
+                  'No payments recorded yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                for (final payment in entry.paymentHistory.reversed)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(_formatMoney(payment.amount)),
+                    subtitle: Text(
+                      [
+                        _formatDateOnly(payment.paidAt),
+                        if (payment.method.trim().isNotEmpty)
+                          payment.method.trim(),
+                        if (payment.reference.trim().isNotEmpty)
+                          payment.reference.trim(),
+                      ].join('  |  '),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        if (entry.balanceDue > 0)
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showPurchasePaymentDialog(context, entry);
+            },
+            icon: const Icon(Icons.payments_outlined),
+            label: const Text('Record Payment'),
+          ),
+      ],
+    );
+  }
+
+  void _showPurchasePaymentDialog(BuildContext context, PurchaseEntry entry) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _PurchasePaymentDialog(entry: entry),
+      ),
+    );
+  }
+}
+
+class _PurchasePaymentDialog extends StatefulWidget {
+  const _PurchasePaymentDialog({required this.entry});
+
+  final PurchaseEntry entry;
+
+  @override
+  State<_PurchasePaymentDialog> createState() => _PurchasePaymentDialogState();
+}
+
+class _PurchasePaymentDialogState extends State<_PurchasePaymentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _method = TextEditingController();
+  final _reference = TextEditingController();
+  final _notes = TextEditingController();
+  late DateTime _paidAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _paidAt = DateTime.now();
+    _amount.text = widget.entry.balanceDue.toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _method.dispose();
+    _reference.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Record Payment - ${widget.entry.entryNumber}'),
+      content: SizedBox(
+        width: 440,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _PaymentDialogLine(
+                label: 'Purchase Total',
+                value: _formatMoney(widget.entry.totalAmount),
+              ),
+              _PaymentDialogLine(
+                label: 'Already Paid',
+                value: _formatMoney(widget.entry.amountPaid),
+              ),
+              _PaymentDialogLine(
+                label: 'Balance Due',
+                value: _formatMoney(widget.entry.balanceDue),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _amount,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Amount *',
+                  prefixIcon: Icon(Icons.currency_rupee_outlined),
+                ),
+                validator: (value) {
+                  final parsed = double.tryParse(value?.trim() ?? '');
+                  if (parsed == null || parsed <= 0) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                readOnly: true,
+                key: ValueKey(_paidAt.toIso8601String()),
+                initialValue: _formatDateOnly(_paidAt),
+                decoration: const InputDecoration(
+                  labelText: 'Payment Date',
+                  prefixIcon: Icon(Icons.event_outlined),
+                  suffixIcon: Icon(Icons.calendar_today_outlined),
+                ),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _paidAt,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => _paidAt = picked);
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _method,
+                decoration: const InputDecoration(
+                  labelText: 'Method',
+                  prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _reference,
+                decoration: const InputDecoration(
+                  labelText: 'Reference',
+                  prefixIcon: Icon(Icons.tag_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _notes,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (!_formKey.currentState!.validate()) return;
+            await context.read<ProductCubit>().recordPurchasePayment(
+              widget.entry,
+              amount: double.tryParse(_amount.text.trim()) ?? 0,
+              paidAt: _paidAt,
+              method: _method.text.trim(),
+              reference: _reference.text.trim(),
+              notes: _notes.text.trim(),
+            );
+            if (context.mounted) Navigator.of(context).pop();
+          },
+          icon: const Icon(Icons.payments_outlined),
+          label: const Text('Save Payment'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SupplierLedgerDialog extends StatelessWidget {
+  const _SupplierLedgerDialog({required this.ledger});
+
+  final SupplierLedger ledger;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${ledger.supplier.name} Ledger'),
+      content: SizedBox(
+        width: 860,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  _PurchaseMetric(
+                    label: 'Purchased',
+                    value: _formatMoney(ledger.totalPurchased),
+                  ),
+                  _PurchaseMetric(
+                    label: 'Paid',
+                    value: _formatMoney(ledger.totalPaid),
+                  ),
+                  _PurchaseMetric(
+                    label: 'Outstanding',
+                    value: _formatMoney(ledger.outstandingBalance),
+                    highlight: ledger.outstandingBalance > 0,
+                  ),
+                  _PurchaseMetric(
+                    label: 'Bills',
+                    value: ledger.purchaseEntries.length.toString(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Bills',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (ledger.purchaseEntries.isEmpty)
+                Text(
+                  'No supplier bills yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                for (final entry in ledger.purchaseEntries)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(entry.entryNumber),
+                    subtitle: Text(
+                      [
+                        _formatDateOnly(entry.purchaseDate),
+                        if (entry.billReference.trim().isNotEmpty)
+                          'Bill ${entry.billReference.trim()}',
+                        entry.status.label,
+                      ].join('  |  '),
+                    ),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatMoney(entry.totalAmount),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        Text(
+                          'Due ${_formatMoney(entry.balanceDue)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: entry.balanceDue > 0
+                                    ? AppColors.warning
+                                    : AppColors.success,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Ledger Timeline',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (ledger.entries.isEmpty)
+                Text(
+                  'No ledger entries yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                for (final entry in ledger.entries)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(entry.type.label),
+                    subtitle: Text(
+                      [
+                        _formatDateOnly(entry.date),
+                        entry.reference,
+                        if (entry.description.trim().isNotEmpty)
+                          entry.description.trim(),
+                      ].join('  |  '),
+                    ),
+                    trailing: Text(
+                      _formatMoney(entry.amount.abs()),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: entry.amount < 0
+                            ? AppColors.success
+                            : AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PurchaseMetric extends StatelessWidget {
+  const _PurchaseMetric({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: highlight ? AppColors.primaryLight : AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: highlight
+                  ? AppColors.primaryPurple
+                  : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentDialogLine extends StatelessWidget {
+  const _PaymentDialogLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2417,6 +2963,14 @@ String _formatDateOnly(DateTime value) {
 
 String _formatMoney(double value) {
   return value.toStringAsFixed(2);
+}
+
+Color _purchaseStatusColor(PurchasePaymentStatus status) {
+  return switch (status) {
+    PurchasePaymentStatus.unpaid => AppColors.warning,
+    PurchasePaymentStatus.partial => AppColors.primaryPurple,
+    PurchasePaymentStatus.paid => AppColors.success,
+  };
 }
 
 double _roundCurrency(double value) {

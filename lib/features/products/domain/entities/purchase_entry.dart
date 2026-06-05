@@ -11,6 +11,9 @@ class PurchaseEntry extends Equatable {
     required this.items,
     required this.notes,
     required this.totalAmount,
+    required this.amountPaid,
+    required this.paymentHistory,
+    required this.status,
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -25,9 +28,17 @@ class PurchaseEntry extends Equatable {
   final List<PurchaseEntryItem> items;
   final String notes;
   final double totalAmount;
+  final double amountPaid;
+  final List<PurchasePayment> paymentHistory;
+  final PurchasePaymentStatus status;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  double get balanceDue {
+    final balance = totalAmount - amountPaid;
+    return balance < 0 ? 0 : double.parse(balance.toStringAsFixed(2));
+  }
 
   PurchaseEntry copyWith({
     String? id,
@@ -39,6 +50,9 @@ class PurchaseEntry extends Equatable {
     List<PurchaseEntryItem>? items,
     String? notes,
     double? totalAmount,
+    double? amountPaid,
+    List<PurchasePayment>? paymentHistory,
+    PurchasePaymentStatus? status,
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -53,6 +67,9 @@ class PurchaseEntry extends Equatable {
       items: items ?? this.items,
       notes: notes ?? this.notes,
       totalAmount: totalAmount ?? this.totalAmount,
+      amountPaid: amountPaid ?? this.amountPaid,
+      paymentHistory: paymentHistory ?? this.paymentHistory,
+      status: status ?? this.status,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -70,10 +87,74 @@ class PurchaseEntry extends Equatable {
     items,
     notes,
     totalAmount,
+    amountPaid,
+    paymentHistory,
+    status,
     isActive,
     createdAt,
     updatedAt,
   ];
+}
+
+class PurchasePayment extends Equatable {
+  const PurchasePayment({
+    required this.amount,
+    required this.paidAt,
+    this.method = '',
+    this.reference = '',
+    this.notes = '',
+  });
+
+  final double amount;
+  final DateTime paidAt;
+  final String method;
+  final String reference;
+  final String notes;
+
+  PurchasePayment copyWith({
+    double? amount,
+    DateTime? paidAt,
+    String? method,
+    String? reference,
+    String? notes,
+  }) {
+    return PurchasePayment(
+      amount: amount ?? this.amount,
+      paidAt: paidAt ?? this.paidAt,
+      method: method ?? this.method,
+      reference: reference ?? this.reference,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  @override
+  List<Object?> get props => [amount, paidAt, method, reference, notes];
+}
+
+enum PurchasePaymentStatus {
+  unpaid,
+  partial,
+  paid;
+
+  String get firestoreValue => switch (this) {
+    PurchasePaymentStatus.unpaid => 'unpaid',
+    PurchasePaymentStatus.partial => 'partial',
+    PurchasePaymentStatus.paid => 'paid',
+  };
+
+  String get label => switch (this) {
+    PurchasePaymentStatus.unpaid => 'Unpaid',
+    PurchasePaymentStatus.partial => 'Partial',
+    PurchasePaymentStatus.paid => 'Paid',
+  };
+
+  static PurchasePaymentStatus fromValue(String value) {
+    return switch (value) {
+      'paid' => PurchasePaymentStatus.paid,
+      'partial' => PurchasePaymentStatus.partial,
+      _ => PurchasePaymentStatus.unpaid,
+    };
+  }
 }
 
 class PurchaseEntryItem extends Equatable {

@@ -11,6 +11,7 @@ import '../../domain/entities/purchase_entry.dart';
 import '../../domain/entities/product_service.dart';
 import '../../domain/entities/supplier.dart';
 import '../../domain/services/product_inventory_history_builder.dart';
+import '../../domain/services/supplier_ledger.dart';
 
 part 'product_state.dart';
 
@@ -296,6 +297,9 @@ class ProductCubit extends Cubit<ProductState> {
                 (sum, item) => sum + item.lineTotal,
               ),
             ),
+            amountPaid: 0,
+            paymentHistory: const [],
+            status: PurchasePaymentStatus.unpaid,
           ),
         );
       } catch (_) {
@@ -447,6 +451,92 @@ class ProductCubit extends Cubit<ProductState> {
 
   Future<List<ProductInventoryEntry>> loadInventoryEntries(String productId) {
     return _inventoryRepository.fetchEntries(productId);
+  }
+
+  SupplierLedger supplierLedgerFor(Supplier supplier) {
+    return buildSupplierLedger(
+      supplier: supplier,
+      purchaseEntries: state.purchaseEntries,
+    );
+  }
+
+  Future<void> recordPurchasePayment(
+    PurchaseEntry purchaseEntry, {
+    required double amount,
+    required DateTime paidAt,
+    String method = '',
+    String reference = '',
+    String notes = '',
+  }) async {
+    if (amount <= 0) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Enter a payment amount greater than zero.',
+        ),
+      );
+      return;
+    }
+    if (purchaseEntry.balanceDue <= 0) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'This supplier bill is already fully paid.',
+        ),
+      );
+      return;
+    }
+
+    final appliedAmount = amount > purchaseEntry.balanceDue
+        ? purchaseEntry.balanceDue
+        : amount;
+    final paymentHistory = [
+      ...purchaseEntry.paymentHistory,
+      PurchasePayment(
+        amount: _roundQuantity(appliedAmount),
+        paidAt: paidAt,
+        method: method.trim(),
+        reference: reference.trim(),
+        notes: notes.trim(),
+      ),
+    ]..sort((a, b) => a.paidAt.compareTo(b.paidAt));
+    final amountPaid = _roundQuantity(
+      paymentHistory.fold<double>(0, (sum, payment) => sum + payment.amount),
+    );
+    final status = amountPaid >= purchaseEntry.totalAmount
+        ? PurchasePaymentStatus.paid
+        : PurchasePaymentStatus.partial;
+
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      await _purchaseEntryRepository.savePurchaseEntry(
+        purchaseEntry.copyWith(
+          amountPaid: amountPaid,
+          paymentHistory: paymentHistory,
+          status: status,
+        ),
+      );
+      final purchaseEntries = await _purchaseEntryRepository
+          .fetchPurchaseEntries();
+      emit(
+        state.copyWith(
+          status: ProductStatus.saved,
+          purchaseEntries: purchaseEntries,
+          message: 'Supplier payment recorded.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(status: ProductStatus.failure, message: error.message),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Unable to record supplier payment: $error',
+        ),
+      );
+    }
   }
 
   double _roundQuantity(double value) {

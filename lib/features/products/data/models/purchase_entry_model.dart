@@ -11,6 +11,9 @@ class PurchaseEntryModel extends PurchaseEntry {
     required super.items,
     required super.notes,
     required super.totalAmount,
+    required super.amountPaid,
+    required super.paymentHistory,
+    required super.status,
     required super.isActive,
     required super.createdAt,
     required super.updatedAt,
@@ -27,6 +30,9 @@ class PurchaseEntryModel extends PurchaseEntry {
       items: entry.items,
       notes: entry.notes,
       totalAmount: entry.totalAmount,
+      amountPaid: entry.amountPaid,
+      paymentHistory: entry.paymentHistory,
+      status: entry.status,
       isActive: entry.isActive,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
@@ -51,6 +57,9 @@ class PurchaseEntryModel extends PurchaseEntry {
           : const [],
       notes: map['notes'] as String? ?? '',
       totalAmount: _toDouble(map['totalAmount']),
+      amountPaid: _toDouble(map['amountPaid']),
+      paymentHistory: _paymentsFromMap(map['paymentHistory']),
+      status: PurchasePaymentStatus.fromValue(map['status'] as String? ?? ''),
       isActive: map['isActive'] as bool? ?? true,
       createdAt: _toDateTime(map['createdAt']) ?? now,
       updatedAt: _toDateTime(map['updatedAt']) ?? now,
@@ -64,6 +73,9 @@ class PurchaseEntryModel extends PurchaseEntry {
       'purchaseDate': purchaseDate,
       'items': items.map(_itemToMap).toList(),
       'totalAmount': totalAmount,
+      'amountPaid': amountPaid,
+      'paymentHistory': paymentHistory.map(_paymentToMap).toList(),
+      'status': status.firestoreValue,
       'isActive': isActive,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
@@ -102,6 +114,40 @@ class PurchaseEntryModel extends PurchaseEntry {
       'unitCost': item.unitCost,
       'lineTotal': item.lineTotal,
     };
+  }
+
+  static List<PurchasePayment> _paymentsFromMap(dynamic rawPayments) {
+    if (rawPayments is! List) return const [];
+    return rawPayments
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .map(
+          (map) => PurchasePayment(
+            amount: _toDouble(map['amount']),
+            paidAt: _toDateTime(map['paidAt']) ?? DateTime.now(),
+            method: map['method'] as String? ?? '',
+            reference: map['reference'] as String? ?? '',
+            notes: map['notes'] as String? ?? '',
+          ),
+        )
+        .toList();
+  }
+
+  static Map<String, dynamic> _paymentToMap(PurchasePayment payment) {
+    final map = <String, dynamic>{
+      'amount': payment.amount,
+      'paidAt': payment.paidAt,
+    };
+    if (payment.method.trim().isNotEmpty) {
+      map['method'] = payment.method.trim();
+    }
+    if (payment.reference.trim().isNotEmpty) {
+      map['reference'] = payment.reference.trim();
+    }
+    if (payment.notes.trim().isNotEmpty) {
+      map['notes'] = payment.notes.trim();
+    }
+    return map;
   }
 
   static DateTime? _toDateTime(dynamic value) {

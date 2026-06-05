@@ -26,6 +26,17 @@ void main() {
         ],
         notes: 'Monthly restock',
         totalAmount: 4000,
+        amountPaid: 1500,
+        paymentHistory: [
+          PurchasePayment(
+            amount: 1500,
+            paidAt: date.add(const Duration(days: 1)),
+            method: 'Bank transfer',
+            reference: 'PAY-1',
+            notes: 'First instalment',
+          ),
+        ],
+        status: PurchasePaymentStatus.partial,
         isActive: true,
         createdAt: date,
         updatedAt: date,
@@ -36,6 +47,7 @@ void main() {
 
       expect(restored, model);
       expect((map['items'] as List).single['productId'], 'prod_1');
+      expect((map['paymentHistory'] as List).single['reference'], 'PAY-1');
     });
 
     test('reads sparse legacy purchase entry maps safely', () {
@@ -50,6 +62,9 @@ void main() {
       expect(model.entryNumber, 'PUR-1');
       expect(model.items, isEmpty);
       expect(model.totalAmount, 0);
+      expect(model.amountPaid, 0);
+      expect(model.paymentHistory, isEmpty);
+      expect(model.status, PurchasePaymentStatus.unpaid);
       expect(model.billReference, isEmpty);
     });
   });

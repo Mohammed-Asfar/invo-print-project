@@ -270,6 +270,9 @@ void main() {
             ],
             notes: 'Monthly restock',
             totalAmount: 6000,
+            amountPaid: 0,
+            paymentHistory: const [],
+            status: PurchasePaymentStatus.unpaid,
             isActive: true,
             createdAt: DateTime(2026, 6, 5),
             updatedAt: DateTime(2026, 6, 5),
@@ -308,9 +311,119 @@ void main() {
           purchaseDoc.value,
         );
         expect(purchaseEntry.totalAmount, 6000);
+        expect(purchaseEntry.status, PurchasePaymentStatus.unpaid);
         expect(purchaseEntry.items.single.quantity, 3);
       },
     );
+
+    test('recordPurchasePayment updates paid amount and status', () async {
+      final purchaseDate = DateTime(2026, 6, 5);
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: purchaseDate,
+        items: const [
+          PurchaseEntryItem(
+            productId: 'prod_1',
+            productName: 'Thermal Printer',
+            sku: 'PRN-1',
+            unit: 'pcs',
+            quantity: 3,
+            unitCost: 2000,
+            lineTotal: 6000,
+          ),
+        ],
+        notes: 'Monthly restock',
+        totalAmount: 6000,
+        amountPaid: 1000,
+        paymentHistory: [
+          PurchasePayment(
+            amount: 1000,
+            paidAt: DateTime(2026, 6, 5),
+            method: 'Cash',
+            reference: 'PAY-1',
+          ),
+        ],
+        status: PurchasePaymentStatus.partial,
+        isActive: true,
+        createdAt: purchaseDate,
+        updatedAt: purchaseDate,
+      );
+      final firestore = FakeCustomerFirestoreRestClient({
+        'purchase_entries/${entry.id}': PurchaseEntryModel.fromEntity(
+          entry,
+        ).toMap(),
+      });
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.recordPurchasePayment(
+        entry,
+        amount: 5500,
+        paidAt: DateTime(2026, 6, 6),
+        method: 'Bank transfer',
+        reference: 'PAY-2',
+        notes: 'Settled in full',
+      );
+
+      expect(cubit.state.status, ProductStatus.saved);
+      expect(cubit.state.purchaseEntries, hasLength(1));
+      final updated = cubit.state.purchaseEntries.single;
+      expect(updated.amountPaid, 6000);
+      expect(updated.balanceDue, 0);
+      expect(updated.status, PurchasePaymentStatus.paid);
+      expect(updated.paymentHistory, hasLength(2));
+      expect(updated.paymentHistory.last.reference, 'PAY-2');
+    });
+
+    test('recordPurchasePayment rejects fully paid bills', () async {
+      final purchaseDate = DateTime(2026, 6, 5);
+      final entry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-202606-001',
+        supplierId: 'sup_1',
+        supplierName: 'Supply Hub',
+        billReference: 'BILL-44',
+        purchaseDate: purchaseDate,
+        items: const [],
+        notes: '',
+        totalAmount: 2000,
+        amountPaid: 2000,
+        paymentHistory: [
+          PurchasePayment(amount: 2000, paidAt: DateTime(2026, 6, 5)),
+        ],
+        status: PurchasePaymentStatus.paid,
+        isActive: true,
+        createdAt: purchaseDate,
+        updatedAt: purchaseDate,
+      );
+      final firestore = FakeCustomerFirestoreRestClient();
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        PurchaseEntryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.recordPurchasePayment(
+        entry,
+        amount: 500,
+        paidAt: DateTime(2026, 6, 6),
+      );
+
+      expect(cubit.state.status, ProductStatus.failure);
+      expect(cubit.state.message, contains('already fully paid'));
+    });
   });
 }
 
