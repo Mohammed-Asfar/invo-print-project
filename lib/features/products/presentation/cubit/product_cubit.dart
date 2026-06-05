@@ -4,18 +4,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/errors/app_exception.dart';
 import '../../data/repositories/product_inventory_repository.dart';
 import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/supplier_repository.dart';
 import '../../domain/entities/product_inventory_entry.dart';
 import '../../domain/entities/product_service.dart';
+import '../../domain/entities/supplier.dart';
 import '../../domain/services/product_inventory_history_builder.dart';
 
 part 'product_state.dart';
 
 class ProductCubit extends Cubit<ProductState> {
-  ProductCubit(this._repository, this._inventoryRepository)
-    : super(const ProductState());
+  ProductCubit(
+    this._repository,
+    this._inventoryRepository,
+    this._supplierRepository,
+  ) : super(const ProductState());
 
   final ProductRepository _repository;
   final ProductInventoryRepository _inventoryRepository;
+  final SupplierRepository _supplierRepository;
 
   Future<void> load() async {
     emit(state.copyWith(status: ProductStatus.loading, clearMessage: true));
@@ -23,14 +29,17 @@ class ProductCubit extends Cubit<ProductState> {
       final results = await Future.wait<Object>([
         _repository.fetchProducts(),
         _inventoryRepository.fetchAllEntries(),
+        _supplierRepository.fetchSuppliers(),
       ]);
       final products = results[0] as List<ProductService>;
       final inventoryEntries = results[1] as List<ProductInventoryEntry>;
+      final suppliers = results[2] as List<Supplier>;
       emit(
         state.copyWith(
           status: ProductStatus.loaded,
           products: products,
           inventoryEntries: inventoryEntries,
+          suppliers: suppliers,
           clearMessage: true,
         ),
       );
@@ -99,6 +108,62 @@ class ProductCubit extends Cubit<ProductState> {
         state.copyWith(
           status: ProductStatus.failure,
           message: 'Unable to archive product: $error',
+        ),
+      );
+    }
+  }
+
+  void searchSuppliers(String value) {
+    emit(state.copyWith(supplierSearchQuery: value));
+  }
+
+  Future<void> saveSupplier(Supplier supplier) async {
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      await _supplierRepository.saveSupplier(supplier);
+      final suppliers = await _supplierRepository.fetchSuppliers();
+      emit(
+        state.copyWith(
+          status: ProductStatus.saved,
+          suppliers: suppliers,
+          message: 'Supplier saved.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(status: ProductStatus.failure, message: error.message),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Unable to save supplier: $error',
+        ),
+      );
+    }
+  }
+
+  Future<void> archiveSupplier(Supplier supplier) async {
+    emit(state.copyWith(status: ProductStatus.saving));
+    try {
+      await _supplierRepository.archiveSupplier(supplier);
+      final suppliers = await _supplierRepository.fetchSuppliers();
+      emit(
+        state.copyWith(
+          status: ProductStatus.saved,
+          suppliers: suppliers,
+          message: 'Supplier archived.',
+        ),
+      );
+    } on AppException catch (error) {
+      emit(
+        state.copyWith(status: ProductStatus.failure, message: error.message),
+      );
+    } catch (error) {
+      emit(
+        state.copyWith(
+          status: ProductStatus.failure,
+          message: 'Unable to archive supplier: $error',
         ),
       );
     }
@@ -182,14 +247,17 @@ class ProductCubit extends Cubit<ProductState> {
       final results = await Future.wait<Object>([
         _repository.fetchProducts(),
         _inventoryRepository.fetchAllEntries(),
+        _supplierRepository.fetchSuppliers(),
       ]);
       final products = results[0] as List<ProductService>;
       final inventoryEntries = results[1] as List<ProductInventoryEntry>;
+      final suppliers = results[2] as List<Supplier>;
       emit(
         state.copyWith(
           status: ProductStatus.saved,
           products: products,
           inventoryEntries: inventoryEntries,
+          suppliers: suppliers,
           message: 'Stock adjusted.',
         ),
       );

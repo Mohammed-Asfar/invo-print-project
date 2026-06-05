@@ -9,6 +9,7 @@ import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../domain/entities/product_inventory_entry.dart';
 import '../../domain/entities/product_service.dart';
+import '../../domain/entities/supplier.dart';
 import '../../domain/services/inventory_activity_report.dart';
 import '../cubit/product_cubit.dart';
 
@@ -97,7 +98,7 @@ class _ProductsViewState extends State<_ProductsView> {
                 const SizedBox(height: AppSpacing.xl),
                 Expanded(
                   child: DefaultTabController(
-                    length: 2,
+                    length: 3,
                     child: Column(
                       children: [
                         Container(
@@ -111,6 +112,7 @@ class _ProductsViewState extends State<_ProductsView> {
                             tabs: [
                               Tab(text: 'Catalog'),
                               Tab(text: 'Inventory'),
+                              Tab(text: 'Suppliers'),
                             ],
                           ),
                         ),
@@ -147,6 +149,7 @@ class _ProductsViewState extends State<_ProductsView> {
                                           ? null
                                           : () => _exportInventoryCsv(state),
                                     ),
+                                    _SuppliersTab(state: state),
                                   ],
                                 ),
                         ),
@@ -306,6 +309,53 @@ class _InventoryTab extends StatelessWidget {
   }
 }
 
+class _SuppliersTab extends StatelessWidget {
+  const _SuppliersTab({required this.state});
+
+  final ProductState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                onChanged: context.read<ProductCubit>().searchSuppliers,
+                decoration: const InputDecoration(
+                  labelText: 'Search suppliers',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            ElevatedButton.icon(
+              onPressed: state.isBusy
+                  ? null
+                  : () => _showSupplierDialog(context),
+              icon: const Icon(Icons.add),
+              label: const Text('New Supplier'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Expanded(child: _SupplierTable(suppliers: state.filteredSuppliers)),
+      ],
+    );
+  }
+
+  void _showSupplierDialog(BuildContext context, {Supplier? supplier}) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierDialog(supplier: supplier),
+      ),
+    );
+  }
+}
+
 class _ProductsHeader extends StatelessWidget {
   const _ProductsHeader({required this.state});
 
@@ -414,6 +464,88 @@ class _ProductGrid extends StatelessWidget {
         final product = products[index];
         return _ProductCard(product: product);
       },
+    );
+  }
+}
+
+class _SupplierTable extends StatelessWidget {
+  const _SupplierTable({required this.suppliers});
+
+  final List<Supplier> suppliers;
+
+  @override
+  Widget build(BuildContext context) {
+    if (suppliers.isEmpty) {
+      return Center(
+        child: Text(
+          'No suppliers yet.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ListView.separated(
+        itemCount: suppliers.length,
+        separatorBuilder: (_, _) =>
+            Divider(height: 1, thickness: 1, color: AppColors.border),
+        itemBuilder: (context, index) {
+          final supplier = suppliers[index];
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: AppColors.primaryLight,
+              child: Text(
+                supplier.name.isEmpty ? '?' : supplier.name[0].toUpperCase(),
+                style: TextStyle(
+                  color: AppColors.primaryPurple,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            title: Text(supplier.name),
+            subtitle: Text(
+              [
+                if (supplier.phone.isNotEmpty) supplier.phone,
+                if (supplier.email.isNotEmpty) supplier.email,
+                if (supplier.gstin.isNotEmpty) 'GSTIN ${supplier.gstin}',
+              ].join('  |  '),
+            ),
+            trailing: Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                IconButton(
+                  tooltip: 'Edit',
+                  onPressed: () => _showSupplierDialog(context, supplier),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Archive',
+                  onPressed: () =>
+                      context.read<ProductCubit>().archiveSupplier(supplier),
+                  icon: const Icon(Icons.archive_outlined),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showSupplierDialog(BuildContext context, Supplier supplier) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierDialog(supplier: supplier),
+      ),
     );
   }
 }
@@ -1229,6 +1361,112 @@ class _DialogField extends StatelessWidget {
   }
 }
 
+class _SupplierDialog extends StatefulWidget {
+  const _SupplierDialog({this.supplier});
+
+  final Supplier? supplier;
+
+  @override
+  State<_SupplierDialog> createState() => _SupplierDialogState();
+}
+
+class _SupplierDialogState extends State<_SupplierDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _email = TextEditingController();
+  final _gstin = TextEditingController();
+  final _address = TextEditingController();
+  final _notes = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final supplier = widget.supplier;
+    if (supplier == null) return;
+    _name.text = supplier.name;
+    _phone.text = supplier.phone;
+    _email.text = supplier.email;
+    _gstin.text = supplier.gstin;
+    _address.text = supplier.address;
+    _notes.text = supplier.notes;
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      _name,
+      _phone,
+      _email,
+      _gstin,
+      _address,
+      _notes,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.supplier == null ? 'New Supplier' : 'Edit Supplier'),
+      content: SizedBox(
+        width: 720,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Wrap(
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.md,
+              children: [
+                _DialogField(_name, 'Supplier Name', required: true),
+                _DialogField(_phone, 'Phone'),
+                _DialogField(_email, 'Email'),
+                _DialogField(_gstin, 'GSTIN'),
+                _DialogField(_address, 'Address', maxLines: 3),
+                _DialogField(_notes, 'Notes', maxLines: 3),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.save),
+          label: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    final existing = widget.supplier;
+    final now = DateTime.now();
+    context.read<ProductCubit>().saveSupplier(
+      Supplier(
+        id: existing?.id ?? '',
+        name: _name.text.trim(),
+        phone: _phone.text.trim(),
+        email: _email.text.trim(),
+        gstin: _gstin.text.trim(),
+        address: _address.text.trim(),
+        notes: _notes.text.trim(),
+        isActive: existing?.isActive ?? true,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      ),
+    );
+    Navigator.of(context).pop();
+  }
+}
+
 class _StockAdjustmentDialog extends StatefulWidget {
   const _StockAdjustmentDialog({required this.product});
 
@@ -1248,6 +1486,7 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
   final _note = TextEditingController();
   _StockAdjustmentMode _mode = _StockAdjustmentMode.add;
   String _reason = 'Purchase';
+  String _selectedSupplierId = '';
   DateTime _effectiveAt = DateTime.now();
   bool _updateCostPriceFromUnitCost = true;
 
@@ -1272,6 +1511,9 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final suppliers = [
+      ...context.select((ProductCubit cubit) => cubit.state.suppliers),
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return AlertDialog(
       title: Text('Adjust Stock: ${widget.product.name}'),
       content: SizedBox(
@@ -1369,6 +1611,46 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
                   _DialogField(_reference, 'Restock Entry No.'),
                   const SizedBox(height: AppSpacing.md),
                   _DialogField(_secondaryReference, 'Bill / Invoice Ref.'),
+                  const SizedBox(height: AppSpacing.md),
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedSupplierId.isEmpty
+                        ? null
+                        : _selectedSupplierId,
+                    decoration: const InputDecoration(
+                      labelText: 'Supplier',
+                      prefixIcon: Icon(Icons.local_shipping_outlined),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('Manual supplier entry'),
+                      ),
+                      ...suppliers.map(
+                        (supplier) => DropdownMenuItem<String>(
+                          value: supplier.id,
+                          child: Text(supplier.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      final supplierId = value ?? '';
+                      Supplier? supplier;
+                      for (final item in suppliers) {
+                        if (item.id == supplierId) {
+                          supplier = item;
+                          break;
+                        }
+                      }
+                      setState(() {
+                        _selectedSupplierId = supplierId;
+                        if (supplier != null) {
+                          _supplierName.text = supplier.name;
+                        } else if (supplierId.isEmpty) {
+                          _supplierName.clear();
+                        }
+                      });
+                    },
+                  ),
                   const SizedBox(height: AppSpacing.md),
                   _DialogField(_supplierName, 'Supplier Name'),
                   const SizedBox(height: AppSpacing.md),

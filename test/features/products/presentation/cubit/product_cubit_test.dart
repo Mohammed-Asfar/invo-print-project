@@ -3,8 +3,10 @@ import 'package:invo_print/features/products/data/models/product_inventory_entry
 import 'package:invo_print/features/products/data/models/product_service_model.dart';
 import 'package:invo_print/features/products/data/repositories/product_inventory_repository.dart';
 import 'package:invo_print/features/products/data/repositories/product_repository.dart';
+import 'package:invo_print/features/products/data/repositories/supplier_repository.dart';
 import 'package:invo_print/features/products/domain/entities/product_inventory_entry.dart';
 import 'package:invo_print/features/products/domain/entities/product_service.dart';
+import 'package:invo_print/features/products/domain/entities/supplier.dart';
 import 'package:invo_print/features/products/presentation/cubit/product_cubit.dart';
 
 import '../../../../helpers/fake_customer_firestore_rest_client.dart';
@@ -21,6 +23,7 @@ void main() {
       final cubit = ProductCubit(
         ProductRepository(firestore),
         ProductInventoryRepository(firestore),
+        SupplierRepository(firestore),
       );
       addTearDown(cubit.close);
 
@@ -68,6 +71,7 @@ void main() {
         final cubit = ProductCubit(
           ProductRepository(firestore),
           ProductInventoryRepository(firestore),
+          SupplierRepository(firestore),
         );
         addTearDown(cubit.close);
 
@@ -128,6 +132,7 @@ void main() {
         final cubit = ProductCubit(
           ProductRepository(firestore),
           ProductInventoryRepository(firestore),
+          SupplierRepository(firestore),
         );
         addTearDown(cubit.close);
 
@@ -175,12 +180,47 @@ void main() {
       final cubit = ProductCubit(
         ProductRepository(firestore),
         ProductInventoryRepository(firestore),
+        SupplierRepository(firestore),
       );
       addTearDown(cubit.close);
 
       final entries = await cubit.loadInventoryEntries(product.id);
 
       expect(entries.map((entry) => entry.id), ['stock_newer', 'stock_older']);
+    });
+
+    test('saveSupplier stores supplier and updates filtered results', () async {
+      final firestore = FakeCustomerFirestoreRestClient();
+      final cubit = ProductCubit(
+        ProductRepository(firestore),
+        ProductInventoryRepository(firestore),
+        SupplierRepository(firestore),
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.saveSupplier(
+        Supplier(
+          id: '',
+          name: 'Supply Hub',
+          phone: '9876543210',
+          email: 'hello@supplyhub.test',
+          gstin: '33ABCDE1234F1Z5',
+          address: 'No. 12 Market Road',
+          notes: 'Preferred vendor',
+          isActive: true,
+          createdAt: DateTime(2026, 6, 5),
+          updatedAt: DateTime(2026, 6, 5),
+        ),
+      );
+
+      expect(cubit.state.status, ProductStatus.saved);
+      expect(cubit.state.suppliers, hasLength(1));
+      expect(cubit.state.suppliers.single.name, 'Supply Hub');
+
+      cubit.searchSuppliers('preferred');
+      expect(cubit.state.filteredSuppliers, hasLength(1));
+      expect(cubit.state.filteredSuppliers.single.gstin, '33ABCDE1234F1Z5');
     });
   });
 }
