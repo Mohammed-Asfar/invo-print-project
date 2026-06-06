@@ -15,9 +15,23 @@ class SupplierStatementPdfService {
     required SupplierLedger ledger,
     required SupplierPayablesRow? payableRow,
     DateTime? asOfDate,
+    DateTime? fromDate,
+    DateTime? toDate,
   }) async {
     final pdf = pw.Document();
-    final effectiveAsOfDate = asOfDate ?? DateTime.now();
+    final effectiveAsOfDate = _dateOnly(toDate ?? asOfDate ?? DateTime.now());
+    final effectiveFromDate = fromDate == null ? null : _dateOnly(fromDate);
+    final effectiveToDate = toDate == null ? null : _dateOnly(toDate);
+    final filteredTimeline = ledger.entries.where((entry) {
+      final entryDate = _dateOnly(entry.date);
+      if (effectiveFromDate != null && entryDate.isBefore(effectiveFromDate)) {
+        return false;
+      }
+      if (effectiveToDate != null && entryDate.isAfter(effectiveToDate)) {
+        return false;
+      }
+      return true;
+    }).toList();
 
     pdf.addPage(
       pw.MultiPage(
@@ -30,6 +44,10 @@ class SupplierStatementPdfService {
           ),
           pw.SizedBox(height: 8),
           pw.Text('As of ${_date(effectiveAsOfDate)}'),
+          if (effectiveFromDate != null || effectiveToDate != null)
+            pw.Text(
+              'Activity period: ${effectiveFromDate == null ? 'Beginning' : _date(effectiveFromDate)} to ${effectiveToDate == null ? 'Latest' : _date(effectiveToDate)}',
+            ),
           pw.SizedBox(height: 8),
           pw.Text(
             supplier.name,
@@ -58,7 +76,7 @@ class SupplierStatementPdfService {
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
-          _timelineTable(ledger),
+          _timelineTable(filteredTimeline),
         ],
       ),
     );
@@ -155,8 +173,8 @@ class SupplierStatementPdfService {
     );
   }
 
-  pw.Widget _timelineTable(SupplierLedger ledger) {
-    if (ledger.entries.isEmpty) {
+  pw.Widget _timelineTable(List<SupplierLedgerEntry> entries) {
+    if (entries.isEmpty) {
       return pw.Text('No ledger entries.');
     }
     return pw.TableHelper.fromTextArray(
@@ -164,7 +182,7 @@ class SupplierStatementPdfService {
       headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
       headers: const ['Date', 'Type', 'Reference', 'Description', 'Amount'],
       data: [
-        for (final entry in ledger.entries)
+        for (final entry in entries)
           [
             _date(entry.date),
             entry.type.label,
@@ -183,3 +201,6 @@ String _date(DateTime value) =>
     '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
 
 String _money(double value) => value.toStringAsFixed(2);
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);

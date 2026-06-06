@@ -17,6 +17,50 @@ class SupplierFollowUpQueue {
   final double totalOverdueAmount;
 }
 
+String buildSupplierFollowUpCsv(SupplierFollowUpQueue queue) {
+  final rows = [
+    [
+      'Supplier',
+      'Status',
+      'Outstanding',
+      'Overdue Amount',
+      'Overdue Bills',
+      'Reminder Due',
+      'Last Purchase',
+      'Last Contacted',
+      'Next Follow-up',
+      'Follow-up Notes',
+    ],
+    for (final row in queue.rows)
+      [
+        row.supplier.name,
+        row.supplier.followUpStatus.label,
+        _money(row.outstandingBalance).toStringAsFixed(2),
+        _money(row.overdueAmount).toStringAsFixed(2),
+        row.overdueBillCount.toString(),
+        row.reminderDue ? 'Yes' : 'No',
+        row.lastPurchaseDate == null ? '' : _date(row.lastPurchaseDate!),
+        row.supplier.lastContactedAt == null
+            ? ''
+            : _date(row.supplier.lastContactedAt!),
+        row.supplier.nextFollowUpDate == null
+            ? ''
+            : _date(row.supplier.nextFollowUpDate!),
+        row.supplier.followUpNotes,
+      ],
+    [],
+    ['Summary'],
+    ['Action Queue', queue.actionCount.toString()],
+    ['Overdue Suppliers', queue.overdueSupplierCount.toString()],
+    ['Reminders Due', queue.reminderDueCount.toString()],
+    ['Overdue Amount', _money(queue.totalOverdueAmount).toStringAsFixed(2)],
+  ];
+
+  return rows
+      .map((row) => row.map((cell) => _csvCell(cell.toString())).join(','))
+      .join('\n');
+}
+
 class SupplierFollowUpRow {
   const SupplierFollowUpRow({
     required this.supplier,
@@ -132,3 +176,16 @@ double _money(double value) => double.parse(value.toStringAsFixed(2));
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+String _date(DateTime value) =>
+    '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+
+String _csvCell(String value) {
+  if (!value.contains(',') &&
+      !value.contains('"') &&
+      !value.contains('\n') &&
+      !value.contains('\r')) {
+    return value;
+  }
+  return '"${value.replaceAll('"', '""')}"';
+}

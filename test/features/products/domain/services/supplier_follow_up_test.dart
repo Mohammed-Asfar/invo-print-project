@@ -71,6 +71,41 @@ void main() {
       expect(queue.totalOverdueAmount, 0);
     });
   });
+
+  test('buildSupplierFollowUpCsv exports reminder and overdue details', () {
+    final today = DateTime(2026, 6, 6);
+    final supplier = _supplier(
+      id: 'sup_1',
+      name: 'Supply Hub',
+      followUpStatus: SupplierFollowUpStatus.pending,
+      lastContactedAt: today.subtract(const Duration(days: 2)),
+      nextFollowUpDate: today,
+    ).copyWith(followUpNotes: 'Call on Monday');
+
+    final queue = buildSupplierFollowUpQueue(
+      suppliers: [supplier],
+      purchaseEntries: [
+        _purchaseEntry(
+          id: 'pur_1',
+          supplierId: supplier.id,
+          supplierName: supplier.name,
+          totalAmount: 5000,
+          amountPaid: 1000,
+          purchaseDate: today.subtract(const Duration(days: 20)),
+          dueDate: today.subtract(const Duration(days: 5)),
+        ),
+      ],
+      today: today,
+    );
+
+    final csv = buildSupplierFollowUpCsv(queue);
+
+    expect(csv, contains('Supplier,Status,Outstanding'));
+    expect(csv, contains('Supply Hub'));
+    expect(csv, contains('Needs follow-up'));
+    expect(csv, contains('Call on Monday'));
+    expect(csv, contains('Action Queue'));
+  });
 }
 
 Supplier _supplier({

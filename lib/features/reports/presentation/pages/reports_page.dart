@@ -12,6 +12,7 @@ import '../../../products/domain/entities/purchase_entry.dart';
 import '../../../products/domain/entities/supplier.dart';
 import '../../../products/data/repositories/purchase_entry_repository.dart';
 import '../../../products/data/repositories/supplier_repository.dart';
+import '../../../products/domain/services/supplier_follow_up.dart';
 import '../../domain/services/sales_report.dart';
 import '../../domain/services/supplier_payables_report.dart';
 
@@ -36,6 +37,10 @@ class _ReportsPageState extends State<ReportsPage> {
   SupplierPayablesReport _supplierPayablesReport = buildSupplierPayablesReport(
     purchaseEntries: const [],
     suppliers: const [],
+  );
+  SupplierFollowUpQueue _supplierFollowUpQueue = buildSupplierFollowUpQueue(
+    suppliers: const [],
+    purchaseEntries: const [],
   );
 
   @override
@@ -70,6 +75,10 @@ class _ReportsPageState extends State<ReportsPage> {
           purchaseEntries: purchaseEntries,
           suppliers: suppliers,
         );
+        _supplierFollowUpQueue = buildSupplierFollowUpQueue(
+          suppliers: suppliers,
+          purchaseEntries: purchaseEntries,
+        );
         _isLoading = false;
       });
     } catch (error) {
@@ -101,7 +110,10 @@ class _ReportsPageState extends State<ReportsPage> {
         ..writeln(buildSalesReportCsv(_report))
         ..writeln()
         ..writeln('Supplier Payables')
-        ..writeln(buildSupplierPayablesCsv(_supplierPayablesReport));
+        ..writeln(buildSupplierPayablesCsv(_supplierPayablesReport))
+        ..writeln()
+        ..writeln('Supplier Follow-ups')
+        ..writeln(buildSupplierFollowUpCsv(_supplierFollowUpQueue));
       await File(path).writeAsString(buffer.toString(), flush: true);
       if (!mounted) return;
       setState(() {
@@ -172,6 +184,7 @@ class _ReportsPageState extends State<ReportsPage> {
                   : _ReportContent(
                       report: _report,
                       supplierPayablesReport: _supplierPayablesReport,
+                      supplierFollowUpQueue: _supplierFollowUpQueue,
                     ),
             ),
           ],
@@ -265,10 +278,12 @@ class _ReportContent extends StatelessWidget {
   const _ReportContent({
     required this.report,
     required this.supplierPayablesReport,
+    required this.supplierFollowUpQueue,
   });
 
   final SalesReport report;
   final SupplierPayablesReport supplierPayablesReport;
+  final SupplierFollowUpQueue supplierFollowUpQueue;
 
   @override
   Widget build(BuildContext context) {
@@ -284,6 +299,13 @@ class _ReportContent extends StatelessWidget {
           SizedBox(
             height: 320,
             child: _SupplierPayablesTable(report: supplierPayablesReport),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _SupplierFollowUpMetrics(queue: supplierFollowUpQueue),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 280,
+            child: _SupplierFollowUpTable(queue: supplierFollowUpQueue),
           ),
         ],
       ),
@@ -616,6 +638,175 @@ class _SupplierPayablesTable extends StatelessWidget {
                                 ? AppColors.warning
                                 : AppColors.textPrimary,
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupplierFollowUpMetrics extends StatelessWidget {
+  const _SupplierFollowUpMetrics({required this.queue});
+
+  final SupplierFollowUpQueue queue;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.task_alt_outlined,
+          label: 'Action Queue',
+          value: queue.actionCount.toString(),
+          valueColor: queue.actionCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.error_outline,
+          label: 'Overdue Suppliers',
+          value: queue.overdueSupplierCount.toString(),
+          valueColor: queue.overdueSupplierCount > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.notifications_active_outlined,
+          label: 'Reminders Due',
+          value: queue.reminderDueCount.toString(),
+          valueColor: queue.reminderDueCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.money_off_csred_outlined,
+          label: 'Overdue Amount',
+          value: _money(queue.totalOverdueAmount),
+          valueColor: queue.totalOverdueAmount > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+      ],
+    );
+  }
+}
+
+class _SupplierFollowUpTable extends StatelessWidget {
+  const _SupplierFollowUpTable({required this.queue});
+
+  final SupplierFollowUpQueue queue;
+
+  @override
+  Widget build(BuildContext context) {
+    if (queue.rows.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Center(
+          child: Text(
+            'No supplier follow-up actions right now.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+              columns: const [
+                DataColumn(label: Text('Supplier')),
+                DataColumn(label: Text('Status')),
+                DataColumn(numeric: true, label: Text('Outstanding')),
+                DataColumn(numeric: true, label: Text('Overdue')),
+                DataColumn(numeric: true, label: Text('Overdue Bills')),
+                DataColumn(label: Text('Last Purchase')),
+                DataColumn(label: Text('Last Contacted')),
+                DataColumn(label: Text('Next Follow-up')),
+                DataColumn(label: Text('Reminder Due')),
+              ],
+              rows: [
+                for (final row in queue.rows)
+                  DataRow(
+                    cells: [
+                      DataCell(Text(row.supplier.name)),
+                      DataCell(Text(row.supplier.followUpStatus.label)),
+                      DataCell(Text(_money(row.outstandingBalance))),
+                      DataCell(
+                        Text(
+                          _money(row.overdueAmount),
+                          style: TextStyle(
+                            color: row.overdueAmount > 0
+                                ? AppColors.error
+                                : AppColors.textPrimary,
+                            fontWeight: row.overdueAmount > 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      DataCell(Text(row.overdueBillCount.toString())),
+                      DataCell(
+                        Text(
+                          row.lastPurchaseDate == null
+                              ? '-'
+                              : _date(row.lastPurchaseDate!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.supplier.lastContactedAt == null
+                              ? '-'
+                              : _date(row.supplier.lastContactedAt!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.supplier.nextFollowUpDate == null
+                              ? '-'
+                              : _date(row.supplier.nextFollowUpDate!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.reminderDue ? 'Yes' : 'No',
+                          style: TextStyle(
+                            color: row.reminderDue
+                                ? AppColors.warning
+                                : AppColors.textPrimary,
+                            fontWeight: row.reminderDue
+                                ? FontWeight.w700
+                                : FontWeight.w500,
                           ),
                         ),
                       ),

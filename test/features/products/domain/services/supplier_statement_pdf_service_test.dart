@@ -74,6 +74,97 @@ void main() {
     expect(decoded, contains('PUR-001'));
     expect(decoded, contains('Due'));
   });
+
+  test(
+    'SupplierStatementPdfService filters timeline by selected period',
+    () async {
+      final supplier = Supplier(
+        id: 'sup_1',
+        name: 'Supply Hub',
+        phone: '9876543210',
+        email: 'hello@supplyhub.test',
+        gstin: '33ABCDE1234F1Z5',
+        address: 'No. 12 Market Road',
+        notes: '',
+        isActive: true,
+        createdAt: DateTime(2026, 6, 1),
+        updatedAt: DateTime(2026, 6, 1),
+      );
+      final juneEntry = PurchaseEntry(
+        id: 'pur_1',
+        entryNumber: 'PUR-JUNE',
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        billReference: 'BILL-JUNE',
+        purchaseDate: DateTime(2026, 6, 5),
+        dueDate: DateTime(2026, 6, 20),
+        items: const [],
+        notes: '',
+        totalAmount: 6000,
+        amountPaid: 1000,
+        paymentHistory: [
+          PurchasePayment(
+            amount: 1000,
+            paidAt: DateTime(2026, 6, 6),
+            method: 'Bank',
+            reference: 'PAY-JUNE',
+          ),
+        ],
+        status: PurchasePaymentStatus.partial,
+        isActive: true,
+        createdAt: DateTime(2026, 6, 5),
+        updatedAt: DateTime(2026, 6, 5),
+      );
+      final mayEntry = PurchaseEntry(
+        id: 'pur_2',
+        entryNumber: 'PUR-MAY',
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        billReference: 'BILL-MAY',
+        purchaseDate: DateTime(2026, 5, 5),
+        dueDate: DateTime(2026, 5, 20),
+        items: const [],
+        notes: '',
+        totalAmount: 4000,
+        amountPaid: 4000,
+        paymentHistory: [
+          PurchasePayment(
+            amount: 4000,
+            paidAt: DateTime(2026, 5, 6),
+            method: 'Cash',
+            reference: 'PAY-MAY',
+          ),
+        ],
+        status: PurchasePaymentStatus.paid,
+        isActive: true,
+        createdAt: DateTime(2026, 5, 5),
+        updatedAt: DateTime(2026, 5, 5),
+      );
+      final ledger = buildSupplierLedger(
+        supplier: supplier,
+        purchaseEntries: [juneEntry, mayEntry],
+      );
+      final payablesRow = buildSupplierPayablesReport(
+        suppliers: [supplier],
+        purchaseEntries: [juneEntry, mayEntry],
+        asOfDate: DateTime(2026, 6, 30),
+      ).rows.single;
+
+      final bytes = await const SupplierStatementPdfService().buildStatementPdf(
+        supplier: supplier,
+        ledger: ledger,
+        payableRow: payablesRow,
+        fromDate: DateTime(2026, 6, 1),
+        toDate: DateTime(2026, 6, 30),
+      );
+
+      final decoded = _decodedPdfText(bytes);
+      expect(decoded, contains('Activity'));
+      expect(decoded, contains('PUR-JUNE'));
+      expect(decoded, contains('PAY-JUNE'));
+      expect(decoded, isNot(contains('PAY-MAY')));
+    },
+  );
 }
 
 String _decodedPdfText(Uint8List bytes) {

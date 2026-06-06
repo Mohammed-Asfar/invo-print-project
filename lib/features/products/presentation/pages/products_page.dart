@@ -375,6 +375,14 @@ class _SuppliersTab extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: followUpQueue.rows.isEmpty
+                  ? null
+                  : () => _exportFollowUpCsv(context, followUpQueue),
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Export Follow-ups'),
+            ),
+            const SizedBox(width: AppSpacing.md),
             ElevatedButton.icon(
               onPressed: state.isBusy
                   ? null
@@ -396,6 +404,31 @@ class _SuppliersTab extends StatelessWidget {
         Expanded(child: _SupplierTable(suppliers: state.filteredSuppliers)),
       ],
     );
+  }
+
+  Future<void> _exportFollowUpCsv(
+    BuildContext context,
+    SupplierFollowUpQueue queue,
+  ) async {
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'Save supplier follow-up CSV',
+      fileName: 'supplier-follow-ups.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+    );
+    if (path == null || !context.mounted) return;
+    await File(
+      path,
+    ).writeAsString(buildSupplierFollowUpCsv(queue), flush: true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Supplier follow-up queue exported.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
   }
 
   void _showSupplierDialog(BuildContext context, {Supplier? supplier}) {
@@ -3434,6 +3467,11 @@ class _SupplierLedgerDialog extends StatelessWidget {
   }
 
   Future<void> _exportStatement(BuildContext context) async {
+    final selection = await showDialog<_StatementExportSelection>(
+      context: context,
+      builder: (_) => const _StatementExportDialog(),
+    );
+    if (selection == null || !context.mounted) return;
     final path = await FilePicker.saveFile(
       dialogTitle: 'Save supplier statement PDF',
       fileName:
@@ -3446,7 +3484,9 @@ class _SupplierLedgerDialog extends StatelessWidget {
       supplier: ledger.supplier,
       ledger: ledger,
       payableRow: payablesRow,
-      asOfDate: DateTime.now(),
+      asOfDate: selection.toDate ?? DateTime.now(),
+      fromDate: selection.fromDate,
+      toDate: selection.toDate,
     );
     await File(path).writeAsBytes(bytes, flush: true);
     if (!context.mounted) return;
@@ -3467,6 +3507,142 @@ class _SupplierLedgerDialog extends StatelessWidget {
         value: context.read<ProductCubit>(),
         child: _SupplierFollowUpDialog(supplier: ledger.supplier),
       ),
+    );
+  }
+}
+
+class _StatementExportSelection {
+  const _StatementExportSelection({this.fromDate, this.toDate});
+
+  final DateTime? fromDate;
+  final DateTime? toDate;
+}
+
+class _StatementExportDialog extends StatefulWidget {
+  const _StatementExportDialog();
+
+  @override
+  State<_StatementExportDialog> createState() => _StatementExportDialogState();
+}
+
+class _StatementExportDialogState extends State<_StatementExportDialog> {
+  DateTime? _fromDate;
+  DateTime? _toDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Export Supplier Statement'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choose an activity period for the statement timeline. Open bill balances will still be shown as of the selected end date.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _DatePickerField(
+              label: 'From Date',
+              value: _fromDate,
+              onChanged: (value) => setState(() => _fromDate = value),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            _DatePickerField(
+              label: 'To Date',
+              value: _toDate,
+              onChanged: (value) => setState(() => _toDate = value),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            setState(() {
+              _fromDate = null;
+              _toDate = null;
+            });
+          },
+          child: const Text('Clear'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          label: const Text('Continue'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    if (_fromDate != null && _toDate != null && _fromDate!.isAfter(_toDate!)) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('From date cannot be after to date.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      return;
+    }
+    Navigator.of(
+      context,
+    ).pop(_StatementExportSelection(fromDate: _fromDate, toDate: _toDate));
+  }
+}
+
+class _DatePickerField extends StatelessWidget {
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: value ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+              );
+              if (picked == null) return;
+              onChanged(picked);
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: label,
+                prefixIcon: const Icon(Icons.event_outlined),
+              ),
+              child: Text(value == null ? 'Not set' : _formatDateOnly(value!)),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        IconButton(
+          onPressed: value == null ? null : () => onChanged(null),
+          tooltip: 'Clear date',
+          icon: const Icon(Icons.clear_outlined),
+        ),
+      ],
     );
   }
 }
