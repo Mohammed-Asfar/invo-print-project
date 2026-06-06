@@ -9,6 +9,10 @@ class SupplierModel extends Supplier {
     required super.gstin,
     required super.address,
     required super.notes,
+    required super.followUpStatus,
+    required super.lastContactedAt,
+    required super.nextFollowUpDate,
+    required super.followUpNotes,
     required super.isActive,
     required super.createdAt,
     required super.updatedAt,
@@ -23,6 +27,10 @@ class SupplierModel extends Supplier {
       gstin: supplier.gstin,
       address: supplier.address,
       notes: supplier.notes,
+      followUpStatus: supplier.followUpStatus,
+      lastContactedAt: supplier.lastContactedAt,
+      nextFollowUpDate: supplier.nextFollowUpDate,
+      followUpNotes: supplier.followUpNotes,
       isActive: supplier.isActive,
       createdAt: supplier.createdAt,
       updatedAt: supplier.updatedAt,
@@ -39,6 +47,12 @@ class SupplierModel extends Supplier {
       gstin: map['gstin'] as String? ?? '',
       address: map['address'] as String? ?? '',
       notes: map['notes'] as String? ?? '',
+      followUpStatus: SupplierFollowUpStatus.fromValue(
+        map['followUpStatus'] as String? ?? '',
+      ),
+      lastContactedAt: _toDateTime(map['lastContactedAt']),
+      nextFollowUpDate: _toDateTime(map['nextFollowUpDate']),
+      followUpNotes: map['followUpNotes'] as String? ?? '',
       isActive: map['isActive'] as bool? ?? true,
       createdAt: _toDateTime(map['createdAt']) ?? now,
       updatedAt: _toDateTime(map['updatedAt']) ?? now,
@@ -66,6 +80,18 @@ class SupplierModel extends Supplier {
     }
     if (notes.trim().isNotEmpty) {
       map['notes'] = notes.trim();
+    }
+    if (followUpStatus != SupplierFollowUpStatus.none) {
+      map['followUpStatus'] = followUpStatus.firestoreValue;
+    }
+    if (lastContactedAt != null) {
+      map['lastContactedAt'] = lastContactedAt;
+    }
+    if (nextFollowUpDate != null) {
+      map['nextFollowUpDate'] = nextFollowUpDate;
+    }
+    if (followUpNotes.trim().isNotEmpty) {
+      map['followUpNotes'] = followUpNotes.trim();
     }
     return map;
   }

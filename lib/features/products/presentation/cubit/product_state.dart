@@ -67,7 +67,9 @@ class ProductState extends Equatable {
           supplier.email.toLowerCase().contains(query) ||
           supplier.gstin.toLowerCase().contains(query) ||
           supplier.address.toLowerCase().contains(query) ||
-          supplier.notes.toLowerCase().contains(query);
+          supplier.notes.toLowerCase().contains(query) ||
+          supplier.followUpNotes.toLowerCase().contains(query) ||
+          supplier.followUpStatus.label.toLowerCase().contains(query);
     }).toList();
   }
 

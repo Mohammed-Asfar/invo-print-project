@@ -12,6 +12,7 @@ import '../../domain/entities/purchase_entry.dart';
 import '../../domain/entities/product_service.dart';
 import '../../domain/entities/supplier.dart';
 import '../../domain/services/inventory_activity_report.dart';
+import '../../domain/services/supplier_follow_up.dart';
 import '../../domain/services/supplier_ledger.dart';
 import '../../domain/services/supplier_statement_pdf_service.dart';
 import '../../../reports/domain/services/supplier_payables_report.dart';
@@ -356,6 +357,10 @@ class _SuppliersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final followUpQueue = buildSupplierFollowUpQueue(
+      suppliers: state.suppliers,
+      purchaseEntries: state.purchaseEntries,
+    );
     return Column(
       children: [
         Row(
@@ -380,6 +385,14 @@ class _SuppliersTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xl),
+        if (followUpQueue.rows.isNotEmpty) ...[
+          _SupplierFollowUpPanel(
+            queue: followUpQueue,
+            onUpdateSupplier: (supplier) =>
+                _showFollowUpDialog(context, supplier),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
         Expanded(child: _SupplierTable(suppliers: state.filteredSuppliers)),
       ],
     );
@@ -391,6 +404,16 @@ class _SuppliersTab extends StatelessWidget {
       builder: (_) => BlocProvider.value(
         value: context.read<ProductCubit>(),
         child: _SupplierDialog(supplier: supplier),
+      ),
+    );
+  }
+
+  void _showFollowUpDialog(BuildContext context, Supplier supplier) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierFollowUpDialog(supplier: supplier),
       ),
     );
   }
@@ -678,11 +701,18 @@ class _SupplierTable extends StatelessWidget {
                 if (supplier.phone.isNotEmpty) supplier.phone,
                 if (supplier.email.isNotEmpty) supplier.email,
                 if (supplier.gstin.isNotEmpty) 'GSTIN ${supplier.gstin}',
+                if (supplier.followUpStatus != SupplierFollowUpStatus.none)
+                  supplier.followUpStatus.label,
               ].join('  |  '),
             ),
             trailing: Wrap(
               spacing: AppSpacing.sm,
               children: [
+                IconButton(
+                  tooltip: 'Follow-up',
+                  onPressed: () => _showFollowUpDialog(context, supplier),
+                  icon: const Icon(Icons.campaign_outlined),
+                ),
                 IconButton(
                   tooltip: 'Edit',
                   onPressed: () => _showSupplierDialog(context, supplier),
@@ -717,6 +747,16 @@ class _SupplierTable extends StatelessWidget {
     );
   }
 
+  void _showFollowUpDialog(BuildContext context, Supplier supplier) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierFollowUpDialog(supplier: supplier),
+      ),
+    );
+  }
+
   void _showSupplierLedger(BuildContext context, Supplier supplier) {
     final cubit = context.read<ProductCubit>();
     final ledger = cubit.supplierLedgerFor(supplier);
@@ -740,6 +780,312 @@ class _SupplierTable extends StatelessWidget {
         child: _SupplierLedgerDialog(ledger: ledger, payablesRow: payablesRow),
       ),
     );
+  }
+}
+
+class _SupplierFollowUpPanel extends StatelessWidget {
+  const _SupplierFollowUpPanel({
+    required this.queue,
+    required this.onUpdateSupplier,
+  });
+
+  final SupplierFollowUpQueue queue;
+  final ValueChanged<Supplier> onUpdateSupplier;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              _PurchaseMetric(
+                label: 'Action Queue',
+                value: queue.actionCount.toString(),
+                highlight: queue.actionCount > 0,
+              ),
+              _PurchaseMetric(
+                label: 'Overdue Suppliers',
+                value: queue.overdueSupplierCount.toString(),
+                highlight: queue.overdueSupplierCount > 0,
+              ),
+              _PurchaseMetric(
+                label: 'Reminders Due',
+                value: queue.reminderDueCount.toString(),
+                highlight: queue.reminderDueCount > 0,
+              ),
+              _PurchaseMetric(
+                label: 'Overdue Amount',
+                value: _formatMoney(queue.totalOverdueAmount),
+                highlight: queue.totalOverdueAmount > 0,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Supplier Follow-up Queue',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final row in queue.rows.take(6))
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(
+                backgroundColor: row.needsAction
+                    ? AppColors.primaryLight
+                    : AppColors.surfaceSoft,
+                child: Icon(
+                  row.reminderDue
+                      ? Icons.notifications_active_outlined
+                      : row.overdueAmount > 0
+                      ? Icons.warning_amber_outlined
+                      : Icons.schedule_outlined,
+                  color: row.reminderDue || row.overdueAmount > 0
+                      ? AppColors.primaryPurple
+                      : AppColors.textSecondary,
+                ),
+              ),
+              title: Text(row.supplier.name),
+              subtitle: Text(
+                [
+                  row.supplier.followUpStatus.label,
+                  if (row.supplier.lastContactedAt != null)
+                    'Last contacted ${_formatDateOnly(row.supplier.lastContactedAt!)}',
+                  if (row.supplier.nextFollowUpDate != null)
+                    'Next follow-up ${_formatDateOnly(row.supplier.nextFollowUpDate!)}',
+                  if (row.overdueBillCount > 0)
+                    '${row.overdueBillCount} overdue bill${row.overdueBillCount == 1 ? '' : 's'}',
+                ].join('  |  '),
+              ),
+              trailing: SizedBox(
+                width: 220,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Due ${_formatMoney(row.outstandingBalance)}',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          if (row.overdueAmount > 0)
+                            Text(
+                              'Overdue ${_formatMoney(row.overdueAmount)}',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.error),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    OutlinedButton(
+                      onPressed: () => onUpdateSupplier(row.supplier),
+                      child: const Text('Update'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SupplierFollowUpDialog extends StatefulWidget {
+  const _SupplierFollowUpDialog({required this.supplier});
+
+  final Supplier supplier;
+
+  @override
+  State<_SupplierFollowUpDialog> createState() =>
+      _SupplierFollowUpDialogState();
+}
+
+class _SupplierFollowUpDialogState extends State<_SupplierFollowUpDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late SupplierFollowUpStatus _status;
+  late TextEditingController _notes;
+  DateTime? _lastContactedAt;
+  DateTime? _nextFollowUpDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _status = widget.supplier.followUpStatus;
+    _notes = TextEditingController(text: widget.supplier.followUpNotes);
+    _lastContactedAt = widget.supplier.lastContactedAt;
+    _nextFollowUpDate = widget.supplier.nextFollowUpDate;
+  }
+
+  @override
+  void dispose() {
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Supplier Follow-up: ${widget.supplier.name}'),
+      content: SizedBox(
+        width: 620,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<SupplierFollowUpStatus>(
+                  initialValue: _status,
+                  decoration: const InputDecoration(
+                    labelText: 'Reminder Status',
+                    prefixIcon: Icon(Icons.flag_outlined),
+                  ),
+                  items: SupplierFollowUpStatus.values
+                      .map(
+                        (status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _status = value);
+                  },
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _pickDate(
+                          initialDate: _lastContactedAt ?? DateTime.now(),
+                          onSelected: (value) {
+                            setState(() => _lastContactedAt = value);
+                          },
+                        ),
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Last Contacted',
+                            prefixIcon: Icon(Icons.call_outlined),
+                          ),
+                          child: Text(
+                            _lastContactedAt == null
+                                ? 'Not set'
+                                : _formatDateOnly(_lastContactedAt!),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    IconButton(
+                      tooltip: 'Clear last contacted date',
+                      onPressed: _lastContactedAt == null
+                          ? null
+                          : () => setState(() => _lastContactedAt = null),
+                      icon: const Icon(Icons.clear_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _pickDate(
+                          initialDate: _nextFollowUpDate ?? DateTime.now(),
+                          onSelected: (value) {
+                            setState(() => _nextFollowUpDate = value);
+                          },
+                        ),
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Next Follow-up',
+                            prefixIcon: Icon(Icons.event_available_outlined),
+                          ),
+                          child: Text(
+                            _nextFollowUpDate == null
+                                ? 'Not set'
+                                : _formatDateOnly(_nextFollowUpDate!),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    IconButton(
+                      tooltip: 'Clear next follow-up date',
+                      onPressed: _nextFollowUpDate == null
+                          ? null
+                          : () => setState(() => _nextFollowUpDate = null),
+                      icon: const Icon(Icons.clear_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _DialogField(_notes, 'Follow-up Notes', maxLines: 4),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Save Follow-up'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickDate({
+    required DateTime initialDate,
+    required ValueChanged<DateTime> onSelected,
+  }) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    onSelected(picked);
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    context.read<ProductCubit>().saveSupplier(
+      widget.supplier.copyWith(
+        followUpStatus: _status,
+        lastContactedAt: _lastContactedAt,
+        clearLastContactedAt: _lastContactedAt == null,
+        nextFollowUpDate: _nextFollowUpDate,
+        clearNextFollowUpDate: _nextFollowUpDate == null,
+        followUpNotes: _notes.text.trim(),
+      ),
+    );
+    Navigator.of(context).pop();
   }
 }
 
@@ -2944,6 +3290,34 @@ class _SupplierLedgerDialog extends StatelessWidget {
                   ],
                 ],
               ),
+              if (ledger.supplier.followUpStatus !=
+                      SupplierFollowUpStatus.none ||
+                  ledger.supplier.lastContactedAt != null ||
+                  ledger.supplier.nextFollowUpDate != null ||
+                  ledger.supplier.followUpNotes.trim().isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Follow-up',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(ledger.supplier.followUpStatus.label),
+                  subtitle: Text(
+                    [
+                      if (ledger.supplier.lastContactedAt != null)
+                        'Last contacted ${_formatDateOnly(ledger.supplier.lastContactedAt!)}',
+                      if (ledger.supplier.nextFollowUpDate != null)
+                        'Next follow-up ${_formatDateOnly(ledger.supplier.nextFollowUpDate!)}',
+                      if (ledger.supplier.followUpNotes.trim().isNotEmpty)
+                        ledger.supplier.followUpNotes.trim(),
+                    ].join('  |  '),
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               Text(
                 'Bills',
@@ -3045,6 +3419,11 @@ class _SupplierLedgerDialog extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
         ),
+        OutlinedButton.icon(
+          onPressed: () => _showFollowUpDialog(context),
+          icon: const Icon(Icons.campaign_outlined),
+          label: const Text('Update Follow-up'),
+        ),
         ElevatedButton.icon(
           onPressed: () => _exportStatement(context),
           icon: const Icon(Icons.picture_as_pdf_outlined),
@@ -3079,6 +3458,16 @@ class _SupplierLedgerDialog extends StatelessWidget {
           backgroundColor: AppColors.success,
         ),
       );
+  }
+
+  void _showFollowUpDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: context.read<ProductCubit>(),
+        child: _SupplierFollowUpDialog(supplier: ledger.supplier),
+      ),
+    );
   }
 }
 
@@ -3255,6 +3644,10 @@ class _SupplierDialogState extends State<_SupplierDialog> {
         gstin: _gstin.text.trim(),
         address: _address.text.trim(),
         notes: _notes.text.trim(),
+        followUpStatus: existing?.followUpStatus ?? SupplierFollowUpStatus.none,
+        lastContactedAt: existing?.lastContactedAt,
+        nextFollowUpDate: existing?.nextFollowUpDate,
+        followUpNotes: existing?.followUpNotes ?? '',
         isActive: existing?.isActive ?? true,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,

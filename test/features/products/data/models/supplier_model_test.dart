@@ -14,6 +14,10 @@ void main() {
         gstin: '33ABCDE1234F1Z5',
         address: 'No. 12 Market Road',
         notes: 'Preferred vendor',
+        followUpStatus: SupplierFollowUpStatus.pending,
+        lastContactedAt: now.subtract(const Duration(days: 2)),
+        nextFollowUpDate: now.add(const Duration(days: 1)),
+        followUpNotes: 'Call about overdue amount',
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -24,6 +28,7 @@ void main() {
 
       expect(restored, model);
       expect(map['name'], 'Supply Hub');
+      expect(map['followUpStatus'], 'pending');
     });
 
     test('omits empty optional fields from map', () {
@@ -39,6 +44,10 @@ void main() {
       expect(map.containsKey('gstin'), isFalse);
       expect(map.containsKey('address'), isFalse);
       expect(map.containsKey('notes'), isFalse);
+      expect(map.containsKey('followUpStatus'), isFalse);
+      expect(map.containsKey('lastContactedAt'), isFalse);
+      expect(map.containsKey('nextFollowUpDate'), isFalse);
+      expect(map.containsKey('followUpNotes'), isFalse);
     });
   });
 }
