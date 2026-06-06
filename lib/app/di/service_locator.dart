@@ -12,6 +12,7 @@ import '../../features/company/data/repositories/company_settings_repository.dar
 import '../../features/company/presentation/cubit/company_settings_cubit.dart';
 import '../../features/customers/data/repositories/customer_repository.dart';
 import '../../features/customers/data/services/gstin_lookup_service.dart';
+import '../../features/customers/domain/services/customer_statement_pdf_service.dart';
 import '../../features/customers/presentation/cubit/customer_cubit.dart';
 import '../../features/invoices/data/repositories/invoice_repository.dart';
 import '../../features/invoices/domain/services/invoice_calculator.dart';
@@ -72,6 +73,9 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<InventoryTransitionService>(
       InventoryTransitionService.new,
+    )
+    ..registerLazySingleton<CustomerStatementPdfService>(
+      CustomerStatementPdfService.new,
     )
     ..registerLazySingleton<SupplierStatementPdfService>(
       SupplierStatementPdfService.new,

@@ -8,6 +8,9 @@ import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../invoices/data/repositories/invoice_repository.dart';
 import '../../../invoices/domain/entities/invoice.dart';
+import '../../../customers/data/repositories/customer_repository.dart';
+import '../../../customers/domain/entities/customer.dart';
+import '../../../customers/domain/services/customer_follow_up.dart';
 import '../../../products/domain/entities/purchase_entry.dart';
 import '../../../products/domain/entities/supplier.dart';
 import '../../../products/data/repositories/purchase_entry_repository.dart';
@@ -27,6 +30,7 @@ class ReportsPage extends StatefulWidget {
 
 class _ReportsPageState extends State<ReportsPage> {
   final _repository = sl<InvoiceRepository>();
+  final _customerRepository = sl<CustomerRepository>();
   final _purchaseEntryRepository = sl<PurchaseEntryRepository>();
   final _supplierRepository = sl<SupplierRepository>();
   var _range = _ReportDateRange.thisMonth;
@@ -41,6 +45,10 @@ class _ReportsPageState extends State<ReportsPage> {
   SupplierFollowUpQueue _supplierFollowUpQueue = buildSupplierFollowUpQueue(
     suppliers: const [],
     purchaseEntries: const [],
+  );
+  CustomerFollowUpQueue _customerFollowUpQueue = buildCustomerFollowUpQueue(
+    customers: const [],
+    invoices: const [],
   );
 
   @override
@@ -57,12 +65,14 @@ class _ReportsPageState extends State<ReportsPage> {
     try {
       final results = await Future.wait<Object>([
         _repository.fetchInvoices(),
+        _customerRepository.fetchCustomers(),
         _purchaseEntryRepository.fetchPurchaseEntries(),
         _supplierRepository.fetchSuppliers(),
       ]);
       final invoices = results[0] as List<Invoice>;
-      final purchaseEntries = results[1] as List<PurchaseEntry>;
-      final suppliers = results[2] as List<Supplier>;
+      final customers = results[1] as List<Customer>;
+      final purchaseEntries = results[2] as List<PurchaseEntry>;
+      final suppliers = results[3] as List<Supplier>;
       final bounds = _range.bounds(DateTime.now());
       if (!mounted) return;
       setState(() {
@@ -78,6 +88,10 @@ class _ReportsPageState extends State<ReportsPage> {
         _supplierFollowUpQueue = buildSupplierFollowUpQueue(
           suppliers: suppliers,
           purchaseEntries: purchaseEntries,
+        );
+        _customerFollowUpQueue = buildCustomerFollowUpQueue(
+          customers: customers,
+          invoices: invoices,
         );
         _isLoading = false;
       });
@@ -113,12 +127,15 @@ class _ReportsPageState extends State<ReportsPage> {
         ..writeln(buildSupplierPayablesCsv(_supplierPayablesReport))
         ..writeln()
         ..writeln('Supplier Follow-ups')
-        ..writeln(buildSupplierFollowUpCsv(_supplierFollowUpQueue));
+        ..writeln(buildSupplierFollowUpCsv(_supplierFollowUpQueue))
+        ..writeln()
+        ..writeln('Customer Follow-ups')
+        ..writeln(buildCustomerFollowUpCsv(_customerFollowUpQueue));
       await File(path).writeAsString(buffer.toString(), flush: true);
       if (!mounted) return;
       setState(() {
         _isExporting = false;
-        _message = 'Sales report exported.';
+        _message = 'Reports exported.';
       });
     } catch (error) {
       if (!mounted) return;
@@ -141,7 +158,13 @@ class _ReportsPageState extends State<ReportsPage> {
             _ReportsHeader(
               isBusy: _isLoading || _isExporting,
               onRefresh: _load,
-              onExport: _report.rows.isEmpty ? null : _exportCsv,
+              onExport:
+                  _report.rows.isEmpty &&
+                      _supplierPayablesReport.rows.isEmpty &&
+                      _supplierFollowUpQueue.rows.isEmpty &&
+                      _customerFollowUpQueue.rows.isEmpty
+                  ? null
+                  : _exportCsv,
             ),
             const SizedBox(height: AppSpacing.lg),
             Row(
@@ -185,6 +208,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       report: _report,
                       supplierPayablesReport: _supplierPayablesReport,
                       supplierFollowUpQueue: _supplierFollowUpQueue,
+                      customerFollowUpQueue: _customerFollowUpQueue,
                     ),
             ),
           ],
@@ -279,11 +303,13 @@ class _ReportContent extends StatelessWidget {
     required this.report,
     required this.supplierPayablesReport,
     required this.supplierFollowUpQueue,
+    required this.customerFollowUpQueue,
   });
 
   final SalesReport report;
   final SupplierPayablesReport supplierPayablesReport;
   final SupplierFollowUpQueue supplierFollowUpQueue;
+  final CustomerFollowUpQueue customerFollowUpQueue;
 
   @override
   Widget build(BuildContext context) {
@@ -306,6 +332,13 @@ class _ReportContent extends StatelessWidget {
           SizedBox(
             height: 280,
             child: _SupplierFollowUpTable(queue: supplierFollowUpQueue),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _CustomerFollowUpMetrics(queue: customerFollowUpQueue),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 280,
+            child: _CustomerFollowUpTable(queue: customerFollowUpQueue),
           ),
         ],
       ),
@@ -795,6 +828,175 @@ class _SupplierFollowUpTable extends StatelessWidget {
                           row.supplier.nextFollowUpDate == null
                               ? '-'
                               : _date(row.supplier.nextFollowUpDate!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.reminderDue ? 'Yes' : 'No',
+                          style: TextStyle(
+                            color: row.reminderDue
+                                ? AppColors.warning
+                                : AppColors.textPrimary,
+                            fontWeight: row.reminderDue
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerFollowUpMetrics extends StatelessWidget {
+  const _CustomerFollowUpMetrics({required this.queue});
+
+  final CustomerFollowUpQueue queue;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.task_alt_outlined,
+          label: 'Customer Actions',
+          value: queue.actionCount.toString(),
+          valueColor: queue.actionCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.error_outline,
+          label: 'Overdue Customers',
+          value: queue.overdueCustomerCount.toString(),
+          valueColor: queue.overdueCustomerCount > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.notifications_active_outlined,
+          label: 'Reminders Due',
+          value: queue.reminderDueCount.toString(),
+          valueColor: queue.reminderDueCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.money_off_csred_outlined,
+          label: 'Overdue Amount',
+          value: _money(queue.totalOverdueAmount),
+          valueColor: queue.totalOverdueAmount > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerFollowUpTable extends StatelessWidget {
+  const _CustomerFollowUpTable({required this.queue});
+
+  final CustomerFollowUpQueue queue;
+
+  @override
+  Widget build(BuildContext context) {
+    if (queue.rows.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Center(
+          child: Text(
+            'No customer follow-up actions right now.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+              columns: const [
+                DataColumn(label: Text('Customer')),
+                DataColumn(label: Text('Status')),
+                DataColumn(numeric: true, label: Text('Outstanding')),
+                DataColumn(numeric: true, label: Text('Overdue')),
+                DataColumn(numeric: true, label: Text('Overdue Invoices')),
+                DataColumn(label: Text('Last Invoice')),
+                DataColumn(label: Text('Last Contacted')),
+                DataColumn(label: Text('Next Follow-up')),
+                DataColumn(label: Text('Reminder Due')),
+              ],
+              rows: [
+                for (final row in queue.rows)
+                  DataRow(
+                    cells: [
+                      DataCell(Text(row.customer.name)),
+                      DataCell(Text(row.customer.followUpStatus.label)),
+                      DataCell(Text(_money(row.outstandingBalance))),
+                      DataCell(
+                        Text(
+                          _money(row.overdueAmount),
+                          style: TextStyle(
+                            color: row.overdueAmount > 0
+                                ? AppColors.error
+                                : AppColors.textPrimary,
+                            fontWeight: row.overdueAmount > 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      DataCell(Text(row.overdueInvoiceCount.toString())),
+                      DataCell(
+                        Text(
+                          row.lastInvoiceDate == null
+                              ? '-'
+                              : _date(row.lastInvoiceDate!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.customer.lastContactedAt == null
+                              ? '-'
+                              : _date(row.customer.lastContactedAt!),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          row.customer.nextFollowUpDate == null
+                              ? '-'
+                              : _date(row.customer.nextFollowUpDate!),
                         ),
                       ),
                       DataCell(

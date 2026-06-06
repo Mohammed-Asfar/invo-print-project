@@ -114,6 +114,37 @@ void main() {
       expect(saved.name, 'TBS Enterprises');
       expect(saved.phone, '2');
     });
+
+    test(
+      'preserves follow-up metadata when matched from invoice details',
+      () async {
+        final existing = _customer(
+          id: 'cust_1',
+          phone: '9655246269',
+          followUpStatus: CustomerFollowUpStatus.pending,
+          followUpNotes: 'Call about overdue payment',
+          nextFollowUpDate: DateTime(2026, 5, 10),
+        );
+        final firestore = FakeCustomerFirestoreRestClient({
+          'customers/cust_1': CustomerModel.fromEntity(existing).toMap(),
+        });
+
+        final saved = await CustomerRepository(firestore)
+            .findOrCreateFromInvoice(
+              _customer(
+                phone: '9655246269',
+                billingAddress: 'Updated address',
+                defaultInvoiceTerms: 'Net 15',
+              ),
+            );
+
+        expect(saved.id, 'cust_1');
+        expect(saved.billingAddress, 'Updated address');
+        expect(saved.followUpStatus, CustomerFollowUpStatus.pending);
+        expect(saved.followUpNotes, 'Call about overdue payment');
+        expect(saved.nextFollowUpDate, DateTime(2026, 5, 10));
+      },
+    );
   });
 }
 
@@ -124,10 +155,14 @@ Customer _customer({
   String email = '',
   String gstin = '',
   String billingAddress = 'Billing address',
+  String defaultInvoiceTerms = '',
   int loyaltyPointsBalance = 0,
   int lifetimePointsEarned = 0,
   double totalBilled = 0,
   bool isActive = true,
+  CustomerFollowUpStatus followUpStatus = CustomerFollowUpStatus.none,
+  DateTime? nextFollowUpDate,
+  String followUpNotes = '',
   DateTime? updatedAt,
 }) {
   final now = DateTime(2026, 5, 1);
@@ -150,7 +185,10 @@ Customer _customer({
     totalPaid: 0,
     outstandingAmount: 0,
     notes: '',
-    defaultInvoiceTerms: '',
+    defaultInvoiceTerms: defaultInvoiceTerms,
+    followUpStatus: followUpStatus,
+    nextFollowUpDate: nextFollowUpDate,
+    followUpNotes: followUpNotes,
     isActive: isActive,
     createdAt: now,
     updatedAt: updatedAt ?? now,

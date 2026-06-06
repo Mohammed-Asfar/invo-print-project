@@ -10,6 +10,11 @@ void main() {
           _customer(id: 'address', billingAddress: 'Warehouse Gate 2'),
           _customer(id: 'terms', defaultInvoiceTerms: 'Net 15'),
           _customer(id: 'custom', customFields: const {'Route': 'South Zone'}),
+          _customer(
+            id: 'followup',
+            followUpStatus: CustomerFollowUpStatus.pending,
+            followUpNotes: 'Customer asked for reminder next week',
+          ),
         ],
       );
 
@@ -29,6 +34,22 @@ void main() {
         state.copyWith(searchQuery: 'south zone').filteredCustomers.single.id,
         'custom',
       );
+      expect(
+        state
+            .copyWith(searchQuery: 'needs follow-up')
+            .filteredCustomers
+            .single
+            .id,
+        'followup',
+      );
+      expect(
+        state
+            .copyWith(searchQuery: 'reminder next week')
+            .filteredCustomers
+            .single
+            .id,
+        'followup',
+      );
     });
   });
 }
@@ -38,6 +59,8 @@ Customer _customer({
   String billingAddress = '',
   String defaultInvoiceTerms = '',
   Map<String, String> customFields = const {},
+  CustomerFollowUpStatus followUpStatus = CustomerFollowUpStatus.none,
+  String followUpNotes = '',
 }) {
   final now = DateTime(2026, 5, 1);
   return Customer(
@@ -60,6 +83,8 @@ Customer _customer({
     outstandingAmount: 0,
     notes: '',
     defaultInvoiceTerms: defaultInvoiceTerms,
+    followUpStatus: followUpStatus,
+    followUpNotes: followUpNotes,
     isActive: true,
     createdAt: now,
     updatedAt: now,

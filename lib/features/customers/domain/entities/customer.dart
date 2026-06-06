@@ -1,5 +1,33 @@
 import 'package:equatable/equatable.dart';
 
+enum CustomerFollowUpStatus {
+  none,
+  pending,
+  waiting,
+  resolved;
+
+  String get label => switch (this) {
+    CustomerFollowUpStatus.none => 'No follow-up',
+    CustomerFollowUpStatus.pending => 'Needs follow-up',
+    CustomerFollowUpStatus.waiting => 'Waiting on customer',
+    CustomerFollowUpStatus.resolved => 'Resolved',
+  };
+
+  String get firestoreValue => switch (this) {
+    CustomerFollowUpStatus.none => 'none',
+    CustomerFollowUpStatus.pending => 'pending',
+    CustomerFollowUpStatus.waiting => 'waiting',
+    CustomerFollowUpStatus.resolved => 'resolved',
+  };
+
+  static CustomerFollowUpStatus fromValue(String value) => switch (value) {
+    'pending' => CustomerFollowUpStatus.pending,
+    'waiting' => CustomerFollowUpStatus.waiting,
+    'resolved' => CustomerFollowUpStatus.resolved,
+    _ => CustomerFollowUpStatus.none,
+  };
+}
+
 class Customer extends Equatable {
   const Customer({
     required this.id,
@@ -21,6 +49,10 @@ class Customer extends Equatable {
     required this.outstandingAmount,
     required this.notes,
     required this.defaultInvoiceTerms,
+    this.followUpStatus = CustomerFollowUpStatus.none,
+    this.lastContactedAt,
+    this.nextFollowUpDate,
+    this.followUpNotes = '',
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -50,6 +82,7 @@ class Customer extends Equatable {
       outstandingAmount: 0,
       notes: '',
       defaultInvoiceTerms: '',
+      followUpStatus: CustomerFollowUpStatus.none,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -77,10 +110,86 @@ class Customer extends Equatable {
   final DateTime? lastInvoiceAt;
   final String notes;
   final String defaultInvoiceTerms;
+  final CustomerFollowUpStatus followUpStatus;
+  final DateTime? lastContactedAt;
+  final DateTime? nextFollowUpDate;
+  final String followUpNotes;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
   final Map<String, String> customFields;
+
+  Customer copyWith({
+    String? id,
+    String? name,
+    String? phone,
+    String? email,
+    String? billingAddress,
+    String? shippingAddress,
+    String? gstin,
+    String? state,
+    String? defaultDiscountType,
+    double? defaultDiscountValue,
+    bool? loyaltyEnabled,
+    int? loyaltyPointsBalance,
+    int? lifetimePointsEarned,
+    int? lifetimePointsRedeemed,
+    double? totalBilled,
+    double? totalPaid,
+    double? outstandingAmount,
+    DateTime? lastInvoiceAt,
+    bool clearLastInvoiceAt = false,
+    String? notes,
+    String? defaultInvoiceTerms,
+    CustomerFollowUpStatus? followUpStatus,
+    DateTime? lastContactedAt,
+    bool clearLastContactedAt = false,
+    DateTime? nextFollowUpDate,
+    bool clearNextFollowUpDate = false,
+    String? followUpNotes,
+    bool? isActive,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Map<String, String>? customFields,
+  }) {
+    return Customer(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      billingAddress: billingAddress ?? this.billingAddress,
+      shippingAddress: shippingAddress ?? this.shippingAddress,
+      gstin: gstin ?? this.gstin,
+      state: state ?? this.state,
+      defaultDiscountType: defaultDiscountType ?? this.defaultDiscountType,
+      defaultDiscountValue: defaultDiscountValue ?? this.defaultDiscountValue,
+      loyaltyEnabled: loyaltyEnabled ?? this.loyaltyEnabled,
+      loyaltyPointsBalance: loyaltyPointsBalance ?? this.loyaltyPointsBalance,
+      lifetimePointsEarned: lifetimePointsEarned ?? this.lifetimePointsEarned,
+      lifetimePointsRedeemed:
+          lifetimePointsRedeemed ?? this.lifetimePointsRedeemed,
+      totalBilled: totalBilled ?? this.totalBilled,
+      totalPaid: totalPaid ?? this.totalPaid,
+      outstandingAmount: outstandingAmount ?? this.outstandingAmount,
+      lastInvoiceAt: clearLastInvoiceAt
+          ? null
+          : lastInvoiceAt ?? this.lastInvoiceAt,
+      notes: notes ?? this.notes,
+      defaultInvoiceTerms: defaultInvoiceTerms ?? this.defaultInvoiceTerms,
+      followUpStatus: followUpStatus ?? this.followUpStatus,
+      lastContactedAt: clearLastContactedAt
+          ? null
+          : lastContactedAt ?? this.lastContactedAt,
+      nextFollowUpDate: clearNextFollowUpDate
+          ? null
+          : nextFollowUpDate ?? this.nextFollowUpDate,
+      followUpNotes: followUpNotes ?? this.followUpNotes,
+      isActive: isActive ?? this.isActive,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      customFields: customFields ?? this.customFields,
+    );
+  }
 
   @override
   List<Object?> get props => [
@@ -104,6 +213,10 @@ class Customer extends Equatable {
     lastInvoiceAt,
     notes,
     defaultInvoiceTerms,
+    followUpStatus,
+    lastContactedAt,
+    nextFollowUpDate,
+    followUpNotes,
     isActive,
     createdAt,
     updatedAt,

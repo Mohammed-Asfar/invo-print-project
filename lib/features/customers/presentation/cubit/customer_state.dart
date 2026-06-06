@@ -35,6 +35,8 @@ class CustomerState extends Equatable {
           customer.shippingAddress.toLowerCase().contains(query) ||
           customer.notes.toLowerCase().contains(query) ||
           customer.defaultInvoiceTerms.toLowerCase().contains(query) ||
+          customer.followUpNotes.toLowerCase().contains(query) ||
+          customer.followUpStatus.label.toLowerCase().contains(query) ||
           customer.customFields.entries.any((entry) {
             return entry.key.toLowerCase().contains(query) ||
                 entry.value.toLowerCase().contains(query);
