@@ -80,6 +80,41 @@ class CompanySettingsRepository {
     );
   }
 
+  Future<QuotationNumberReservation> reserveNextQuotationNumber({
+    AppSettings? fallbackSettings,
+  }) async {
+    for (var attempt = 0; attempt < _invoiceReservationAttempts; attempt++) {
+      final snapshot = await _firestore.getDocumentSnapshot('settings', 'app');
+      final currentSettings = snapshot == null
+          ? (fallbackSettings ?? AppSettings.initial())
+          : AppSettingsModel.fromMap(snapshot.data);
+      final updatedSettings = _incrementQuotationNumber(currentSettings);
+      final precondition = snapshot == null
+          ? const FirestoreWritePrecondition.mustNotExist()
+          : FirestoreWritePrecondition(updateTime: snapshot.updateTime);
+      try {
+        await saveAppSettingsWithPrecondition(
+          updatedSettings,
+          precondition: precondition,
+        );
+        return QuotationNumberReservation(
+          reservedSequence: currentSettings.quotationNextNumber,
+          settingsBeforeReservation: currentSettings,
+          updatedSettings: updatedSettings,
+        );
+      } on AppException catch (error) {
+        if (_isWriteConflict(error) &&
+            attempt < _invoiceReservationAttempts - 1) {
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw const AppException(
+      'Quotation number could not be reserved right now. Please try again.',
+    );
+  }
+
   bool _isWriteConflict(AppException error) {
     final message = error.message.toUpperCase();
     return message.contains('FAILED_PRECONDITION') ||
@@ -125,10 +160,60 @@ class CompanySettingsRepository {
       updatedAt: DateTime.now(),
     );
   }
+
+  AppSettings _incrementQuotationNumber(AppSettings settings) {
+    return AppSettings(
+      gstEnabled: settings.gstEnabled,
+      defaultGstRate: settings.defaultGstRate,
+      invoicePrefix: settings.invoicePrefix,
+      invoiceSeparator: settings.invoiceSeparator,
+      invoiceDateFormat: settings.invoiceDateFormat,
+      invoiceNextNumber: settings.invoiceNextNumber,
+      invoiceNumberPadding: settings.invoiceNumberPadding,
+      quotationPrefix: settings.quotationPrefix,
+      quotationSeparator: settings.quotationSeparator,
+      quotationDateFormat: settings.quotationDateFormat,
+      quotationNextNumber: settings.quotationNextNumber + 1,
+      quotationNumberPadding: settings.quotationNumberPadding,
+      loyaltyEnabled: settings.loyaltyEnabled,
+      pointsPerRupee: settings.pointsPerRupee,
+      pointsRedemptionValue: settings.pointsRedemptionValue,
+      currencyCode: settings.currencyCode,
+      currencySymbol: settings.currencySymbol,
+      themeMode: settings.themeMode,
+      primaryColorHex: settings.primaryColorHex,
+      showLineItemHsn: settings.showLineItemHsn,
+      showCustomerStateCode: settings.showCustomerStateCode,
+      gstinLookupEnabled: settings.gstinLookupEnabled,
+      gstinLookupApiKey: settings.gstinLookupApiKey,
+      gstinLookupApiHost: settings.gstinLookupApiHost,
+      gstinValidationApiPath: settings.gstinValidationApiPath,
+      gstinLookupApiPath: settings.gstinLookupApiPath,
+      defaultCustomerState: settings.defaultCustomerState,
+      defaultShippingState: settings.defaultShippingState,
+      defaultLineItemUnit: settings.defaultLineItemUnit,
+      customCustomerFields: settings.customCustomerFields,
+      customShippingFields: settings.customShippingFields,
+      customLineItemFields: settings.customLineItemFields,
+      updatedAt: DateTime.now(),
+    );
+  }
 }
 
 class InvoiceNumberReservation {
   const InvoiceNumberReservation({
+    required this.reservedSequence,
+    required this.settingsBeforeReservation,
+    required this.updatedSettings,
+  });
+
+  final int reservedSequence;
+  final AppSettings settingsBeforeReservation;
+  final AppSettings updatedSettings;
+}
+
+class QuotationNumberReservation {
+  const QuotationNumberReservation({
     required this.reservedSequence,
     required this.settingsBeforeReservation,
     required this.updatedSettings,

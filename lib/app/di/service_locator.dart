@@ -27,6 +27,9 @@ import '../../features/products/data/repositories/supplier_repository.dart';
 import '../../features/products/domain/services/inventory_transition_service.dart';
 import '../../features/products/domain/services/supplier_statement_pdf_service.dart';
 import '../../features/products/presentation/cubit/product_cubit.dart';
+import '../../features/quotations/data/repositories/quotation_repository.dart';
+import '../../features/quotations/domain/services/quotation_pdf_service.dart';
+import '../../features/quotations/presentation/cubit/quotation_cubit.dart';
 import '../theme/theme_cubit.dart';
 
 final sl = GetIt.instance;
@@ -71,6 +74,9 @@ void setupServiceLocator() {
     ..registerLazySingleton<InvoiceRepository>(
       () => InvoiceRepository(sl<CustomerFirestoreRestClient>()),
     )
+    ..registerLazySingleton<QuotationRepository>(
+      () => QuotationRepository(sl<CustomerFirestoreRestClient>()),
+    )
     ..registerLazySingleton<InventoryTransitionService>(
       InventoryTransitionService.new,
     )
@@ -97,6 +103,7 @@ void setupServiceLocator() {
     ..registerLazySingleton<InvoicePdfService>(
       () => InvoicePdfService(sl<InvoiceOutputBuilder>()),
     )
+    ..registerLazySingleton<QuotationPdfService>(QuotationPdfService.new)
     ..registerLazySingleton<NumberingService>(NumberingService.new)
     ..registerFactory(() => AdminSetupCubit(sl<AdminSetupRepository>()))
     ..registerFactory(
@@ -127,6 +134,15 @@ void setupServiceLocator() {
         sl<GstinLookupService>(),
         sl<InvoiceCreator>(),
         sl<InventoryTransitionService>(),
+      ),
+    )
+    ..registerFactory(
+      () => QuotationCubit(
+        sl<QuotationRepository>(),
+        sl<CustomerRepository>(),
+        sl<CompanySettingsRepository>(),
+        sl<InvoiceCalculator>(),
+        sl<NumberingService>(),
       ),
     )
     ..registerLazySingleton<ThemeCubit>(ThemeCubit.new)

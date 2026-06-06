@@ -8,6 +8,7 @@ import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
 import '../../features/invoices/presentation/pages/invoices_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
+import '../../features/quotations/presentation/pages/quotations_page.dart';
 import '../../features/reports/presentation/pages/reports_page.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -126,7 +127,8 @@ class _SideNavigation extends StatelessWidget {
               _NavItem(
                 icon: Icons.request_quote_outlined,
                 label: 'Quotations',
-                selected: false,
+                routePath: QuotationsPage.routePath,
+                selected: location == QuotationsPage.routePath,
               ),
               _NavItem(
                 icon: Icons.groups_outlined,
