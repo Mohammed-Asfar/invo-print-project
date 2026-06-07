@@ -109,6 +109,82 @@ class AppSettings extends Equatable {
   final List<CustomFieldDefinition> customLineItemFields;
   final DateTime updatedAt;
 
+  AppSettings copyWith({
+    bool? gstEnabled,
+    double? defaultGstRate,
+    String? invoicePrefix,
+    String? invoiceSeparator,
+    String? invoiceDateFormat,
+    int? invoiceNextNumber,
+    int? invoiceNumberPadding,
+    String? quotationPrefix,
+    String? quotationSeparator,
+    String? quotationDateFormat,
+    int? quotationNextNumber,
+    int? quotationNumberPadding,
+    bool? loyaltyEnabled,
+    double? pointsPerRupee,
+    double? pointsRedemptionValue,
+    String? currencyCode,
+    String? currencySymbol,
+    String? themeMode,
+    String? primaryColorHex,
+    bool? showLineItemHsn,
+    bool? showCustomerStateCode,
+    bool? gstinLookupEnabled,
+    String? gstinLookupApiKey,
+    String? gstinLookupApiHost,
+    String? gstinValidationApiPath,
+    String? gstinLookupApiPath,
+    String? defaultCustomerState,
+    String? defaultShippingState,
+    String? defaultLineItemUnit,
+    List<CustomFieldDefinition>? customCustomerFields,
+    List<CustomFieldDefinition>? customShippingFields,
+    List<CustomFieldDefinition>? customLineItemFields,
+    DateTime? updatedAt,
+  }) {
+    return AppSettings(
+      gstEnabled: gstEnabled ?? this.gstEnabled,
+      defaultGstRate: defaultGstRate ?? this.defaultGstRate,
+      invoicePrefix: invoicePrefix ?? this.invoicePrefix,
+      invoiceSeparator: invoiceSeparator ?? this.invoiceSeparator,
+      invoiceDateFormat: invoiceDateFormat ?? this.invoiceDateFormat,
+      invoiceNextNumber: invoiceNextNumber ?? this.invoiceNextNumber,
+      invoiceNumberPadding: invoiceNumberPadding ?? this.invoiceNumberPadding,
+      quotationPrefix: quotationPrefix ?? this.quotationPrefix,
+      quotationSeparator: quotationSeparator ?? this.quotationSeparator,
+      quotationDateFormat: quotationDateFormat ?? this.quotationDateFormat,
+      quotationNextNumber: quotationNextNumber ?? this.quotationNextNumber,
+      quotationNumberPadding:
+          quotationNumberPadding ?? this.quotationNumberPadding,
+      loyaltyEnabled: loyaltyEnabled ?? this.loyaltyEnabled,
+      pointsPerRupee: pointsPerRupee ?? this.pointsPerRupee,
+      pointsRedemptionValue:
+          pointsRedemptionValue ?? this.pointsRedemptionValue,
+      currencyCode: currencyCode ?? this.currencyCode,
+      currencySymbol: currencySymbol ?? this.currencySymbol,
+      themeMode: themeMode ?? this.themeMode,
+      primaryColorHex: primaryColorHex ?? this.primaryColorHex,
+      showLineItemHsn: showLineItemHsn ?? this.showLineItemHsn,
+      showCustomerStateCode:
+          showCustomerStateCode ?? this.showCustomerStateCode,
+      gstinLookupEnabled: gstinLookupEnabled ?? this.gstinLookupEnabled,
+      gstinLookupApiKey: gstinLookupApiKey ?? this.gstinLookupApiKey,
+      gstinLookupApiHost: gstinLookupApiHost ?? this.gstinLookupApiHost,
+      gstinValidationApiPath:
+          gstinValidationApiPath ?? this.gstinValidationApiPath,
+      gstinLookupApiPath: gstinLookupApiPath ?? this.gstinLookupApiPath,
+      defaultCustomerState: defaultCustomerState ?? this.defaultCustomerState,
+      defaultShippingState: defaultShippingState ?? this.defaultShippingState,
+      defaultLineItemUnit: defaultLineItemUnit ?? this.defaultLineItemUnit,
+      customCustomerFields: customCustomerFields ?? this.customCustomerFields,
+      customShippingFields: customShippingFields ?? this.customShippingFields,
+      customLineItemFields: customLineItemFields ?? this.customLineItemFields,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   @override
   List<Object?> get props => [
     gstEnabled,

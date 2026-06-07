@@ -11,6 +11,7 @@ import '../../features/loyalty/presentation/pages/loyalty_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
 import '../../features/quotations/presentation/pages/quotations_page.dart';
 import '../../features/reports/presentation/pages/reports_page.dart';
+import '../../features/templates/presentation/pages/templates_page.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/theme_cubit.dart';
@@ -159,7 +160,8 @@ class _SideNavigation extends StatelessWidget {
               _NavItem(
                 icon: Icons.description_outlined,
                 label: 'Templates',
-                selected: false,
+                routePath: TemplatesPage.routePath,
+                selected: location == TemplatesPage.routePath,
               ),
               const Spacer(),
               const _NavGroupLabel('Other'),

@@ -79,6 +79,59 @@ class CompanyProfile extends Equatable {
   final String paymentQrBase64;
   final DateTime updatedAt;
 
+  CompanyProfile copyWith({
+    String? businessName,
+    String? legalName,
+    String? gstin,
+    String? pan,
+    String? email,
+    String? phone,
+    String? website,
+    String? addressLine1,
+    String? addressLine2,
+    String? city,
+    String? state,
+    String? pincode,
+    String? country,
+    String? bankName,
+    String? bankAccountName,
+    String? bankAccountNumber,
+    String? ifscCode,
+    String? upiId,
+    String? defaultInvoiceTerms,
+    String? defaultQuotationTerms,
+    String? logoBase64,
+    String? paymentQrBase64,
+    DateTime? updatedAt,
+  }) {
+    return CompanyProfile(
+      businessName: businessName ?? this.businessName,
+      legalName: legalName ?? this.legalName,
+      gstin: gstin ?? this.gstin,
+      pan: pan ?? this.pan,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      website: website ?? this.website,
+      addressLine1: addressLine1 ?? this.addressLine1,
+      addressLine2: addressLine2 ?? this.addressLine2,
+      city: city ?? this.city,
+      state: state ?? this.state,
+      pincode: pincode ?? this.pincode,
+      country: country ?? this.country,
+      bankName: bankName ?? this.bankName,
+      bankAccountName: bankAccountName ?? this.bankAccountName,
+      bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
+      ifscCode: ifscCode ?? this.ifscCode,
+      upiId: upiId ?? this.upiId,
+      defaultInvoiceTerms: defaultInvoiceTerms ?? this.defaultInvoiceTerms,
+      defaultQuotationTerms:
+          defaultQuotationTerms ?? this.defaultQuotationTerms,
+      logoBase64: logoBase64 ?? this.logoBase64,
+      paymentQrBase64: paymentQrBase64 ?? this.paymentQrBase64,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   @override
   List<Object?> get props => [
     businessName,
