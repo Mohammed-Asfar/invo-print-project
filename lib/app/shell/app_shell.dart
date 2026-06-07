@@ -7,6 +7,7 @@ import '../../features/company/presentation/pages/company_settings_page.dart';
 import '../../features/customers/presentation/pages/customers_page.dart';
 import '../../features/dashboard/presentation/pages/dashboard_page.dart';
 import '../../features/invoices/presentation/pages/invoices_page.dart';
+import '../../features/loyalty/presentation/pages/loyalty_page.dart';
 import '../../features/products/presentation/pages/products_page.dart';
 import '../../features/quotations/presentation/pages/quotations_page.dart';
 import '../../features/reports/presentation/pages/reports_page.dart';
@@ -152,7 +153,8 @@ class _SideNavigation extends StatelessWidget {
               _NavItem(
                 icon: Icons.stars_outlined,
                 label: 'Loyalty',
-                selected: false,
+                routePath: LoyaltyPage.routePath,
+                selected: location == LoyaltyPage.routePath,
               ),
               _NavItem(
                 icon: Icons.description_outlined,
