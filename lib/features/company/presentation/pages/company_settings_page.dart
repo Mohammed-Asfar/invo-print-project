@@ -616,7 +616,7 @@ class _CompanySettingsViewState extends State<_CompanySettingsView> {
         paymentQrBase64: _paymentQrBase64.text.trim(),
         updatedAt: DateTime.now(),
       ),
-      settings: AppSettings(
+      settings: context.read<CompanySettingsCubit>().state.settings.copyWith(
         gstEnabled: _gstEnabled,
         defaultGstRate: _doubleValue(_gstRate, 18),
         invoicePrefix: _invoicePrefix.text.trim(),

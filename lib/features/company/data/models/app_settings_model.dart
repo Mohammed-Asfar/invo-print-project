@@ -35,6 +35,16 @@ class AppSettingsModel extends AppSettings {
     required super.customShippingFields,
     required super.customLineItemFields,
     required super.updatedAt,
+    super.documentTemplate,
+    super.invoiceTitle,
+    super.quotationTitle,
+    super.showOriginalCopyLabelOnPdf,
+    super.showAmountInWordsOnPdf,
+    super.showBankDetailsOnPdf,
+    super.showPaymentQrOnPdf,
+    super.showSignatureBlockOnPdf,
+    super.customerSignatureLabel,
+    super.authorizedSignatoryLabel,
   });
 
   factory AppSettingsModel.fromEntity(AppSettings settings) {
@@ -72,6 +82,16 @@ class AppSettingsModel extends AppSettings {
       customShippingFields: settings.customShippingFields,
       customLineItemFields: settings.customLineItemFields,
       updatedAt: settings.updatedAt,
+      documentTemplate: settings.documentTemplate,
+      invoiceTitle: settings.invoiceTitle,
+      quotationTitle: settings.quotationTitle,
+      showOriginalCopyLabelOnPdf: settings.showOriginalCopyLabelOnPdf,
+      showAmountInWordsOnPdf: settings.showAmountInWordsOnPdf,
+      showBankDetailsOnPdf: settings.showBankDetailsOnPdf,
+      showPaymentQrOnPdf: settings.showPaymentQrOnPdf,
+      showSignatureBlockOnPdf: settings.showSignatureBlockOnPdf,
+      customerSignatureLabel: settings.customerSignatureLabel,
+      authorizedSignatoryLabel: settings.authorizedSignatoryLabel,
     );
   }
 
@@ -149,6 +169,30 @@ class AppSettingsModel extends AppSettings {
         defaults.customLineItemFields,
       ),
       updatedAt: _toDateTime(map['updatedAt']) ?? defaults.updatedAt,
+      documentTemplate:
+          map['documentTemplate'] as String? ?? defaults.documentTemplate,
+      invoiceTitle: map['invoiceTitle'] as String? ?? defaults.invoiceTitle,
+      quotationTitle:
+          map['quotationTitle'] as String? ?? defaults.quotationTitle,
+      showOriginalCopyLabelOnPdf:
+          map['showOriginalCopyLabelOnPdf'] as bool? ??
+          defaults.showOriginalCopyLabelOnPdf,
+      showAmountInWordsOnPdf:
+          map['showAmountInWordsOnPdf'] as bool? ??
+          defaults.showAmountInWordsOnPdf,
+      showBankDetailsOnPdf:
+          map['showBankDetailsOnPdf'] as bool? ?? defaults.showBankDetailsOnPdf,
+      showPaymentQrOnPdf:
+          map['showPaymentQrOnPdf'] as bool? ?? defaults.showPaymentQrOnPdf,
+      showSignatureBlockOnPdf:
+          map['showSignatureBlockOnPdf'] as bool? ??
+          defaults.showSignatureBlockOnPdf,
+      customerSignatureLabel:
+          map['customerSignatureLabel'] as String? ??
+          defaults.customerSignatureLabel,
+      authorizedSignatoryLabel:
+          map['authorizedSignatoryLabel'] as String? ??
+          defaults.authorizedSignatoryLabel,
     );
   }
 
@@ -187,6 +231,16 @@ class AppSettingsModel extends AppSettings {
       'customShippingFields': customShippingFields.map(_fieldToMap).toList(),
       'customLineItemFields': customLineItemFields.map(_fieldToMap).toList(),
       'updatedAt': updatedAt,
+      'documentTemplate': documentTemplate,
+      'invoiceTitle': invoiceTitle,
+      'quotationTitle': quotationTitle,
+      'showOriginalCopyLabelOnPdf': showOriginalCopyLabelOnPdf,
+      'showAmountInWordsOnPdf': showAmountInWordsOnPdf,
+      'showBankDetailsOnPdf': showBankDetailsOnPdf,
+      'showPaymentQrOnPdf': showPaymentQrOnPdf,
+      'showSignatureBlockOnPdf': showSignatureBlockOnPdf,
+      'customerSignatureLabel': customerSignatureLabel,
+      'authorizedSignatoryLabel': authorizedSignatoryLabel,
     };
   }
 

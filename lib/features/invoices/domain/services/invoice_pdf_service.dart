@@ -28,14 +28,16 @@ class InvoicePdfService {
     );
     final customerData = _customerData(invoice.customerSnapshot);
     final shippedToData = _shippedToData(invoice.customerSnapshot['shippedTo']);
-    final paymentData = _outputBuilder.buildPaymentDataFromSnapshot(
-      companySnapshot: invoice.companySnapshot,
-      fallbackProfile: currentCompanyProfile,
-      invoiceNumber: invoice.invoiceNumber,
-      grandTotal: invoice.balanceDue > 0
-          ? invoice.balanceDue
-          : invoice.grandTotal,
-    );
+    final paymentData = (settings?.showPaymentQrOnPdf ?? true)
+        ? _outputBuilder.buildPaymentDataFromSnapshot(
+            companySnapshot: invoice.companySnapshot,
+            fallbackProfile: currentCompanyProfile,
+            invoiceNumber: invoice.invoiceNumber,
+            grandTotal: invoice.balanceDue > 0
+                ? invoice.balanceDue
+                : invoice.grandTotal,
+          )
+        : null;
     final logoBytes = _decodeBase64Image(companyData.logoBase64);
     final itemHasHsn =
         (settings?.showLineItemHsn ?? true) &&
@@ -57,16 +59,19 @@ class InvoicePdfService {
             bold: pw.Font.helveticaBold(),
           ),
         ),
-        footer: (context) => pw.Padding(
-          padding: const pw.EdgeInsets.only(top: 12),
-          child: _buildSignatureFooter(),
-        ),
+        footer: (context) => (settings?.showSignatureBlockOnPdf ?? true)
+            ? pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 12),
+                child: _buildSignatureFooter(settings),
+              )
+            : pw.SizedBox(),
         build: (context) => [
           _buildTopHeader(
             invoice: invoice,
             companyData: companyData,
             logoBytes: logoBytes,
             isDraft: isDraft,
+            settings: settings,
           ),
           pw.SizedBox(height: 10),
           _divider(),
@@ -85,13 +90,20 @@ class InvoicePdfService {
             customFieldNames: itemCustomFieldNames,
           ),
           pw.SizedBox(height: 8),
-          _buildTotalsAndWords(invoice, currencySymbol: currencySymbol),
-          if (companyData.bankFields.isNotEmpty || paymentData != null) ...[
+          _buildTotalsAndWords(
+            invoice,
+            currencySymbol: currencySymbol,
+            showAmountInWords: settings?.showAmountInWordsOnPdf ?? true,
+          ),
+          if (((settings?.showBankDetailsOnPdf ?? true) &&
+                  companyData.bankFields.isNotEmpty) ||
+              paymentData != null) ...[
             pw.SizedBox(height: 12),
             _buildPaymentAndBankDetails(
               companyData: companyData,
               paymentData: paymentData,
               currencySymbol: currencySymbol,
+              showBankDetails: settings?.showBankDetailsOnPdf ?? true,
             ),
           ],
           if (invoice.paymentHistory.isNotEmpty) ...[
@@ -119,7 +131,13 @@ class InvoicePdfService {
     required _PdfCompanyData companyData,
     required Uint8List? logoBytes,
     required bool isDraft,
+    required AppSettings? settings,
   }) {
+    final title = settings?.invoiceTitle.trim().isNotEmpty ?? false
+        ? settings!.invoiceTitle.trim()
+        : invoice.taxMode == TaxMode.none
+        ? 'INVOICE'
+        : 'TAX INVOICE';
     return pw.Column(
       children: [
         pw.Row(
@@ -130,17 +148,19 @@ class InvoicePdfService {
             pw.Column(
               children: [
                 pw.Text(
-                  invoice.taxMode == TaxMode.none ? 'INVOICE' : 'TAX INVOICE',
+                  title,
                   style: pw.TextStyle(
                     fontSize: 12,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-                pw.SizedBox(height: 2),
-                pw.Text(
-                  '(ORIGINAL FOR RECIPIENT)',
-                  style: const pw.TextStyle(fontSize: 6.5),
-                ),
+                if (settings?.showOriginalCopyLabelOnPdf ?? true) ...[
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    '(ORIGINAL FOR RECIPIENT)',
+                    style: const pw.TextStyle(fontSize: 6.5),
+                  ),
+                ],
                 if (isDraft) ...[pw.SizedBox(height: 5), _buildDraftBadge()],
               ],
             ),
@@ -382,6 +402,7 @@ class InvoicePdfService {
   pw.Widget _buildTotalsAndWords(
     Invoice invoice, {
     required String currencySymbol,
+    required bool showAmountInWords,
   }) {
     final totalRows = <_AmountRow>[
       _AmountRow('Sub-Total', invoice.subtotal),
@@ -453,11 +474,13 @@ class InvoicePdfService {
               ],
             ),
           ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          'Total in Words: ${_numberToWords(invoice.grandTotal)} Only',
-          style: pw.TextStyle(fontSize: 8.3, fontWeight: pw.FontWeight.bold),
-        ),
+        if (showAmountInWords) ...[
+          pw.SizedBox(height: 4),
+          pw.Text(
+            'Total in Words: ${_numberToWords(invoice.grandTotal)} Only',
+            style: pw.TextStyle(fontSize: 8.3, fontWeight: pw.FontWeight.bold),
+          ),
+        ],
       ],
     );
   }
@@ -466,6 +489,7 @@ class InvoicePdfService {
     required _PdfCompanyData companyData,
     required InvoicePaymentData? paymentData,
     required String currencySymbol,
+    required bool showBankDetails,
   }) {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -474,7 +498,7 @@ class InvoicePdfService {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              if (companyData.bankFields.isNotEmpty)
+              if (showBankDetails && companyData.bankFields.isNotEmpty)
                 pw.Text(
                   'Company Bank Details:',
                   style: pw.TextStyle(
@@ -482,14 +506,15 @@ class InvoicePdfService {
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-              for (final field in companyData.bankFields)
-                pw.Padding(
-                  padding: const pw.EdgeInsets.only(top: 2),
-                  child: pw.Text(
-                    '${field.label}: ${field.value}',
-                    style: const pw.TextStyle(fontSize: 8.2),
+              if (showBankDetails)
+                for (final field in companyData.bankFields)
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.only(top: 2),
+                    child: pw.Text(
+                      '${field.label}: ${field.value}',
+                      style: const pw.TextStyle(fontSize: 8.2),
+                    ),
                   ),
-                ),
             ],
           ),
         ),
@@ -613,16 +638,24 @@ class InvoicePdfService {
     );
   }
 
-  pw.Widget _buildSignatureFooter() {
+  pw.Widget _buildSignatureFooter(AppSettings? settings) {
+    final customerLabel =
+        settings?.customerSignatureLabel.trim().isNotEmpty ?? false
+        ? settings!.customerSignatureLabel.trim()
+        : "Customer's Seal & Signature";
+    final authorizedLabel =
+        settings?.authorizedSignatoryLabel.trim().isNotEmpty ?? false
+        ? settings!.authorizedSignatoryLabel.trim()
+        : 'For Authorised Signatory';
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
       children: [
         pw.Text(
-          "Customer's Seal & Signature",
+          customerLabel,
           style: pw.TextStyle(fontSize: 8.2, fontWeight: pw.FontWeight.bold),
         ),
         pw.Text(
-          'For Authorised Signatory',
+          authorizedLabel,
           style: pw.TextStyle(fontSize: 8.2, fontWeight: pw.FontWeight.bold),
         ),
       ],

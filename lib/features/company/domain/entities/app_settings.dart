@@ -35,6 +35,16 @@ class AppSettings extends Equatable {
     required this.customShippingFields,
     required this.customLineItemFields,
     required this.updatedAt,
+    this.documentTemplate = 'classic_tax',
+    this.invoiceTitle = 'TAX INVOICE',
+    this.quotationTitle = 'QUOTATION',
+    this.showOriginalCopyLabelOnPdf = true,
+    this.showAmountInWordsOnPdf = true,
+    this.showBankDetailsOnPdf = true,
+    this.showPaymentQrOnPdf = true,
+    this.showSignatureBlockOnPdf = true,
+    this.customerSignatureLabel = "Customer's Seal & Signature",
+    this.authorizedSignatoryLabel = 'For Authorised Signatory',
   });
 
   factory AppSettings.initial() {
@@ -108,6 +118,16 @@ class AppSettings extends Equatable {
   final List<CustomFieldDefinition> customShippingFields;
   final List<CustomFieldDefinition> customLineItemFields;
   final DateTime updatedAt;
+  final String documentTemplate;
+  final String invoiceTitle;
+  final String quotationTitle;
+  final bool showOriginalCopyLabelOnPdf;
+  final bool showAmountInWordsOnPdf;
+  final bool showBankDetailsOnPdf;
+  final bool showPaymentQrOnPdf;
+  final bool showSignatureBlockOnPdf;
+  final String customerSignatureLabel;
+  final String authorizedSignatoryLabel;
 
   AppSettings copyWith({
     bool? gstEnabled,
@@ -143,6 +163,16 @@ class AppSettings extends Equatable {
     List<CustomFieldDefinition>? customShippingFields,
     List<CustomFieldDefinition>? customLineItemFields,
     DateTime? updatedAt,
+    String? documentTemplate,
+    String? invoiceTitle,
+    String? quotationTitle,
+    bool? showOriginalCopyLabelOnPdf,
+    bool? showAmountInWordsOnPdf,
+    bool? showBankDetailsOnPdf,
+    bool? showPaymentQrOnPdf,
+    bool? showSignatureBlockOnPdf,
+    String? customerSignatureLabel,
+    String? authorizedSignatoryLabel,
   }) {
     return AppSettings(
       gstEnabled: gstEnabled ?? this.gstEnabled,
@@ -182,6 +212,21 @@ class AppSettings extends Equatable {
       customShippingFields: customShippingFields ?? this.customShippingFields,
       customLineItemFields: customLineItemFields ?? this.customLineItemFields,
       updatedAt: updatedAt ?? this.updatedAt,
+      documentTemplate: documentTemplate ?? this.documentTemplate,
+      invoiceTitle: invoiceTitle ?? this.invoiceTitle,
+      quotationTitle: quotationTitle ?? this.quotationTitle,
+      showOriginalCopyLabelOnPdf:
+          showOriginalCopyLabelOnPdf ?? this.showOriginalCopyLabelOnPdf,
+      showAmountInWordsOnPdf:
+          showAmountInWordsOnPdf ?? this.showAmountInWordsOnPdf,
+      showBankDetailsOnPdf: showBankDetailsOnPdf ?? this.showBankDetailsOnPdf,
+      showPaymentQrOnPdf: showPaymentQrOnPdf ?? this.showPaymentQrOnPdf,
+      showSignatureBlockOnPdf:
+          showSignatureBlockOnPdf ?? this.showSignatureBlockOnPdf,
+      customerSignatureLabel:
+          customerSignatureLabel ?? this.customerSignatureLabel,
+      authorizedSignatoryLabel:
+          authorizedSignatoryLabel ?? this.authorizedSignatoryLabel,
     );
   }
 
@@ -220,6 +265,16 @@ class AppSettings extends Equatable {
     customShippingFields,
     customLineItemFields,
     updatedAt,
+    documentTemplate,
+    invoiceTitle,
+    quotationTitle,
+    showOriginalCopyLabelOnPdf,
+    showAmountInWordsOnPdf,
+    showBankDetailsOnPdf,
+    showPaymentQrOnPdf,
+    showSignatureBlockOnPdf,
+    customerSignatureLabel,
+    authorizedSignatoryLabel,
   ];
 }
 

@@ -84,41 +84,10 @@ class CompanySettingsCubit extends Cubit<CompanySettingsState> {
         paymentQrBase64: profile.paymentQrBase64,
         updatedAt: now,
       );
-      final savedSettings = AppSettings(
-        gstEnabled: settings.gstEnabled,
-        defaultGstRate: settings.defaultGstRate,
-        invoicePrefix: settings.invoicePrefix,
-        invoiceSeparator: settings.invoiceSeparator,
-        invoiceDateFormat: settings.invoiceDateFormat,
+      final savedSettings = settings.copyWith(
         invoiceNextNumber: userChangedInvoiceCounter
             ? settings.invoiceNextNumber
             : latestSettings.invoiceNextNumber,
-        invoiceNumberPadding: settings.invoiceNumberPadding,
-        quotationPrefix: settings.quotationPrefix,
-        quotationSeparator: settings.quotationSeparator,
-        quotationDateFormat: settings.quotationDateFormat,
-        quotationNextNumber: settings.quotationNextNumber,
-        quotationNumberPadding: settings.quotationNumberPadding,
-        loyaltyEnabled: settings.loyaltyEnabled,
-        pointsPerRupee: settings.pointsPerRupee,
-        pointsRedemptionValue: settings.pointsRedemptionValue,
-        currencyCode: settings.currencyCode,
-        currencySymbol: settings.currencySymbol,
-        themeMode: settings.themeMode,
-        primaryColorHex: settings.primaryColorHex,
-        showLineItemHsn: settings.showLineItemHsn,
-        showCustomerStateCode: settings.showCustomerStateCode,
-        gstinLookupEnabled: settings.gstinLookupEnabled,
-        gstinLookupApiKey: settings.gstinLookupApiKey,
-        gstinLookupApiHost: settings.gstinLookupApiHost,
-        gstinValidationApiPath: settings.gstinValidationApiPath,
-        gstinLookupApiPath: settings.gstinLookupApiPath,
-        defaultCustomerState: settings.defaultCustomerState,
-        defaultShippingState: settings.defaultShippingState,
-        defaultLineItemUnit: settings.defaultLineItemUnit,
-        customCustomerFields: settings.customCustomerFields,
-        customShippingFields: settings.customShippingFields,
-        customLineItemFields: settings.customLineItemFields,
         updatedAt: now,
       );
 

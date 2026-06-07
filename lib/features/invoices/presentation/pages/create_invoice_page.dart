@@ -3137,98 +3137,97 @@ class _SummaryPanel extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppColors.border),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Invoice Summary',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _SummaryHero(
-              invoiceNumber: invoiceNumber,
-              customerName: customerName.isEmpty
-                  ? 'No customer yet'
-                  : customerName,
-              total: totals.grandTotal,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _SummaryLine('Status', status.label),
-            _SummaryLine('Tax Mode', taxMode.label),
-            const Divider(height: AppSpacing.xl),
-            _MoneyLine('Subtotal', totals.subtotal),
-            if (totals.discountTotal > 0)
-              _MoneyLine('Discount', -totals.discountTotal, signed: true),
-            if (totals.extraChargeTotal > 0)
-              _MoneyLine(
-                'Extra Charges',
-                totals.extraChargeTotal,
-                signed: true,
-              ),
-            _MoneyLine('CGST', totals.cgst),
-            _MoneyLine('SGST', totals.sgst),
-            _MoneyLine('IGST', totals.igst),
-            if (totals.roundOff != 0)
-              _MoneyLine('Round Off', totals.roundOff, signed: true),
-            const Divider(height: AppSpacing.xl),
-            _MoneyLine('Grand Total', totals.grandTotal, strong: true),
-            if (amountPaid > 0) ...[
-              const SizedBox(height: AppSpacing.sm),
-              _MoneyLine('Amount Paid', amountPaid),
-              _MoneyLine('Balance Due', balanceDue, strong: true),
-            ],
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'Amount in Words',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              '$amountInWords only',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (paymentHistoryPreview.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.lg),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Payment History',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                'Invoice Summary',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              for (final payment in paymentHistoryPreview)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: _PaymentPreviewRow(payment: payment),
-                ),
-            ],
-            if (paymentData != null) ...[
               const SizedBox(height: AppSpacing.lg),
-              _PaymentQrPanel(paymentData: paymentData!),
+              _SummaryHero(
+                invoiceNumber: invoiceNumber,
+                customerName: customerName.isEmpty
+                    ? 'No customer yet'
+                    : customerName,
+                total: totals.grandTotal,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _SummaryLine('Status', status.label),
+              _SummaryLine('Tax Mode', taxMode.label),
+              const Divider(height: AppSpacing.xl),
+              _MoneyLine('Subtotal', totals.subtotal),
+              if (totals.discountTotal > 0)
+                _MoneyLine('Discount', -totals.discountTotal, signed: true),
+              if (totals.extraChargeTotal > 0)
+                _MoneyLine(
+                  'Extra Charges',
+                  totals.extraChargeTotal,
+                  signed: true,
+                ),
+              _MoneyLine('CGST', totals.cgst),
+              _MoneyLine('SGST', totals.sgst),
+              _MoneyLine('IGST', totals.igst),
+              if (totals.roundOff != 0)
+                _MoneyLine('Round Off', totals.roundOff, signed: true),
+              const Divider(height: AppSpacing.xl),
+              _MoneyLine('Grand Total', totals.grandTotal, strong: true),
+              if (amountPaid > 0) ...[
+                const SizedBox(height: AppSpacing.sm),
+                _MoneyLine('Amount Paid', amountPaid),
+                _MoneyLine('Balance Due', balanceDue, strong: true),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Amount in Words',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                '$amountInWords only',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (paymentHistoryPreview.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Payment History',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                for (final payment in paymentHistoryPreview)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _PaymentPreviewRow(payment: payment),
+                  ),
+              ],
+              if (paymentData != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                _PaymentQrPanel(paymentData: paymentData!),
+              ],
+              const SizedBox(height: AppSpacing.lg),
+              _SummaryActions(
+                isSaving: isSaving,
+                isEdit: isEdit,
+                status: status,
+                onSaveDraft: onSaveDraft,
+                onFinalize: onFinalize,
+                onSave: onSave,
+              ),
             ],
-            if (expanded)
-              const SizedBox(height: AppSpacing.lg)
-            else
-              const Spacer(),
-            _SummaryActions(
-              isSaving: isSaving,
-              isEdit: isEdit,
-              status: status,
-              onSaveDraft: onSaveDraft,
-              onFinalize: onFinalize,
-              onSave: onSave,
-            ),
-          ],
+          ),
         ),
       ),
     );

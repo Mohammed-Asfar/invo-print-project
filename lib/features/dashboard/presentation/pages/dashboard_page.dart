@@ -247,12 +247,14 @@ class _MetricGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth < 1100 ? 3 : 6;
-        return GridView.count(
-          crossAxisCount: columns,
-          crossAxisSpacing: AppSpacing.md,
-          mainAxisSpacing: AppSpacing.md,
+        return GridView(
           shrinkWrap: true,
-          childAspectRatio: constraints.maxWidth < 1100 ? 2.6 : 2.15,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: AppSpacing.md,
+            mainAxisSpacing: AppSpacing.md,
+            mainAxisExtent: 106,
+          ),
           physics: const NeverScrollableScrollPhysics(),
           children: [
             _MetricCard(

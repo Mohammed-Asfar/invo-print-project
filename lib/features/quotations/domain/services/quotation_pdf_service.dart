@@ -40,15 +40,20 @@ class QuotationPdfService {
             bold: pw.Font.helveticaBold(),
           ),
         ),
-        footer: (_) => pw.Align(
-          alignment: pw.Alignment.centerRight,
-          child: pw.Text(
-            'For Authorised Signatory',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
-          ),
-        ),
+        footer: (_) => (settings?.showSignatureBlockOnPdf ?? true)
+            ? pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  _authorizedSignatoryLabel(settings),
+                  style: pw.TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              )
+            : pw.SizedBox(),
         build: (_) => [
-          _header(quotation, companyData, logoBytes),
+          _header(quotation, companyData, logoBytes, settings),
           pw.SizedBox(height: 10),
           _divider(),
           pw.SizedBox(height: 8),
@@ -91,7 +96,11 @@ class QuotationPdfService {
     Quotation quotation,
     _QuotationCompanyData company,
     Uint8List? logoBytes,
+    AppSettings? settings,
   ) {
+    final title = settings?.quotationTitle.trim().isNotEmpty ?? false
+        ? settings!.quotationTitle.trim()
+        : 'QUOTATION';
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -111,7 +120,7 @@ class QuotationPdfService {
             crossAxisAlignment: pw.CrossAxisAlignment.end,
             children: [
               pw.Text(
-                'QUOTATION',
+                title,
                 style: pw.TextStyle(
                   fontSize: 14,
                   fontWeight: pw.FontWeight.bold,
@@ -139,6 +148,11 @@ class QuotationPdfService {
         ),
       ],
     );
+  }
+
+  String _authorizedSignatoryLabel(AppSettings? settings) {
+    final label = settings?.authorizedSignatoryLabel.trim() ?? '';
+    return label.isEmpty ? 'For Authorised Signatory' : label;
   }
 
   pw.Widget _meta(Quotation quotation) {
