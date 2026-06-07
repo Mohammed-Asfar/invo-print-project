@@ -28,6 +28,34 @@ enum CustomerFollowUpStatus {
   };
 }
 
+class CustomerFollowUpHistoryEntry extends Equatable {
+  const CustomerFollowUpHistoryEntry({
+    required this.status,
+    required this.contactedAt,
+    this.outcome = '',
+    this.note = '',
+    this.nextFollowUpDate,
+    this.promisedPaymentDate,
+  });
+
+  final CustomerFollowUpStatus status;
+  final DateTime contactedAt;
+  final String outcome;
+  final String note;
+  final DateTime? nextFollowUpDate;
+  final DateTime? promisedPaymentDate;
+
+  @override
+  List<Object?> get props => [
+    status,
+    contactedAt,
+    outcome,
+    note,
+    nextFollowUpDate,
+    promisedPaymentDate,
+  ];
+}
+
 class Customer extends Equatable {
   const Customer({
     required this.id,
@@ -52,7 +80,9 @@ class Customer extends Equatable {
     this.followUpStatus = CustomerFollowUpStatus.none,
     this.lastContactedAt,
     this.nextFollowUpDate,
+    this.promisedPaymentDate,
     this.followUpNotes = '',
+    this.followUpHistory = const [],
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -113,7 +143,9 @@ class Customer extends Equatable {
   final CustomerFollowUpStatus followUpStatus;
   final DateTime? lastContactedAt;
   final DateTime? nextFollowUpDate;
+  final DateTime? promisedPaymentDate;
   final String followUpNotes;
+  final List<CustomerFollowUpHistoryEntry> followUpHistory;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -146,7 +178,10 @@ class Customer extends Equatable {
     bool clearLastContactedAt = false,
     DateTime? nextFollowUpDate,
     bool clearNextFollowUpDate = false,
+    DateTime? promisedPaymentDate,
+    bool clearPromisedPaymentDate = false,
     String? followUpNotes,
+    List<CustomerFollowUpHistoryEntry>? followUpHistory,
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -183,7 +218,11 @@ class Customer extends Equatable {
       nextFollowUpDate: clearNextFollowUpDate
           ? null
           : nextFollowUpDate ?? this.nextFollowUpDate,
+      promisedPaymentDate: clearPromisedPaymentDate
+          ? null
+          : promisedPaymentDate ?? this.promisedPaymentDate,
       followUpNotes: followUpNotes ?? this.followUpNotes,
+      followUpHistory: followUpHistory ?? this.followUpHistory,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -216,7 +255,9 @@ class Customer extends Equatable {
     followUpStatus,
     lastContactedAt,
     nextFollowUpDate,
+    promisedPaymentDate,
     followUpNotes,
+    followUpHistory,
     isActive,
     createdAt,
     updatedAt,

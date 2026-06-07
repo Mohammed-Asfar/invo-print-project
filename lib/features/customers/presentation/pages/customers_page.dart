@@ -360,7 +360,7 @@ class _CustomerTable extends StatelessWidget {
   }
 }
 
-class _CustomerFollowUpPanel extends StatelessWidget {
+class _CustomerFollowUpPanel extends StatefulWidget {
   const _CustomerFollowUpPanel({
     required this.queue,
     required this.onUpdateCustomer,
@@ -370,7 +370,16 @@ class _CustomerFollowUpPanel extends StatelessWidget {
   final ValueChanged<Customer> onUpdateCustomer;
 
   @override
+  State<_CustomerFollowUpPanel> createState() => _CustomerFollowUpPanelState();
+}
+
+class _CustomerFollowUpPanelState extends State<_CustomerFollowUpPanel> {
+  CustomerCollectionFilter _filter = CustomerCollectionFilter.all;
+
+  @override
   Widget build(BuildContext context) {
+    final queue = widget.queue;
+    final visibleRows = filterCustomerFollowUpRows(queue.rows, _filter);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
@@ -401,83 +410,142 @@ class _CustomerFollowUpPanel extends StatelessWidget {
                 highlight: queue.reminderDueCount > 0,
               ),
               _LedgerMetric(
+                label: 'Promises Due',
+                value: queue.promisedDueCount.toString(),
+                highlight: queue.promisedDueCount > 0,
+              ),
+              _LedgerMetric(
                 label: 'Overdue Amount',
                 value: _formatMoney(queue.totalOverdueAmount),
                 highlight: queue.totalOverdueAmount > 0,
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final bucket in CustomerAgingBucket.values)
+                Chip(
+                  label: Text(
+                    '${bucket.label}: ${_formatMoney(queue.agingBuckets[bucket] ?? 0)}',
+                  ),
+                  backgroundColor: AppColors.background,
+                  side: BorderSide(color: AppColors.border),
+                ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.lg),
-          Text(
-            'Customer Follow-up Queue',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Customer Follow-up Queue',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              SegmentedButton<CustomerCollectionFilter>(
+                segments: [
+                  for (final filter in CustomerCollectionFilter.values)
+                    ButtonSegment(value: filter, label: Text(filter.label)),
+                ],
+                selected: {_filter},
+                onSelectionChanged: (selection) {
+                  setState(() => _filter = selection.first);
+                },
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          for (final row in queue.rows.take(6))
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                backgroundColor: row.needsAction
-                    ? AppColors.primaryLight
-                    : AppColors.background,
-                child: Icon(
-                  row.reminderDue
-                      ? Icons.notifications_active_outlined
-                      : row.overdueAmount > 0
-                      ? Icons.warning_amber_outlined
-                      : Icons.schedule_outlined,
-                  color: row.reminderDue || row.overdueAmount > 0
-                      ? AppColors.primaryPurple
-                      : AppColors.textSecondary,
+          if (visibleRows.isEmpty)
+            Text(
+              'No customers match this collection filter.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+            )
+          else
+            for (final row in visibleRows.take(6))
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: row.needsAction
+                      ? AppColors.primaryLight
+                      : AppColors.background,
+                  child: Icon(
+                    row.promisedPaymentDue
+                        ? Icons.event_busy_outlined
+                        : row.reminderDue
+                        ? Icons.notifications_active_outlined
+                        : row.overdueAmount > 0
+                        ? Icons.warning_amber_outlined
+                        : Icons.schedule_outlined,
+                    color:
+                        row.promisedPaymentDue ||
+                            row.reminderDue ||
+                            row.overdueAmount > 0
+                        ? AppColors.primaryPurple
+                        : AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              title: Text(row.customer.name),
-              subtitle: Text(
-                [
-                  row.customer.followUpStatus.label,
-                  if (row.customer.lastContactedAt != null)
-                    'Last contacted ${_formatDate(row.customer.lastContactedAt!)}',
-                  if (row.customer.nextFollowUpDate != null)
-                    'Next follow-up ${_formatDate(row.customer.nextFollowUpDate!)}',
-                  if (row.overdueInvoiceCount > 0)
-                    '${row.overdueInvoiceCount} overdue invoice${row.overdueInvoiceCount == 1 ? '' : 's'}',
-                ].join('  |  '),
-              ),
-              trailing: SizedBox(
-                width: 220,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Due ${_formatMoney(row.outstandingBalance)}',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                          if (row.overdueAmount > 0)
+                title: Text(row.customer.name),
+                subtitle: Text(
+                  [
+                    row.customer.followUpStatus.label,
+                    row.primaryAgingBucket.label,
+                    if (row.oldestOverdueDays > 0)
+                      '${row.oldestOverdueDays} days overdue',
+                    if (row.customer.promisedPaymentDate != null)
+                      'Promise ${_formatDate(row.customer.promisedPaymentDate!)}',
+                    if (row.customer.nextFollowUpDate != null)
+                      'Next follow-up ${_formatDate(row.customer.nextFollowUpDate!)}',
+                    if (row.overdueInvoiceCount > 0)
+                      '${row.overdueInvoiceCount} overdue invoice${row.overdueInvoiceCount == 1 ? '' : 's'}',
+                  ].join('  |  '),
+                ),
+                trailing: SizedBox(
+                  width: 220,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
                             Text(
-                              'Overdue ${_formatMoney(row.overdueAmount)}',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: AppColors.error),
+                              'Due ${_formatMoney(row.outstandingBalance)}',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
                             ),
-                        ],
+                            if (row.overdueAmount > 0)
+                              Text(
+                                'Overdue ${_formatMoney(row.overdueAmount)}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: AppColors.error),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    OutlinedButton(
-                      onPressed: () => onUpdateCustomer(row.customer),
-                      child: const Text('Update'),
-                    ),
-                  ],
+                      const SizedBox(width: AppSpacing.sm),
+                      OutlinedButton(
+                        onPressed: () => widget.onUpdateCustomer(row.customer),
+                        child: const Text('Update'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+          if (visibleRows.length > 6)
+            Text(
+              '${visibleRows.length - 6} more customer${visibleRows.length - 6 == 1 ? '' : 's'} match this filter.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
         ],
       ),
@@ -537,7 +605,9 @@ class _CustomerLedgerDialog extends StatelessWidget {
                       CustomerFollowUpStatus.none ||
                   ledger.customer.lastContactedAt != null ||
                   ledger.customer.nextFollowUpDate != null ||
-                  ledger.customer.followUpNotes.trim().isNotEmpty) ...[
+                  ledger.customer.promisedPaymentDate != null ||
+                  ledger.customer.followUpNotes.trim().isNotEmpty ||
+                  ledger.customer.followUpHistory.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.lg),
                 Text(
                   'Follow-up',
@@ -556,11 +626,41 @@ class _CustomerLedgerDialog extends StatelessWidget {
                         'Last contacted ${_formatDate(ledger.customer.lastContactedAt!)}',
                       if (ledger.customer.nextFollowUpDate != null)
                         'Next follow-up ${_formatDate(ledger.customer.nextFollowUpDate!)}',
+                      if (ledger.customer.promisedPaymentDate != null)
+                        'Promised payment ${_formatDate(ledger.customer.promisedPaymentDate!)}',
                       if (ledger.customer.followUpNotes.trim().isNotEmpty)
                         ledger.customer.followUpNotes.trim(),
                     ].join('  |  '),
                   ),
                 ),
+                if (ledger.customer.followUpHistory.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  _LedgerTable(
+                    headers: const [
+                      'Contacted',
+                      'Status',
+                      'Outcome',
+                      'Promise',
+                      'Next',
+                    ],
+                    rows: [
+                      for (final entry in ledger.customer.followUpHistory.take(
+                        5,
+                      ))
+                        [
+                          _formatDate(entry.contactedAt),
+                          entry.status.label,
+                          entry.outcome.isEmpty ? entry.note : entry.outcome,
+                          entry.promisedPaymentDate == null
+                              ? ''
+                              : _formatDate(entry.promisedPaymentDate!),
+                          entry.nextFollowUpDate == null
+                              ? ''
+                              : _formatDate(entry.nextFollowUpDate!),
+                        ],
+                    ],
+                  ),
+                ],
               ],
               const SizedBox(height: AppSpacing.xl),
               Text(
@@ -823,21 +923,26 @@ class _CustomerFollowUpDialog extends StatefulWidget {
 class _CustomerFollowUpDialogState extends State<_CustomerFollowUpDialog> {
   final _formKey = GlobalKey<FormState>();
   late CustomerFollowUpStatus _status;
+  late TextEditingController _outcome;
   late TextEditingController _notes;
   DateTime? _lastContactedAt;
   DateTime? _nextFollowUpDate;
+  DateTime? _promisedPaymentDate;
 
   @override
   void initState() {
     super.initState();
     _status = widget.customer.followUpStatus;
+    _outcome = TextEditingController();
     _notes = TextEditingController(text: widget.customer.followUpNotes);
     _lastContactedAt = widget.customer.lastContactedAt;
     _nextFollowUpDate = widget.customer.nextFollowUpDate;
+    _promisedPaymentDate = widget.customer.promisedPaymentDate;
   }
 
   @override
   void dispose() {
+    _outcome.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -888,6 +993,21 @@ class _CustomerFollowUpDialogState extends State<_CustomerFollowUpDialog> {
                       setState(() => _nextFollowUpDate = value),
                 ),
                 const SizedBox(height: AppSpacing.md),
+                _CustomerDatePickerField(
+                  label: 'Promised Payment Date',
+                  value: _promisedPaymentDate,
+                  onChanged: (value) =>
+                      setState(() => _promisedPaymentDate = value),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _outcome,
+                  decoration: const InputDecoration(
+                    labelText: 'Outcome',
+                    prefixIcon: Icon(Icons.fact_check_outlined),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _notes,
                   maxLines: 4,
@@ -917,14 +1037,29 @@ class _CustomerFollowUpDialogState extends State<_CustomerFollowUpDialog> {
   }
 
   void _save() {
+    final now = DateTime.now();
+    final history = [
+      CustomerFollowUpHistoryEntry(
+        status: _status,
+        contactedAt: _lastContactedAt ?? now,
+        outcome: _outcome.text.trim(),
+        note: _notes.text.trim(),
+        nextFollowUpDate: _nextFollowUpDate,
+        promisedPaymentDate: _promisedPaymentDate,
+      ),
+      ...widget.customer.followUpHistory,
+    ].take(25).toList();
     final customer = widget.customer.copyWith(
       followUpStatus: _status,
       lastContactedAt: _lastContactedAt,
       clearLastContactedAt: _lastContactedAt == null,
       nextFollowUpDate: _nextFollowUpDate,
       clearNextFollowUpDate: _nextFollowUpDate == null,
+      promisedPaymentDate: _promisedPaymentDate,
+      clearPromisedPaymentDate: _promisedPaymentDate == null,
       followUpNotes: _notes.text.trim(),
-      updatedAt: DateTime.now(),
+      followUpHistory: history,
+      updatedAt: now,
     );
     context.read<CustomerCubit>().save(customer);
     Navigator.of(context).pop();

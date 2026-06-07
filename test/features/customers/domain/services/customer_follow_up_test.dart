@@ -47,6 +47,65 @@ void main() {
       expect(queue.overdueCustomerCount, 1);
       expect(queue.reminderDueCount, 1);
       expect(queue.totalOverdueAmount, 2000);
+      expect(queue.agingBuckets[CustomerAgingBucket.d0To30], 2000);
+    });
+
+    test('tracks aging buckets and promised payment follow-ups', () {
+      final today = DateTime(2026, 6, 30);
+      final customer = _customer(
+        id: 'cust_aging',
+        name: 'Aging Customer',
+        promisedPaymentDate: DateTime(2026, 6, 29),
+      );
+
+      final queue = buildCustomerFollowUpQueue(
+        customers: [customer],
+        invoices: [
+          _invoice(
+            id: 'current',
+            customerId: customer.id,
+            balanceDue: 100,
+            dueDate: DateTime(2026, 7, 1),
+          ),
+          _invoice(
+            id: 'd30',
+            customerId: customer.id,
+            balanceDue: 200,
+            dueDate: DateTime(2026, 6, 1),
+          ),
+          _invoice(
+            id: 'd60',
+            customerId: customer.id,
+            balanceDue: 300,
+            dueDate: DateTime(2026, 5, 1),
+          ),
+          _invoice(
+            id: 'd90',
+            customerId: customer.id,
+            balanceDue: 400,
+            dueDate: DateTime(2026, 4, 1),
+          ),
+          _invoice(
+            id: 'd90_plus',
+            customerId: customer.id,
+            balanceDue: 500,
+            dueDate: DateTime(2026, 3, 1),
+          ),
+        ],
+        today: today,
+      );
+
+      final row = queue.rows.single;
+
+      expect(row.promisedPaymentDue, isTrue);
+      expect(queue.promisedDueCount, 1);
+      expect(row.oldestOverdueDays, 121);
+      expect(row.primaryAgingBucket, CustomerAgingBucket.d90Plus);
+      expect(row.agingBuckets[CustomerAgingBucket.current], 100);
+      expect(row.agingBuckets[CustomerAgingBucket.d0To30], 200);
+      expect(row.agingBuckets[CustomerAgingBucket.d31To60], 300);
+      expect(row.agingBuckets[CustomerAgingBucket.d61To90], 400);
+      expect(row.agingBuckets[CustomerAgingBucket.d90Plus], 500);
     });
 
     test('skips quiet customers without outstanding balance', () {
@@ -68,6 +127,69 @@ void main() {
     });
   });
 
+  group('filterCustomerFollowUpRows', () {
+    test('filters overdue, reminder due, and promised due rows', () {
+      final today = DateTime(2026, 6, 30);
+      final overdue = _customer(id: 'overdue', name: 'Overdue');
+      final reminder = _customer(
+        id: 'reminder',
+        name: 'Reminder',
+        nextFollowUpDate: DateTime(2026, 6, 30),
+      );
+      final promise = _customer(
+        id: 'promise',
+        name: 'Promise',
+        promisedPaymentDate: DateTime(2026, 6, 30),
+      );
+      final queue = buildCustomerFollowUpQueue(
+        customers: [overdue, reminder, promise],
+        invoices: [
+          _invoice(
+            id: 'overdue_invoice',
+            customerId: overdue.id,
+            balanceDue: 1000,
+            dueDate: DateTime(2026, 6, 1),
+          ),
+          _invoice(
+            id: 'reminder_invoice',
+            customerId: reminder.id,
+            balanceDue: 1000,
+            dueDate: DateTime(2026, 7, 1),
+          ),
+          _invoice(
+            id: 'promise_invoice',
+            customerId: promise.id,
+            balanceDue: 1000,
+            dueDate: DateTime(2026, 7, 1),
+          ),
+        ],
+        today: today,
+      );
+
+      expect(
+        filterCustomerFollowUpRows(
+          queue.rows,
+          CustomerCollectionFilter.overdueOnly,
+        ).map((row) => row.customer.id),
+        ['overdue'],
+      );
+      expect(
+        filterCustomerFollowUpRows(
+          queue.rows,
+          CustomerCollectionFilter.remindersDue,
+        ).map((row) => row.customer.id),
+        ['reminder'],
+      );
+      expect(
+        filterCustomerFollowUpRows(
+          queue.rows,
+          CustomerCollectionFilter.promisedDue,
+        ).map((row) => row.customer.id),
+        ['promise'],
+      );
+    });
+  });
+
   group('buildCustomerFollowUpCsv', () {
     test('prints summary and escapes special characters', () {
       final queue = buildCustomerFollowUpQueue(
@@ -78,6 +200,14 @@ void main() {
             followUpStatus: CustomerFollowUpStatus.pending,
             followUpNotes: 'Needs "urgent" reminder',
             nextFollowUpDate: DateTime(2026, 6, 20),
+            promisedPaymentDate: DateTime(2026, 6, 25),
+            followUpHistory: [
+              CustomerFollowUpHistoryEntry(
+                status: CustomerFollowUpStatus.waiting,
+                contactedAt: DateTime(2026, 6, 20),
+                outcome: 'Promised next week',
+              ),
+            ],
           ),
         ],
         invoices: [
@@ -98,6 +228,8 @@ void main() {
       expect(csv, contains('"ACME, ""South"""'));
       expect(csv, contains('"Needs ""urgent"" reminder"'));
       expect(csv, contains('Overdue Amount,3500.00'));
+      expect(csv, contains('Promise Due'));
+      expect(csv, contains('Promised next week'));
     });
   });
 }
@@ -107,7 +239,9 @@ Customer _customer({
   required String name,
   CustomerFollowUpStatus followUpStatus = CustomerFollowUpStatus.none,
   DateTime? nextFollowUpDate,
+  DateTime? promisedPaymentDate,
   String followUpNotes = '',
+  List<CustomerFollowUpHistoryEntry> followUpHistory = const [],
 }) {
   final now = DateTime(2026, 6, 1);
   return Customer(
@@ -132,7 +266,9 @@ Customer _customer({
     defaultInvoiceTerms: '',
     followUpStatus: followUpStatus,
     nextFollowUpDate: nextFollowUpDate,
+    promisedPaymentDate: promisedPaymentDate,
     followUpNotes: followUpNotes,
+    followUpHistory: followUpHistory,
     isActive: true,
     createdAt: now,
     updatedAt: now,

@@ -37,11 +37,27 @@ class CustomerState extends Equatable {
           customer.defaultInvoiceTerms.toLowerCase().contains(query) ||
           customer.followUpNotes.toLowerCase().contains(query) ||
           customer.followUpStatus.label.toLowerCase().contains(query) ||
+          _dateContains(customer.promisedPaymentDate, query) ||
+          customer.followUpHistory.any((entry) {
+            return entry.status.label.toLowerCase().contains(query) ||
+                entry.outcome.toLowerCase().contains(query) ||
+                entry.note.toLowerCase().contains(query) ||
+                _dateContains(entry.contactedAt, query) ||
+                _dateContains(entry.nextFollowUpDate, query) ||
+                _dateContains(entry.promisedPaymentDate, query);
+          }) ||
           customer.customFields.entries.any((entry) {
             return entry.key.toLowerCase().contains(query) ||
                 entry.value.toLowerCase().contains(query);
           });
     }).toList();
+  }
+
+  bool _dateContains(DateTime? value, String query) {
+    if (value == null) return false;
+    final formatted =
+        '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+    return formatted.contains(query);
   }
 
   CustomerState copyWith({

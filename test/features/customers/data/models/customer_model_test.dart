@@ -29,7 +29,18 @@ void main() {
         followUpStatus: CustomerFollowUpStatus.pending,
         lastContactedAt: now.subtract(const Duration(days: 2)),
         nextFollowUpDate: now.add(const Duration(days: 3)),
+        promisedPaymentDate: now.add(const Duration(days: 5)),
         followUpNotes: 'Call for payment confirmation',
+        followUpHistory: [
+          CustomerFollowUpHistoryEntry(
+            status: CustomerFollowUpStatus.waiting,
+            contactedAt: now.subtract(const Duration(days: 1)),
+            outcome: 'Customer promised payment',
+            note: 'Will pay after bank transfer clears',
+            nextFollowUpDate: now.add(const Duration(days: 2)),
+            promisedPaymentDate: now.add(const Duration(days: 5)),
+          ),
+        ],
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -43,6 +54,8 @@ void main() {
       expect(restored, model);
       expect(map['followUpStatus'], 'pending');
       expect(map['followUpNotes'], 'Call for payment confirmation');
+      expect(map['promisedPaymentDate'], now.add(const Duration(days: 5)));
+      expect(map['followUpHistory'], hasLength(1));
     });
   });
 }

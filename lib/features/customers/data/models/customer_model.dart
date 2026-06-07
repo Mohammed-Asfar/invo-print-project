@@ -24,7 +24,9 @@ class CustomerModel extends Customer {
     required super.followUpStatus,
     required super.lastContactedAt,
     required super.nextFollowUpDate,
+    required super.promisedPaymentDate,
     required super.followUpNotes,
+    required super.followUpHistory,
     required super.isActive,
     required super.createdAt,
     required super.updatedAt,
@@ -57,7 +59,9 @@ class CustomerModel extends Customer {
       followUpStatus: customer.followUpStatus,
       lastContactedAt: customer.lastContactedAt,
       nextFollowUpDate: customer.nextFollowUpDate,
+      promisedPaymentDate: customer.promisedPaymentDate,
       followUpNotes: customer.followUpNotes,
+      followUpHistory: customer.followUpHistory,
       isActive: customer.isActive,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
@@ -107,7 +111,9 @@ class CustomerModel extends Customer {
       ),
       lastContactedAt: _toDateTime(map['lastContactedAt']),
       nextFollowUpDate: _toDateTime(map['nextFollowUpDate']),
+      promisedPaymentDate: _toDateTime(map['promisedPaymentDate']),
       followUpNotes: map['followUpNotes'] as String? ?? defaults.followUpNotes,
+      followUpHistory: _toFollowUpHistory(map['followUpHistory']),
       isActive: map['isActive'] as bool? ?? defaults.isActive,
       createdAt: _toDateTime(map['createdAt']) ?? defaults.createdAt,
       updatedAt: _toDateTime(map['updatedAt']) ?? defaults.updatedAt,
@@ -139,7 +145,9 @@ class CustomerModel extends Customer {
       'followUpStatus': followUpStatus.firestoreValue,
       'lastContactedAt': lastContactedAt,
       'nextFollowUpDate': nextFollowUpDate,
+      'promisedPaymentDate': promisedPaymentDate,
       'followUpNotes': followUpNotes,
+      'followUpHistory': followUpHistory.map(_followUpHistoryToMap).toList(),
       'isActive': isActive,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
@@ -172,5 +180,40 @@ class CustomerModel extends Customer {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
+  }
+
+  static List<CustomerFollowUpHistoryEntry> _toFollowUpHistory(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((entry) {
+          final contactedAt = _toDateTime(entry['contactedAt']);
+          if (contactedAt == null) return null;
+          return CustomerFollowUpHistoryEntry(
+            status: CustomerFollowUpStatus.fromValue(
+              entry['status']?.toString() ?? '',
+            ),
+            contactedAt: contactedAt,
+            outcome: entry['outcome']?.toString() ?? '',
+            note: entry['note']?.toString() ?? '',
+            nextFollowUpDate: _toDateTime(entry['nextFollowUpDate']),
+            promisedPaymentDate: _toDateTime(entry['promisedPaymentDate']),
+          );
+        })
+        .whereType<CustomerFollowUpHistoryEntry>()
+        .toList();
+  }
+
+  static Map<String, dynamic> _followUpHistoryToMap(
+    CustomerFollowUpHistoryEntry entry,
+  ) {
+    return {
+      'status': entry.status.firestoreValue,
+      'contactedAt': entry.contactedAt,
+      'outcome': entry.outcome,
+      'note': entry.note,
+      'nextFollowUpDate': entry.nextFollowUpDate,
+      'promisedPaymentDate': entry.promisedPaymentDate,
+    };
   }
 }

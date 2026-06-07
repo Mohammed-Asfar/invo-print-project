@@ -12,9 +12,15 @@ import '../../../customers/data/repositories/customer_repository.dart';
 import '../../../customers/domain/entities/customer.dart';
 import '../../../customers/domain/services/customer_follow_up.dart';
 import '../../../products/domain/entities/purchase_entry.dart';
+import '../../../products/domain/entities/product_service.dart';
 import '../../../products/domain/entities/supplier.dart';
+import '../../../products/data/repositories/product_repository.dart';
 import '../../../products/data/repositories/purchase_entry_repository.dart';
 import '../../../products/data/repositories/supplier_repository.dart';
+import '../../domain/services/customer_aging_report.dart';
+import '../../domain/services/gst_summary_report.dart';
+import '../../domain/services/inventory_valuation_report.dart';
+import '../../domain/services/profit_margin_report.dart';
 import '../../../products/domain/services/supplier_follow_up.dart';
 import '../../domain/services/sales_report.dart';
 import '../../domain/services/supplier_payables_report.dart';
@@ -31,6 +37,7 @@ class ReportsPage extends StatefulWidget {
 class _ReportsPageState extends State<ReportsPage> {
   final _repository = sl<InvoiceRepository>();
   final _customerRepository = sl<CustomerRepository>();
+  final _productRepository = sl<ProductRepository>();
   final _purchaseEntryRepository = sl<PurchaseEntryRepository>();
   final _supplierRepository = sl<SupplierRepository>();
   var _range = _ReportDateRange.thisMonth;
@@ -50,6 +57,19 @@ class _ReportsPageState extends State<ReportsPage> {
     customers: const [],
     invoices: const [],
   );
+  CustomerAgingReport _customerAgingReport = buildCustomerAgingReport(
+    customers: const [],
+    invoices: const [],
+  );
+  InventoryValuationReport _inventoryValuationReport =
+      buildInventoryValuationReport(products: const []);
+  ProfitMarginReport _profitMarginReport = buildProfitMarginReport(
+    invoices: const [],
+    products: const [],
+  );
+  GstSummaryReport _gstSummaryReport = buildGstSummaryReport(
+    invoices: const [],
+  );
 
   @override
   void initState() {
@@ -66,13 +86,15 @@ class _ReportsPageState extends State<ReportsPage> {
       final results = await Future.wait<Object>([
         _repository.fetchInvoices(),
         _customerRepository.fetchCustomers(),
+        _productRepository.fetchProducts(),
         _purchaseEntryRepository.fetchPurchaseEntries(),
         _supplierRepository.fetchSuppliers(),
       ]);
       final invoices = results[0] as List<Invoice>;
       final customers = results[1] as List<Customer>;
-      final purchaseEntries = results[2] as List<PurchaseEntry>;
-      final suppliers = results[3] as List<Supplier>;
+      final products = results[2] as List<ProductService>;
+      final purchaseEntries = results[3] as List<PurchaseEntry>;
+      final suppliers = results[4] as List<Supplier>;
       final bounds = _range.bounds(DateTime.now());
       if (!mounted) return;
       setState(() {
@@ -92,6 +114,24 @@ class _ReportsPageState extends State<ReportsPage> {
         _customerFollowUpQueue = buildCustomerFollowUpQueue(
           customers: customers,
           invoices: invoices,
+        );
+        _customerAgingReport = buildCustomerAgingReport(
+          customers: customers,
+          invoices: invoices,
+        );
+        _inventoryValuationReport = buildInventoryValuationReport(
+          products: products,
+        );
+        _profitMarginReport = buildProfitMarginReport(
+          invoices: invoices,
+          products: products,
+          from: bounds.$1,
+          to: bounds.$2,
+        );
+        _gstSummaryReport = buildGstSummaryReport(
+          invoices: invoices,
+          from: bounds.$1,
+          to: bounds.$2,
         );
         _isLoading = false;
       });
@@ -130,7 +170,19 @@ class _ReportsPageState extends State<ReportsPage> {
         ..writeln(buildSupplierFollowUpCsv(_supplierFollowUpQueue))
         ..writeln()
         ..writeln('Customer Follow-ups')
-        ..writeln(buildCustomerFollowUpCsv(_customerFollowUpQueue));
+        ..writeln(buildCustomerFollowUpCsv(_customerFollowUpQueue))
+        ..writeln()
+        ..writeln('Customer Aging')
+        ..writeln(buildCustomerAgingCsv(_customerAgingReport))
+        ..writeln()
+        ..writeln('Inventory Valuation')
+        ..writeln(buildInventoryValuationCsv(_inventoryValuationReport))
+        ..writeln()
+        ..writeln('Profit and Margin')
+        ..writeln(buildProfitMarginCsv(_profitMarginReport))
+        ..writeln()
+        ..writeln('GST Summary')
+        ..writeln(buildGstSummaryCsv(_gstSummaryReport));
       await File(path).writeAsString(buffer.toString(), flush: true);
       if (!mounted) return;
       setState(() {
@@ -162,7 +214,11 @@ class _ReportsPageState extends State<ReportsPage> {
                   _report.rows.isEmpty &&
                       _supplierPayablesReport.rows.isEmpty &&
                       _supplierFollowUpQueue.rows.isEmpty &&
-                      _customerFollowUpQueue.rows.isEmpty
+                      _customerFollowUpQueue.rows.isEmpty &&
+                      _customerAgingReport.rows.isEmpty &&
+                      _inventoryValuationReport.rows.isEmpty &&
+                      _profitMarginReport.rows.isEmpty &&
+                      _gstSummaryReport.rows.isEmpty
                   ? null
                   : _exportCsv,
             ),
@@ -209,6 +265,10 @@ class _ReportsPageState extends State<ReportsPage> {
                       supplierPayablesReport: _supplierPayablesReport,
                       supplierFollowUpQueue: _supplierFollowUpQueue,
                       customerFollowUpQueue: _customerFollowUpQueue,
+                      customerAgingReport: _customerAgingReport,
+                      inventoryValuationReport: _inventoryValuationReport,
+                      profitMarginReport: _profitMarginReport,
+                      gstSummaryReport: _gstSummaryReport,
                     ),
             ),
           ],
@@ -304,12 +364,20 @@ class _ReportContent extends StatelessWidget {
     required this.supplierPayablesReport,
     required this.supplierFollowUpQueue,
     required this.customerFollowUpQueue,
+    required this.customerAgingReport,
+    required this.inventoryValuationReport,
+    required this.profitMarginReport,
+    required this.gstSummaryReport,
   });
 
   final SalesReport report;
   final SupplierPayablesReport supplierPayablesReport;
   final SupplierFollowUpQueue supplierFollowUpQueue;
   final CustomerFollowUpQueue customerFollowUpQueue;
+  final CustomerAgingReport customerAgingReport;
+  final InventoryValuationReport inventoryValuationReport;
+  final ProfitMarginReport profitMarginReport;
+  final GstSummaryReport gstSummaryReport;
 
   @override
   Widget build(BuildContext context) {
@@ -339,6 +407,34 @@ class _ReportContent extends StatelessWidget {
           SizedBox(
             height: 280,
             child: _CustomerFollowUpTable(queue: customerFollowUpQueue),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _CustomerAgingMetrics(report: customerAgingReport),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 320,
+            child: _CustomerAgingTable(report: customerAgingReport),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _InventoryValuationMetrics(report: inventoryValuationReport),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 320,
+            child: _InventoryValuationTable(report: inventoryValuationReport),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _ProfitMarginMetrics(report: profitMarginReport),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 320,
+            child: _ProfitMarginTable(report: profitMarginReport),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _GstSummaryMetrics(report: gstSummaryReport),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 300,
+            child: _GstSummaryTable(report: gstSummaryReport),
           ),
         ],
       ),
@@ -1023,6 +1119,468 @@ class _CustomerFollowUpTable extends StatelessWidget {
   }
 }
 
+class _CustomerAgingMetrics extends StatelessWidget {
+  const _CustomerAgingMetrics({required this.report});
+
+  final CustomerAgingReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.groups_outlined,
+          label: 'Aging Customers',
+          value: report.customerCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.receipt_long_outlined,
+          label: 'Open Invoices',
+          value: report.openInvoiceCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.pending_actions_outlined,
+          label: 'Outstanding',
+          value: _money(report.totalOutstanding),
+          valueColor: report.totalOutstanding > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.warning_amber_outlined,
+          label: '90+ Aging',
+          value: _money(report.days90PlusTotal),
+          valueColor: report.days90PlusTotal > 0
+              ? AppColors.error
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.today_outlined,
+          label: 'Current',
+          value: _money(report.currentTotal),
+        ),
+        _MetricCard(
+          icon: Icons.schedule_outlined,
+          label: '0-30',
+          value: _money(report.days0To30Total),
+        ),
+        _MetricCard(
+          icon: Icons.timelapse_outlined,
+          label: '31-60',
+          value: _money(report.days31To60Total),
+        ),
+        _MetricCard(
+          icon: Icons.history_toggle_off_outlined,
+          label: '61-90',
+          value: _money(report.days61To90Total),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerAgingTable extends StatelessWidget {
+  const _CustomerAgingTable({required this.report});
+
+  final CustomerAgingReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.rows.isEmpty) {
+      return _EmptyReportBox(message: 'No open customer balances to age.');
+    }
+    return _ReportTableShell(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+        columns: const [
+          DataColumn(label: Text('Customer')),
+          DataColumn(numeric: true, label: Text('Open Invoices')),
+          DataColumn(numeric: true, label: Text('Outstanding')),
+          DataColumn(numeric: true, label: Text('Current')),
+          DataColumn(numeric: true, label: Text('0-30')),
+          DataColumn(numeric: true, label: Text('31-60')),
+          DataColumn(numeric: true, label: Text('61-90')),
+          DataColumn(numeric: true, label: Text('90+')),
+          DataColumn(numeric: true, label: Text('Oldest Days')),
+          DataColumn(label: Text('Last Invoice')),
+        ],
+        rows: [
+          for (final row in report.rows)
+            DataRow(
+              cells: [
+                DataCell(Text(row.customerName)),
+                DataCell(Text(row.openInvoiceCount.toString())),
+                DataCell(Text(_money(row.totalOutstanding))),
+                DataCell(Text(_money(row.currentAmount))),
+                DataCell(Text(_money(row.days0To30Amount))),
+                DataCell(Text(_money(row.days31To60Amount))),
+                DataCell(Text(_money(row.days61To90Amount))),
+                DataCell(
+                  Text(
+                    _money(row.days90PlusAmount),
+                    style: TextStyle(
+                      color: row.days90PlusAmount > 0
+                          ? AppColors.error
+                          : AppColors.textPrimary,
+                      fontWeight: row.days90PlusAmount > 0
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                DataCell(Text(row.oldestOverdueDays.toString())),
+                DataCell(
+                  Text(
+                    row.lastInvoiceDate == null
+                        ? '-'
+                        : _date(row.lastInvoiceDate!),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InventoryValuationMetrics extends StatelessWidget {
+  const _InventoryValuationMetrics({required this.report});
+
+  final InventoryValuationReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.inventory_2_outlined,
+          label: 'Tracked Products',
+          value: report.productCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.warning_amber_outlined,
+          label: 'Low Stock',
+          value: report.lowStockCount.toString(),
+          valueColor: report.lowStockCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+        _MetricCard(
+          icon: Icons.numbers_outlined,
+          label: 'Stock Quantity',
+          value: _number(report.totalQuantity),
+        ),
+        _MetricCard(
+          icon: Icons.account_balance_wallet_outlined,
+          label: 'Stock Value',
+          value: _money(report.totalValue),
+        ),
+        _MetricCard(
+          icon: Icons.add_shopping_cart_outlined,
+          label: 'Restock Value',
+          value: _money(report.restockValue),
+        ),
+      ],
+    );
+  }
+}
+
+class _InventoryValuationTable extends StatelessWidget {
+  const _InventoryValuationTable({required this.report});
+
+  final InventoryValuationReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.rows.isEmpty) {
+      return _EmptyReportBox(message: 'No tracked inventory products yet.');
+    }
+    return _ReportTableShell(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+        columns: const [
+          DataColumn(label: Text('Product')),
+          DataColumn(label: Text('SKU')),
+          DataColumn(label: Text('Unit')),
+          DataColumn(numeric: true, label: Text('Qty')),
+          DataColumn(numeric: true, label: Text('Cost')),
+          DataColumn(numeric: true, label: Text('Value')),
+          DataColumn(numeric: true, label: Text('Reorder')),
+          DataColumn(label: Text('Low Stock')),
+          DataColumn(numeric: true, label: Text('Restock Qty')),
+          DataColumn(numeric: true, label: Text('Restock Value')),
+        ],
+        rows: [
+          for (final row in report.rows)
+            DataRow(
+              cells: [
+                DataCell(Text(row.name)),
+                DataCell(Text(row.sku.isEmpty ? '-' : row.sku)),
+                DataCell(Text(row.unit)),
+                DataCell(Text(_number(row.quantity))),
+                DataCell(Text(_money(row.costPrice))),
+                DataCell(Text(_money(row.stockValue))),
+                DataCell(Text(_number(row.reorderLevel))),
+                DataCell(
+                  Text(
+                    row.lowStock ? 'Yes' : 'No',
+                    style: TextStyle(
+                      color: row.lowStock
+                          ? AppColors.warning
+                          : AppColors.textPrimary,
+                      fontWeight: row.lowStock
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                DataCell(Text(_number(row.restockQuantity))),
+                DataCell(Text(_money(row.restockValue))),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfitMarginMetrics extends StatelessWidget {
+  const _ProfitMarginMetrics({required this.report});
+
+  final ProfitMarginReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.receipt_long_outlined,
+          label: 'Invoices',
+          value: report.invoiceCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.sell_outlined,
+          label: 'Revenue',
+          value: _money(report.totalRevenue),
+        ),
+        _MetricCard(
+          icon: Icons.shopping_bag_outlined,
+          label: 'Cost',
+          value: _money(report.totalCost),
+        ),
+        _MetricCard(
+          icon: Icons.trending_up_outlined,
+          label: 'Gross Profit',
+          value: _money(report.grossProfit),
+          valueColor: report.grossProfit >= 0
+              ? AppColors.success
+              : AppColors.error,
+        ),
+        _MetricCard(
+          icon: Icons.percent_outlined,
+          label: 'Margin %',
+          value: '${_money(report.marginPercent)}%',
+        ),
+        _MetricCard(
+          icon: Icons.help_outline,
+          label: 'Unknown Cost Lines',
+          value: report.unknownCostLineCount.toString(),
+          valueColor: report.unknownCostLineCount > 0
+              ? AppColors.warning
+              : AppColors.textPrimary,
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfitMarginTable extends StatelessWidget {
+  const _ProfitMarginTable({required this.report});
+
+  final ProfitMarginReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.rows.isEmpty) {
+      return _EmptyReportBox(message: 'No invoice lines for margin reporting.');
+    }
+    return _ReportTableShell(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+        columns: const [
+          DataColumn(label: Text('Invoice')),
+          DataColumn(label: Text('Date')),
+          DataColumn(label: Text('Customer')),
+          DataColumn(label: Text('Item')),
+          DataColumn(numeric: true, label: Text('Qty')),
+          DataColumn(numeric: true, label: Text('Revenue')),
+          DataColumn(numeric: true, label: Text('Cost')),
+          DataColumn(numeric: true, label: Text('Profit')),
+          DataColumn(numeric: true, label: Text('Margin %')),
+          DataColumn(label: Text('Cost Known')),
+        ],
+        rows: [
+          for (final row in report.rows)
+            DataRow(
+              cells: [
+                DataCell(Text(row.invoiceNumber)),
+                DataCell(Text(_date(row.invoiceDate))),
+                DataCell(Text(row.customerName)),
+                DataCell(Text(row.itemName)),
+                DataCell(Text(_number(row.quantity))),
+                DataCell(Text(_money(row.revenue))),
+                DataCell(Text(row.costKnown ? _money(row.cost) : '-')),
+                DataCell(
+                  Text(
+                    _money(row.grossProfit),
+                    style: TextStyle(
+                      color: row.grossProfit >= 0
+                          ? AppColors.success
+                          : AppColors.error,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                DataCell(Text('${_money(row.marginPercent)}%')),
+                DataCell(Text(row.costKnown ? 'Yes' : 'No')),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GstSummaryMetrics extends StatelessWidget {
+  const _GstSummaryMetrics({required this.report});
+
+  final GstSummaryReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 104,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+      ),
+      children: [
+        _MetricCard(
+          icon: Icons.receipt_long_outlined,
+          label: 'GST Invoices',
+          value: report.invoiceCount.toString(),
+        ),
+        _MetricCard(
+          icon: Icons.calculate_outlined,
+          label: 'Taxable',
+          value: _money(report.taxableTotal),
+        ),
+        _MetricCard(
+          icon: Icons.account_balance_outlined,
+          label: 'CGST',
+          value: _money(report.cgstTotal),
+        ),
+        _MetricCard(
+          icon: Icons.account_balance_outlined,
+          label: 'SGST',
+          value: _money(report.sgstTotal),
+        ),
+        _MetricCard(
+          icon: Icons.public_outlined,
+          label: 'IGST',
+          value: _money(report.igstTotal),
+        ),
+        _MetricCard(
+          icon: Icons.summarize_outlined,
+          label: 'GST Total',
+          value: _money(report.gstTotal),
+        ),
+      ],
+    );
+  }
+}
+
+class _GstSummaryTable extends StatelessWidget {
+  const _GstSummaryTable({required this.report});
+
+  final GstSummaryReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    if (report.rows.isEmpty && report.rateRows.isEmpty) {
+      return _EmptyReportBox(message: 'No GST activity for this range.');
+    }
+    return _ReportTableShell(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(AppColors.surfaceSoft),
+        columns: const [
+          DataColumn(label: Text('Group')),
+          DataColumn(numeric: true, label: Text('Invoices')),
+          DataColumn(numeric: true, label: Text('Taxable')),
+          DataColumn(numeric: true, label: Text('CGST')),
+          DataColumn(numeric: true, label: Text('SGST')),
+          DataColumn(numeric: true, label: Text('IGST')),
+          DataColumn(numeric: true, label: Text('GST Total')),
+        ],
+        rows: [
+          for (final row in report.rows)
+            DataRow(
+              cells: [
+                DataCell(Text(row.taxMode.label)),
+                DataCell(Text(row.invoiceCount.toString())),
+                DataCell(Text(_money(row.taxableAmount))),
+                DataCell(Text(_money(row.cgstAmount))),
+                DataCell(Text(_money(row.sgstAmount))),
+                DataCell(Text(_money(row.igstAmount))),
+                DataCell(Text(_money(row.gstAmount))),
+              ],
+            ),
+          for (final row in report.rateRows)
+            DataRow(
+              cells: [
+                DataCell(Text('${_number(row.gstRate)}% GST')),
+                const DataCell(Text('-')),
+                DataCell(Text(_money(row.taxableAmount))),
+                DataCell(Text(_money(row.cgstAmount))),
+                DataCell(Text(_money(row.sgstAmount))),
+                DataCell(Text(_money(row.igstAmount))),
+                DataCell(Text(_money(row.gstAmount))),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ReportTable extends StatelessWidget {
   const _ReportTable({required this.report});
 
@@ -1095,6 +1653,57 @@ class _ReportTable extends StatelessWidget {
   }
 }
 
+class _ReportTableShell extends StatelessWidget {
+  const _ReportTableShell({required this.child});
+
+  final DataTable child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyReportBox extends StatelessWidget {
+  const _EmptyReportBox({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Center(
+        child: Text(
+          message,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
 class _InlineMessage extends StatelessWidget {
   const _InlineMessage({required this.message});
 
@@ -1151,3 +1760,8 @@ String _date(DateTime value) {
 }
 
 String _money(double value) => value.toStringAsFixed(2);
+
+String _number(double value) {
+  if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+  return value.toStringAsFixed(2);
+}
